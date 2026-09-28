@@ -31,8 +31,10 @@ interface Props {
 export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, dataComunicado, onToast, onPadraoSalvo }: Props) {
   const salvo = empresa.relatorio ?? {};
   const [processo, setProcesso] = useState(salvo.processo ?? "");
+  // Com comunicado enviado, a data é a de criação do PDF; na programação, a data salva do mês.
+  const usaComunicado = dataComunicado != null || empresa.documento === "comunicado";
   const [dataDocumento, setDataDocumento] = useState(
-    empresa.documento === "comunicado" ? (dataComunicado ?? "") : (salvo.dataDocumento ?? "")
+    usaComunicado ? (dataComunicado ?? "") : (salvo.dataDocumento ?? "")
   );
   const [rt, setRt] = useState(salvo.rt ?? empresa.rt ?? "");
   const [volumeCamara, setVolumeCamara] = useState((camara && salvo.volumesCamara?.[camara]) || "");
@@ -56,7 +58,7 @@ export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, data
     }
     // Guarda os dados repetitivos para a próxima emissão desta empresa.
     const guardar: PadraoRelatorio = { processo, rt, volumesCamara: padrao.volumesCamara };
-    if (empresa.documento !== "comunicado") guardar.dataDocumento = dataDocumento;
+    if (!usaComunicado) guardar.dataDocumento = dataDocumento;
     try {
       const res = await fetch("/api/madeireiras/padrao", {
         method: "POST",
