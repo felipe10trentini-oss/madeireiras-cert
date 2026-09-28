@@ -192,8 +192,8 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
               onArquivo={setCurvaArq}
             />
             <FileDrop
-              titulo="Comunicado (opcional)"
-              dica="Só para empresas que usam comunicado por tratamento"
+              titulo="Comunicado (se a empresa usar)"
+              dica="Empresas com programação mensal não enviam nada aqui: o nº sai do mês do tratamento (ex.: 09/2026)"
               arquivo={comunicadoArq}
               onArquivo={setComunicadoArq}
             />
