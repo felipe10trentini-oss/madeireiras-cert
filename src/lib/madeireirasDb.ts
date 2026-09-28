@@ -109,22 +109,29 @@ export async function sincronizarMadeireiras(
     ausentesNaPlanilha: 0,
     aplicado: aplicar,
   };
-  const inserir: ReturnType<typeof paraRow>[] = [];
-  const alterar: { id: number; row: ReturnType<typeof paraRow> }[] = [];
+  type RowGravar = ReturnType<typeof paraRow> & { relatorio?: PadraoRelatorio };
+  const inserir: RowGravar[] = [];
+  const alterar: { id: number; row: RowGravar }[] = [];
 
   for (const e of empresas) {
     const row = paraRow(e);
     const atual = existentes.get(soDigitos(e.cnpj));
     if (!atual) {
-      inserir.push(row);
+      inserir.push({ ...row, relatorio: e.processoProgramacao ? { processo: e.processoProgramacao } : {} });
       resumo.novas.push(e.apelido);
       continue;
     }
-    const campos = (Object.keys(row) as (keyof typeof row)[]).filter(
+    const campos: string[] = (Object.keys(row) as (keyof typeof row)[]).filter(
       (k) => (row[k] ?? "").toString().trim() !== (atual[k] ?? "").toString().trim()
     );
+    // O processo da programação (aba PROGRAMAÇÕES) vai para os dados do relatório.
+    let relatorio: PadraoRelatorio | undefined;
+    if (e.processoProgramacao && e.processoProgramacao !== atual.relatorio?.processo) {
+      relatorio = { ...(atual.relatorio ?? {}), processo: e.processoProgramacao };
+      campos.push("processo");
+    }
     if (campos.length) {
-      alterar.push({ id: atual.id, row });
+      alterar.push({ id: atual.id, row: relatorio ? { ...row, relatorio } : row });
       resumo.atualizadas.push({ apelido: e.apelido, campos });
     } else resumo.iguais++;
   }

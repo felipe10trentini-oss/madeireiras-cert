@@ -97,5 +97,89 @@ export async function lerPlanilhaMadeireiras(
       unidadeVolumes: d.unidadeVolumes?.trim() ?? null,
     });
   }
+  const programacoes = lerProgramacoes(wb);
+  if (programacoes) aplicarProgramacoes(empresas, programacoes);
   return { empresas, ignoradas };
+}
+
+interface LinhaProgramacao {
+  nome: string;
+  status: string;
+  processo: string | null;
+}
+
+/**
+ * Aba PROGRAMAÇÕES da Planilha Geral: RT | EMPRESA | OK / ASSINADO | SEI - PETICIONAMENTO | meses...
+ * Quem está nela (e não está CANCELADO) trabalha com programação mensal; o nº
+ * do peticionamento é o processo da programação no SEI.
+ */
+function lerProgramacoes(wb: ExcelJS.Workbook): LinhaProgramacao[] | null {
+  const ws = wb.worksheets.find((w) => /^PROGRAMA/i.test(chaveNome(w.name)));
+  if (!ws) return null;
+  let colEmpresa = -1;
+  let colStatus = -1;
+  let colProcesso = -1;
+  let inicio = -1;
+  for (let r = 1; r <= Math.min(ws.rowCount, 10) && inicio < 0; r++) {
+    ws.getRow(r).eachCell((cell, col) => {
+      const c = chaveNome(textoDaCelula(cell.value));
+      if (c === "EMPRESA") colEmpresa = col;
+      else if (c.includes("ASSINADO")) colStatus = col;
+      else if (c.includes("SEI") || c.includes("PETICION")) colProcesso = col;
+    });
+    if (colEmpresa > 0) inicio = r + 1;
+  }
+  if (colEmpresa < 0) return null;
+
+  const linhas: LinhaProgramacao[] = [];
+  for (let r = inicio; r <= ws.rowCount; r++) {
+    const row = ws.getRow(r);
+    const nome = textoDaCelula(row.getCell(colEmpresa).value);
+    const processo =
+      (colProcesso > 0 ? textoDaCelula(row.getCell(colProcesso).value) : null)?.match(/\d{5}\.\d{6}\/\d{4}-\d{2}/)?.[0] ??
+      null;
+    const status = colStatus > 0 ? (textoDaCelula(row.getCell(colStatus).value) ?? "") : "";
+    // Linhas de rodapé/anotações não têm nem processo nem status (ex.: "Inexport (Capivari)" tem só o status).
+    if (!nome || /^\d+([.,]\d+)?$/.test(nome) || (!processo && !status)) continue;
+    linhas.push({ nome, status, processo });
+  }
+  return linhas;
+}
+
+const UFS = "AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO".split(" ");
+const IGNORAR = new Set(["MAD", "MADEIRAS", "MADEIREIRA", "LTDA", "DE", "DA", "DO", "TRIMESTRAL", "MATRIZ", ...UFS]);
+const palavras = (s: string) =>
+  new Set(
+    s
+      .split(/[\s().\-/]+/)
+      .map(chaveNome)
+      .filter((p) => p.length >= 2 && !IGNORAR.has(p))
+  );
+
+/** "Mad. Reis" ↔ "Reis", "Giuliano GM" ↔ "GM", "Inexport (Capivari)" ↔ "Inexport Capivari". */
+function semelhanca(a: string, b: string): number {
+  const pa = palavras(a);
+  const pb = palavras(b);
+  if (!pa.size || !pb.size) return 0;
+  const comuns = [...pa].filter((p) => pb.has(p)).length;
+  return comuns / Math.max(pa.size, pb.size) + (comuns === Math.min(pa.size, pb.size) ? 0.5 : 0);
+}
+
+function aplicarProgramacoes(empresas: Madeireira[], programacoes: LinhaProgramacao[]) {
+  const usadas = new Set<Madeireira>();
+  for (const p of programacoes) {
+    let melhor: { e: Madeireira; s: number } | null = null;
+    for (const e of empresas) {
+      if (usadas.has(e)) continue;
+      const s = Math.max(semelhanca(p.nome, e.apelido), semelhanca(p.nome, e.razaoSocial) - 0.2);
+      if (s >= 0.8 && (!melhor || s > melhor.s)) melhor = { e, s };
+    }
+    if (!melhor) continue;
+    usadas.add(melhor.e);
+    if (/cancel/i.test(p.status)) continue;
+    melhor.e.processoProgramacao = p.processo;
+    if (!melhor.e.documento) melhor.e.documento = "programacao";
+  }
+  // Com a aba de programações disponível, quem não está nela usa comunicado.
+  for (const e of empresas) if (!e.documento) e.documento = "comunicado";
 }

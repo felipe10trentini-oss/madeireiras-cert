@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { FileDrop } from "@/components/FileDrop";
 import { PortaoSenha } from "@/components/PortaoSenha";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
+import { lerPlanilhaMadeireiras } from "@/lib/planilhaMadeireiras";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 
 interface Resumo {
@@ -30,6 +31,7 @@ const NOME_CAMPO: Record<string, string> = {
   reg_mapa: "registro MAPA",
   email: "e-mail",
   documento: "programação/comunicado",
+  processo: "processo da programação",
   unidade_volumes: "unidade dos volumes",
 };
 
@@ -41,6 +43,7 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
   const [trabalhando, setTrabalhando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [filtro, setFiltro] = useState("");
+  const [planilhaLida, setPlanilhaLida] = useState<Awaited<ReturnType<typeof lerPlanilhaMadeireiras>> | null>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -63,11 +66,23 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
     if (!arquivo) return;
     setTrabalhando(true);
     setErro(null);
-    const form = new FormData();
-    form.append("arquivo", arquivo);
-    form.append("modo", modo);
     try {
-      const res = await fetch("/api/madeireiras/importar", { method: "POST", headers: cabecalhoSenha(senha), body: form });
+      // Lida aqui no navegador: a Planilha Geral passa do limite de envio da Vercel (4,5 MB).
+      let lida = planilhaLida;
+      if (!lida) {
+        try {
+          lida = await lerPlanilhaMadeireiras(await arquivo.arrayBuffer());
+          setPlanilhaLida(lida);
+        } catch (e) {
+          setErro(e instanceof Error ? e.message : "Não foi possível ler a planilha.");
+          return;
+        }
+      }
+      const res = await fetch("/api/madeireiras/importar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...cabecalhoSenha(senha) },
+        body: JSON.stringify({ ...lida, modo }),
+      });
       const data = await res.json().catch(() => ({}));
       if (res.status === 401) sair();
       else if (!res.ok) setErro(data.error ?? "Não foi possível processar a planilha.");
@@ -91,9 +106,10 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
   return (
     <div className="view">
       <p className="lead">
-        Envie a planilha <b>Madeireiras.xlsx</b> (aba DADOS CADASTRAIS). O site compara pelo <b>CNPJ</b>: cadastra as
-        novas e atualiza as que mudaram. Nenhuma empresa é apagada. Colunas opcionais reconhecidas:{" "}
-        <b>PROGRAMAÇÃO/COMUNICADO</b> e <b>UNIDADE</b> (Fardos, Tábuas…).
+        Envie a <b>Planilha Geral</b>: o site lê a aba <b>DADOS CADASTRAIS</b> (dados das empresas) e a aba{" "}
+        <b>PROGRAMAÇÕES</b> (quem usa programação mensal e o nº do processo; as demais usam comunicado). A comparação é
+        pelo <b>CNPJ</b>: cadastra as novas e atualiza as que mudaram. Nenhuma empresa é apagada. Coluna opcional na
+        aba de dados: <b>UNIDADE</b> (Fardos, Tábuas…).
       </p>
 
       {erroLista && (
@@ -107,11 +123,12 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
 
       <div className="drops" style={{ gridTemplateColumns: "1fr" }}>
         <FileDrop
-          titulo="Planilha de madeireiras"
-          dica="Arraste o arquivo .xlsx aqui ou clique para escolher (até 4 MB)"
+          titulo="Planilha Geral"
+          dica="Arraste a Planilha Geral (.xlsx) aqui ou clique para escolher"
           arquivo={arquivo}
           onArquivo={(x) => {
             setArquivo(x);
+            setPlanilhaLida(null);
             setResumo(null);
             setErro(null);
           }}

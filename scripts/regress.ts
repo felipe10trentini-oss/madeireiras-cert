@@ -5,7 +5,7 @@
  *   npm run regress                       # usa tests/fixtures
  *   npm run regress -- "C:\pasta\com\curvas e certificados"
  *
- * Opcional: a planilha de madeireiras em MADEIREIRAS_XLSX (padrão: tests/fixtures/Madeireiras.xlsx).
+ * Opcional: a planilha de madeireiras em MADEIREIRAS_XLSX (padrão: tests/fixtures/PlanilhaGeral.xlsx, a Planilha Geral).
  * Comunicados: arquivos "COMUNICADO ..." da pasta cujo nome contenha o nome da empresa.
  */
 import fs from "node:fs";
@@ -32,7 +32,7 @@ const norm = (s: string) => s.replace(/\s+/g, "").replace(/[–—]/g, "-").toLo
 
 async function main() {
   const dir = process.argv[2] ?? "tests/fixtures";
-  const xlsx = process.env.MADEIREIRAS_XLSX ?? "tests/fixtures/Madeireiras.xlsx";
+  const xlsx = process.env.MADEIREIRAS_XLSX ?? "tests/fixtures/PlanilhaGeral.xlsx";
   const { empresas } = await lerPlanilhaMadeireiras(fs.readFileSync(xlsx));
   const arquivos = fs.readdirSync(dir);
   const certs = arquivos.filter((f) => /^CERT\s/i.test(f) && f.endsWith(".pdf"));

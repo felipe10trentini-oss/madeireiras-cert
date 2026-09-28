@@ -48,8 +48,11 @@ npm run dev
 ## Supabase
 
 Rode `supabase/schema.sql` no SQL Editor (cria a tabela `madeireiras`). Depois
-envie a planilha `Madeireiras.xlsx` na aba **Madeireiras** do site. Colunas
-opcionais reconhecidas: **PROGRAMAÇÃO/COMUNICADO** e **UNIDADE** (Fardos, Tábuas…).
+envie a **Planilha Geral** na aba **Madeireiras** do site (ela é lida no navegador,
+por passar do limite de upload da Vercel). O site usa a aba **DADOS CADASTRAIS**
+e a aba **PROGRAMAÇÕES**: quem está nela (e não está cancelado) usa programação
+mensal, e o nº do peticionamento vira o processo da programação no relatório;
+as demais usam comunicado. Coluna opcional em DADOS CADASTRAIS: **UNIDADE** (Fardos, Tábuas…).
 
 Processo/data da programação, RT e volume de cada câmara (relatório do MAPA)
 ficam salvos por empresa na coluna `relatorio` quando a linha é copiada.

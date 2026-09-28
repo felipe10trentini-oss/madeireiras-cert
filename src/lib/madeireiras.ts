@@ -22,6 +22,8 @@ export interface Madeireira {
   documento: Documento | null;
   /** Unidade dos volumes no certificado ("Fardos", "Tábuas"...). Coluna opcional. */
   unidadeVolumes: string | null;
+  /** Nº do processo SEI da programação (aba PROGRAMAÇÕES da Planilha Geral). */
+  processoProgramacao?: string | null;
 }
 
 export function lerTratamentos(s: string | null | undefined): ("KD" | "HT")[] {
