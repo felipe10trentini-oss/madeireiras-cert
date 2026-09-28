@@ -47,7 +47,10 @@ npm run dev
 
 ## Supabase
 
-Rode `supabase/schema.sql` no SQL Editor (cria a tabela `madeireiras`). Depois
+O projeto Supabase é o mesmo do certificado da Mann móvel, mas as tabelas das
+madeireiras ficam num schema próprio, `madeireiras` (as da Mann ficam em `public`).
+Rode `supabase/schema.sql` no SQL Editor (cria `madeireiras.empresas`) e inclua
+`madeireiras` em Project Settings > Data API > **Exposed schemas**. Depois
 envie a **Planilha Geral** na aba **Madeireiras** do site (ela é lida no navegador,
 por passar do limite de upload da Vercel). O site usa a aba **DADOS CADASTRAIS**
 e a aba **PROGRAMAÇÕES**: quem está nela (e não está cancelado) usa programação

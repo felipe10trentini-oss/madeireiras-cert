@@ -3,6 +3,9 @@ import type { PadraoRelatorio } from "./relatorio";
 import { getSupabaseServerClient } from "./supabaseServer";
 import { soDigitos } from "./util";
 
+/** Tabela no schema "madeireiras" (separado das tabelas da Mann móvel, em "public"). */
+const TABELA = "empresas";
+
 export interface MadeireiraSalva extends Madeireira {
   relatorio: PadraoRelatorio;
 }
@@ -70,7 +73,7 @@ function paraRow(m: Madeireira) {
 
 async function lerRows(): Promise<Row[]> {
   const { data, error } = await getSupabaseServerClient()
-    .from("madeireiras")
+    .from(TABELA)
     .select(COLS)
     .order("apelido")
     .limit(5000)
@@ -141,12 +144,12 @@ export async function sincronizarMadeireiras(
   if (aplicar) {
     const sb = getSupabaseServerClient();
     if (inserir.length) {
-      const { error } = await sb.from("madeireiras").insert(inserir);
+      const { error } = await sb.from(TABELA).insert(inserir);
       if (error) throw new Error(`Falha ao inserir: ${error.message}`);
     }
     for (const a of alterar) {
       const { error } = await sb
-        .from("madeireiras")
+        .from(TABELA)
         .update({ ...a.row, updated_at: new Date().toISOString() })
         .eq("id", a.id);
       if (error) throw new Error(`Falha ao atualizar ${a.row.apelido}: ${error.message}`);
@@ -167,7 +170,7 @@ export async function salvarPadraoRelatorio(cnpj: string, novo: PadraoRelatorio)
     volumesCamara: { ...(antigo.volumesCamara ?? {}), ...(novo.volumesCamara ?? {}) },
   };
   const { error } = await getSupabaseServerClient()
-    .from("madeireiras")
+    .from(TABELA)
     .update({ relatorio: mesclado, updated_at: new Date().toISOString() })
     .eq("id", atual.id);
   if (error) throw new Error(`Falha ao salvar: ${error.message}`);

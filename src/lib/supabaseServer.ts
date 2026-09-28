@@ -1,8 +1,12 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
+// O projeto Supabase é compartilhado com o certificado da Mann móvel: as tabelas
+// das madeireiras ficam no schema "madeireiras" (as da Mann ficam em "public").
+const SCHEMA = "madeireiras";
+
 // Sem esquema tipado do banco: as tabelas são acessadas por nome.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Cliente = SupabaseClient<any, "public", any>;
+type Cliente = SupabaseClient<any, typeof SCHEMA, any>;
 
 // Cliente Supabase para uso exclusivo no servidor (API routes / scripts).
 // Usa a service role key — NUNCA importe este arquivo em código que roda no navegador.
@@ -22,6 +26,7 @@ export function getSupabaseServerClient(): Cliente {
 
   cachedClient = createClient(url, key, {
     auth: { persistSession: false },
+    db: { schema: SCHEMA },
   }) as Cliente;
   return cachedClient;
 }
