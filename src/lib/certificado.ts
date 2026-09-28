@@ -2,7 +2,7 @@ import type { Comunicado } from "./comunicado";
 import type { Curva, ProdutoCurva } from "./curvas/tipos";
 import { lerNomeArquivo, type Madeireira } from "./madeireiras";
 import { MODELOS, type Modelo, type ValoresCertificado } from "./modelos";
-import { duracaoHM, horaFmt, m3BR, semAcento, tempBR, type DataHora } from "./util";
+import { duracaoHM, horaFmt, m3BR, semAcento, soDigitos, tempBR, type DataHora } from "./util";
 
 /**
  * KD  = secagem em estufa, umidade final < 18%
@@ -21,6 +21,14 @@ export interface EntradaCertificado {
 }
 
 const EMBALAGEM = /PALET|PALLET|KIT|EMBALA|SKID|SUPORTE|CAIXA/;
+
+/**
+ * Unidade dos volumes quando a madeira vem em m³: "Fardos" para todas, exceto as
+ * listadas aqui (por CNPJ). A coluna UNIDADE da planilha, se existir, tem prioridade.
+ */
+const UNIDADE_VOLUMES_POR_CNPJ: Record<string, string> = {
+  "39271111000178": "Tábuas", // ABB Wood
+};
 
 function textoProdutos(e: EntradaCertificado): string {
   return semAcento(
@@ -125,9 +133,17 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     volumes = nomeProduto;
     quantidade = qtd && nomeProduto ? `${qtd} ${unidadeDoProduto(nomeProduto)}` : qtd;
   } else if (comM3.length) {
-    produto = descricaoMadeiraSerrada(comM3);
     const pecas = comM3.reduce((s, p) => s + p.quantidade, 0);
-    volumes = `${pecas} ${empresa.unidadeVolumes || "Fardos"}`;
+    // Skids/suportes (ex.: ABB "SKIDS-1100"): "Madeira para suportes", volumes em peças.
+    const suportes = /SKID|SUPORTE/.test(semAcento(comM3.map((p) => p.descricao).join(" ")).toUpperCase());
+    if (suportes) {
+      produto = "Madeira para suportes";
+      volumes = `${pecas} peças`;
+    } else {
+      produto = descricaoMadeiraSerrada(comM3);
+      const unidade = empresa.unidadeVolumes || UNIDADE_VOLUMES_POR_CNPJ[soDigitos(empresa.cnpj)] || "Fardos";
+      volumes = `${pecas} ${unidade}`;
+    }
     const total = curva.totalM3 ?? comM3.reduce((s, p) => s + (p.m3 ?? 0), 0);
     quantidade = `${m3BR(total)} m³`;
   } else {

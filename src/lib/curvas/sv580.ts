@@ -5,13 +5,19 @@ import { curvaVazia, primeiroCnpj, type Curva, type ProdutoCurva } from "./tipos
 const FIM_ITEM = /(\d+)\s+(\d+,\d{4,})\s+(\d+,\d{3})\s*$/;
 
 function lerProdutos(texto: string): ProdutoCurva[] {
-  const ini = texto.search(/Subtotal\s*\n/);
+  // O cabeçalho da tabela vem em várias linhas ("Subtotal (m³)" / "Subtotal") ou numa
+  // só ("Nº  Produto  Quantidade  Vol. Unit. (m³)  Subtotal (m³)"): os itens começam
+  // depois da última linha que menciona "Subtotal".
   const fim = texto.search(/Total \(m/);
-  if (ini < 0 || fim < 0 || fim < ini) return [];
-  const linhas = texto
-    .slice(ini, fim)
-    .split("\n")
-    .slice(1)
+  if (fim < 0) return [];
+  const antes = texto.slice(0, fim).split("\n");
+  let ultimoCabecalho = -1;
+  antes.forEach((l, i) => {
+    if (/Subtotal/i.test(l)) ultimoCabecalho = i;
+  });
+  if (ultimoCabecalho < 0) return [];
+  const linhas = antes
+    .slice(ultimoCabecalho + 1)
     .map((l) => l.trim())
     .filter(Boolean);
 
@@ -65,7 +71,8 @@ export function parseSV580(texto: string): Curva {
 
   const mStatus = texto.match(/Status do Tratamento:\s*\w+\s*\((KD|HT)\)/i);
   c.statusTipo = mStatus ? (mStatus[1].toUpperCase() as "KD" | "HT") : null;
-  const mUm = texto.match(/Umidade In[íi]cio\/Fim:\s*[\d,]+%\s*\/\s*([\d,]+)%/);
+  // "Umidade Início/Fim: 56,8% / 13,5%" (a inicial pode vir "ND%")
+  const mUm = texto.match(/Umidade In[íi]cio\/Fim:\s*\S*%\s*\/\s*([\d,]+)%/);
   c.umidadeFinal = mUm ? numeroBR(mUm[1]) : null;
 
   c.camara = texto.match(/C[âa]mara:\s*(\d+)/)?.[1] ?? null;
