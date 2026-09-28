@@ -1,0 +1,168 @@
+import { lerTratamentos, type Madeireira } from "./madeireiras";
+import type { PadraoRelatorio } from "./relatorio";
+import { getSupabaseServerClient } from "./supabaseServer";
+import { soDigitos } from "./util";
+
+export interface MadeireiraSalva extends Madeireira {
+  relatorio: PadraoRelatorio;
+}
+
+interface Row {
+  id: number;
+  apelido: string;
+  rt: string | null;
+  uf: string | null;
+  modalidade: string;
+  tratamentos: string;
+  razao_social: string;
+  cnpj: string;
+  crea: string | null;
+  telefone: string | null;
+  endereco: string | null;
+  reg_mapa: string | null;
+  email: string | null;
+  documento: string | null;
+  unidade_volumes: string | null;
+  relatorio: PadraoRelatorio | null;
+}
+
+const COLS =
+  "id, apelido, rt, uf, modalidade, tratamentos, razao_social, cnpj, crea, telefone, endereco, reg_mapa, email, documento, unidade_volumes, relatorio";
+
+function deRow(r: Row): MadeireiraSalva {
+  return {
+    apelido: r.apelido,
+    rt: r.rt,
+    uf: r.uf,
+    modalidade: r.modalidade === "Credenciada" ? "Credenciada" : "Cadastrada",
+    tratamentos: lerTratamentos(r.tratamentos),
+    razaoSocial: r.razao_social,
+    cnpj: r.cnpj,
+    crea: r.crea,
+    telefone: r.telefone,
+    endereco: r.endereco,
+    regMapa: r.reg_mapa,
+    email: r.email,
+    documento: r.documento === "comunicado" ? "comunicado" : r.documento === "programacao" ? "programacao" : null,
+    unidadeVolumes: r.unidade_volumes,
+    relatorio: r.relatorio ?? {},
+  };
+}
+
+function paraRow(m: Madeireira) {
+  return {
+    apelido: m.apelido,
+    rt: m.rt,
+    uf: m.uf,
+    modalidade: m.modalidade,
+    tratamentos: m.tratamentos.join("/"),
+    razao_social: m.razaoSocial,
+    cnpj: m.cnpj,
+    crea: m.crea,
+    telefone: m.telefone,
+    endereco: m.endereco,
+    reg_mapa: m.regMapa,
+    email: m.email,
+    documento: m.documento,
+    unidade_volumes: m.unidadeVolumes,
+  };
+}
+
+async function lerRows(): Promise<Row[]> {
+  const { data, error } = await getSupabaseServerClient()
+    .from("madeireiras")
+    .select(COLS)
+    .order("apelido")
+    .limit(5000)
+    .returns<Row[]>();
+  if (error) throw new Error(`Falha ao ler madeireiras: ${error.message}`);
+  return data ?? [];
+}
+
+export async function listarMadeireiras(): Promise<MadeireiraSalva[]> {
+  return (await lerRows()).map(deRow);
+}
+
+export interface ResumoImportacao {
+  totalNaPlanilha: number;
+  novas: string[];
+  atualizadas: { apelido: string; campos: string[] }[];
+  iguais: number;
+  ignoradas: number;
+  ausentesNaPlanilha: number;
+  aplicado: boolean;
+}
+
+/** Compara pelo CNPJ e, se `aplicar`, insere as novas e atualiza as alteradas. Nunca apaga. */
+export async function sincronizarMadeireiras(
+  empresas: Madeireira[],
+  ignoradas: number,
+  aplicar: boolean
+): Promise<ResumoImportacao> {
+  const existentes = new Map((await lerRows()).map((r) => [soDigitos(r.cnpj), r]));
+  const resumo: ResumoImportacao = {
+    totalNaPlanilha: empresas.length,
+    novas: [],
+    atualizadas: [],
+    iguais: 0,
+    ignoradas,
+    ausentesNaPlanilha: 0,
+    aplicado: aplicar,
+  };
+  const inserir: ReturnType<typeof paraRow>[] = [];
+  const alterar: { id: number; row: ReturnType<typeof paraRow> }[] = [];
+
+  for (const e of empresas) {
+    const row = paraRow(e);
+    const atual = existentes.get(soDigitos(e.cnpj));
+    if (!atual) {
+      inserir.push(row);
+      resumo.novas.push(e.apelido);
+      continue;
+    }
+    const campos = (Object.keys(row) as (keyof typeof row)[]).filter(
+      (k) => (row[k] ?? "").toString().trim() !== (atual[k] ?? "").toString().trim()
+    );
+    if (campos.length) {
+      alterar.push({ id: atual.id, row });
+      resumo.atualizadas.push({ apelido: e.apelido, campos });
+    } else resumo.iguais++;
+  }
+  const naPlanilha = new Set(empresas.map((e) => soDigitos(e.cnpj)));
+  resumo.ausentesNaPlanilha = [...existentes.keys()].filter((k) => !naPlanilha.has(k)).length;
+
+  if (aplicar) {
+    const sb = getSupabaseServerClient();
+    if (inserir.length) {
+      const { error } = await sb.from("madeireiras").insert(inserir);
+      if (error) throw new Error(`Falha ao inserir: ${error.message}`);
+    }
+    for (const a of alterar) {
+      const { error } = await sb
+        .from("madeireiras")
+        .update({ ...a.row, updated_at: new Date().toISOString() })
+        .eq("id", a.id);
+      if (error) throw new Error(`Falha ao atualizar ${a.row.apelido}: ${error.message}`);
+    }
+  }
+  return resumo;
+}
+
+/** Mescla os dados de relatório salvos da empresa (processo, RT, volume das câmaras). */
+export async function salvarPadraoRelatorio(cnpj: string, novo: PadraoRelatorio): Promise<PadraoRelatorio> {
+  const rows = await lerRows();
+  const atual = rows.find((r) => soDigitos(r.cnpj) === soDigitos(cnpj));
+  if (!atual) throw new Error("Empresa não encontrada no cadastro.");
+  const antigo = atual.relatorio ?? {};
+  const mesclado: PadraoRelatorio = {
+    ...antigo,
+    ...novo,
+    volumesCamara: { ...(antigo.volumesCamara ?? {}), ...(novo.volumesCamara ?? {}) },
+  };
+  const { error } = await getSupabaseServerClient()
+    .from("madeireiras")
+    .update({ relatorio: mesclado, updated_at: new Date().toISOString() })
+    .eq("id", atual.id);
+  if (error) throw new Error(`Falha ao salvar: ${error.message}`);
+  return mesclado;
+}
