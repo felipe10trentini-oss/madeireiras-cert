@@ -11,6 +11,7 @@ import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { soDigitos } from "@/lib/util";
 import { FileDrop } from "./FileDrop";
 import { LinhaRelatorioCard } from "./LinhaRelatorioCard";
+import { PlanilhaControleCard } from "./PlanilhaControleCard";
 import { Steps } from "./Steps";
 
 interface Extraido {
@@ -79,6 +80,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
           comunicado: extraido.comunicado,
           nomeArquivo: extraido.nomeArquivo,
           tomadores: empresa.relatorio?.tomadores,
+          ultimoLote: empresa.relatorio?.ultimoLote,
         }
       : null;
   const sugestao = entrada ? sugerirTipo(entrada) : null;
@@ -140,23 +142,32 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
     setEditando(false);
   }
 
-  /** Tomador preenchido (credenciada) fica salvo na empresa para completar os próximos certificados. */
+  /**
+   * Depois de copiar: guarda na empresa o tomador preenchido (credenciadas/prestadoras)
+   * e o lote numérico usado (empresas com lote sequencial), para os próximos certificados.
+   */
   async function guardarTomador() {
     if (!empresa || !valores) return;
+    const padrao: Record<string, unknown> = {};
+    if (/^\d{1,8}$/.test(valores.lote ?? "")) padrao.ultimoLote = valores.lote;
     const cnpj = soDigitos(valores.tomCnpj);
-    if (cnpj.length !== 14 || cnpj === soDigitos(empresa.cnpj) || !valores.tomEndereco) return;
-    const tomador = {
-      razao: valores.tomRazao ?? "",
-      cnpj: valores.tomCnpj ?? "",
-      endereco: valores.tomEndereco ?? "",
-      telefone: valores.tomTelefone ?? "",
-      email: valores.tomEmail ?? "",
-    };
+    if (cnpj.length === 14 && cnpj !== soDigitos(empresa.cnpj) && valores.tomEndereco) {
+      padrao.tomadores = {
+        [cnpj]: {
+          razao: valores.tomRazao ?? "",
+          cnpj: valores.tomCnpj ?? "",
+          endereco: valores.tomEndereco ?? "",
+          telefone: valores.tomTelefone ?? "",
+          email: valores.tomEmail ?? "",
+        },
+      };
+    }
+    if (!Object.keys(padrao).length) return;
     try {
       const res = await fetch("/api/madeireiras/padrao", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...cabecalhoSenha(senha) },
-        body: JSON.stringify({ cnpj: empresa.cnpj, padrao: { tomadores: { [cnpj]: tomador } } }),
+        body: JSON.stringify({ cnpj: empresa.cnpj, padrao }),
       });
       if (res.ok) {
         const { padrao } = await res.json();
@@ -301,7 +312,11 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
             </div>
             <div className="card">
               <div className="kpi-label">Tratamento / modelo</div>
-              <select value={tipo} onChange={(e) => { setTipo(e.target.value as TipoTratamento); setAjustes({}); }} aria-label="Tipo de tratamento">
+              <select value={tipo} onChange={(e) => {
+                  setTipo(e.target.value as TipoTratamento);
+                  // Mantém o que veio da planilha de controle / foi digitado sobre o produto.
+                  setAjustes((a) => ({ produto: a.produto, volumes: a.volumes, quantidade: a.quantidade, numero: a.numero }));
+                }} aria-label="Tipo de tratamento">
                 {TIPOS.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.nome}
@@ -330,6 +345,21 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
               </div>
             </div>
           </div>
+
+          {curva && montado && (curva.sistema === "SV520" || curva.sistema === "Mahild") && (
+            <PlanilhaControleCard
+              key={extraido.nomeArquivo}
+              curva={curva}
+              onPreencher={(p) =>
+                setAjustes((a) => ({
+                  ...a,
+                  produto: p.produto,
+                  ...(p.volumes && { volumes: p.volumes }),
+                  ...(p.quantidade && { quantidade: p.quantidade }),
+                }))
+              }
+            />
+          )}
 
           <div className="toolbar">
             <div className="field">

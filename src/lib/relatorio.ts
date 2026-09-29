@@ -12,6 +12,8 @@ export interface PadraoRelatorio {
   dataDocumento?: string; // data da programação do mês
   rt?: string; // nome completo do responsável técnico
   volumesCamara?: Record<string, string>; // câmara -> volume (m³)
+  /** Último lote numérico usado (empresas com lote sequencial, ex.: GM). */
+  ultimoLote?: string;
   /** Tomadores já usados nos certificados (credenciadas), por CNPJ só com dígitos. */
   tomadores?: Record<string, Tomador>;
 }

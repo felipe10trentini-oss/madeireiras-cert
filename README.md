@@ -28,6 +28,23 @@ Regras (confirmadas com a equipe):
 - Programação mensal: nº do comunicado = mês/ano do início ("09/2026").
 - Nº do certificado e lote vêm do nome do arquivo da curva: `341 ABB 1-350.pdf` → 341/2026, lote 1-350.
 
+## Curvas SV520 e Mahild: planilha de controle
+
+Essas curvas não trazem bitola, fardos nem m³. Depois de ler a curva, o site pede a
+**planilha de controle da secagem** do cliente (.xlsx, com colunas ESTUFA, FARDOS,
+Bitola, VOLUME M³ e Nº DA SECAGEM): acha a linha pela estufa + nº da secagem (ou
+data de início) e preenche descrição, volumes e quantidade. Sem a planilha, esses
+campos ficam em branco para preencher à mão.
+
+## Padrões por empresa
+
+`REGRAS_EMPRESA` em `src/lib/certificado.ts` (por CNPJ): unidade dos volumes (ABB
+"Tábuas"), lote com 3 dígitos, nº = lote (Pinustan), lote = nº (JJ Thomazi), lote
+sequencial (GM, o site lembra o último), lote ano+semana (MART: 01/09/2026 -> 2636),
+prestadora igual à Mann móvel (Exata: tomador, endereço e produto do comunicado),
+e-mail (LG), formato do ciclo SV520/Mahild e ajuste do término (Madeico).
+`npx tsx scripts/analisar.ts <pasta> saida.jsonl` compara em lote com os emitidos.
+
 ## Curvas suportadas
 
 `src/lib/curvas/`: Marrari **SV580**, Marrari **SV520** e Digisystem (**CRG08 HT**,

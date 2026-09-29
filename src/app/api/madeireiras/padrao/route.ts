@@ -17,6 +17,7 @@ export async function POST(req: Request) {
     ...(typeof p.processo === "string" && { processo: p.processo.slice(0, 60) }),
     ...(typeof p.dataDocumento === "string" && { dataDocumento: p.dataDocumento.slice(0, 20) }),
     ...(typeof p.rt === "string" && { rt: p.rt.slice(0, 120) }),
+    ...(typeof p.ultimoLote === "string" && /^\d{1,8}$/.test(p.ultimoLote) && { ultimoLote: p.ultimoLote }),
     ...(p.volumesCamara && typeof p.volumesCamara === "object" && {
       volumesCamara: Object.fromEntries(
         Object.entries(p.volumesCamara)

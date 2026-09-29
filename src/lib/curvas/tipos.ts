@@ -6,6 +6,7 @@ export type Sistema =
   | "DMC2051"
   | "DMC2051 Gráfico"
   | "Digisystem Relatório"
+  | "Mahild"
   | "CRG08 HT"
   | "CRG08 KDHT";
 

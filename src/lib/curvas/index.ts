@@ -1,4 +1,5 @@
 import { parseDigisystem } from "./digisystem";
+import { parseMahild } from "./mahild";
 import { parseSV520 } from "./sv520";
 import { parseSV580 } from "./sv580";
 import type { Curva } from "./tipos";
@@ -16,6 +17,7 @@ export function lerCurva(texto: string): Curva | null {
     return parseSV580(texto);
   }
   if (/SV520|Hist[óo]rico da Secagem/i.test(texto)) return parseSV520(texto);
+  if (/LOTE\s*\(?\s*UR|TOTAL\s*CICLO|PRODUCTO/i.test(texto)) return parseMahild(texto);
   if (/Controlador|Dados gerais|Secagem n[ºo°]/i.test(texto)) return parseDigisystem(texto);
   return null;
 }

@@ -22,6 +22,8 @@ export interface EntradaCertificado {
   nomeArquivo: string;
   /** Tomadores já preenchidos antes para esta empresa (por CNPJ só com dígitos). */
   tomadores?: Record<string, Tomador>;
+  /** Último lote usado pela empresa (para empresas com lote sequencial, ex.: GM). */
+  ultimoLote?: string | null;
 }
 
 /**
@@ -44,6 +46,20 @@ interface RegraEmpresa {
   cicloSV520?: string;
   /** Minutos a somar ao término do tratamento HT/AQF (Madeico usa 1 minuto a menos). */
   ajusteFimMin?: number;
+  /** Lote sequencial da empresa (GM: 820, 821…): o site sugere o último usado + 1. */
+  loteSequencial?: boolean;
+  /** Lote = ano (2 dígitos) + semana do ano do início do tratamento (MART: 01/09/2026 -> "2636"). */
+  loteAnoSemana?: boolean;
+  /** E-mail usado nos certificados, quando difere da planilha. */
+  email?: string;
+  /** Descrição do produto sempre igual nos certificados da empresa (MART). */
+  produto?: string;
+  /**
+   * Prestadora de serviço (igual à Mann móvel): trata na casa do cliente, com comunicado
+   * por tratamento. Tomador e endereço do tratamento são do cliente; produto e
+   * quantidade vêm do comunicado; volumes "Nihil".
+   */
+  prestadora?: boolean;
 }
 
 export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
@@ -53,7 +69,12 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "49890808000180": { loteTresDigitos: true }, // Serraria Céu Azul
   "03298956000100": { numeroEhLote: true }, // Pinustan
   "02927182000176": { loteEhNumero: true }, // JJ Thomazi
-  "24046686000110": { destino: "Nihil" }, // Exata
+  "24046686000110": { prestadora: true }, // Exata (prestadora de serviço, como a Mann móvel)
+  "00093600000141": { prestadora: true }, // Mann Unid. Volante
+  "21730230000186": { loteSequencial: true }, // GM
+  "03636539000120": { loteAnoSemana: true, produto: "Madeira serrada para embalagens" }, // MART
+  "50709371000115": { email: "faturamento2@lgpallets.com.br" }, // LG Logística
+  "83054544000163": { cicloSV520: "Estufa {e} - Ciclo {c}" }, // Salamoni (SV520 e Mahild)
   "79235917000125": { cicloSV520: "Estufa {e} Ciclo {c}" }, // Rio Verde
   "03917690000136": { cicloSV520: "Estufa {e2} Ciclo {c}" }, // Selva Norte
   "33094099000197": { cicloSV520: "Estufa {e2} Ciclo {c}" }, // São Jorge
@@ -163,6 +184,19 @@ function montarProduto(e: EntradaCertificado, tipo: TipoTratamento, avisos: stri
   const comM3 = curva.produtos.filter((p) => p.m3 != null);
   const texto = curva.textoProduto;
 
+  // 0) Prestadora (Exata, Mann móvel): como no certificado da Mann móvel.
+  if (regra.prestadora && comunicado?.produto) {
+    const produto = normalizarProdutoComunicado(comunicado.produto);
+    const q = (comunicado.quantidade ?? "").trim();
+    const emM3 = /m[³3]/i.test(`${comunicado.volumes ?? ""} ${q}`);
+    const numero = q.replace(/\s*m[³3].*$/i, "");
+    return {
+      produto,
+      volumes: "Nihil",
+      quantidade: !q ? null : emM3 ? `${m3Limpo(numero)} m³` : /^[\d.]+$/.test(q) ? `${q} ${unidadeDoProduto(produto)}` : quantidadeDetalhada(q),
+    };
+  }
+
   // 1) Comunicado de embalagens (paletes, kits, caixas): produto e quantidade vêm dele.
   if (comunicado?.produto && (ehEmbalagem(comunicado.produto) || (!comM3.length && curva.totalM3 == null))) {
     const volumes = normalizarProdutoComunicado(comunicado.produto);
@@ -208,6 +242,16 @@ function montarProduto(e: EntradaCertificado, tipo: TipoTratamento, avisos: stri
     };
   }
 
+  // Mahild (Salamoni): só m³ e espécie; bitola e fardos são digitados.
+  if (curva.sistema === "Mahild") {
+    avisos.push("A curva Mahild não traz bitola nem fardos: complete a descrição (mm) e os volumes.");
+    return {
+      produto: descricaoSerrada(texto),
+      volumes: null,
+      quantidade: curva.totalM3 != null ? `${m3BR(curva.totalM3)} m³` : null,
+    };
+  }
+
   // 5) Digisystem com m³ escrito na descrição/bitola ("com 85 M3", "54m³", "Volume total: 19,064m³").
   if (curva.totalM3 != null) {
     const nFardos = fardos(texto);
@@ -221,6 +265,17 @@ function montarProduto(e: EntradaCertificado, tipo: TipoTratamento, avisos: stri
 
   avisos.push("Esta curva não traz produto nem cubagem: preencha descrição, volumes e quantidade (planilha do cliente).");
   return { produto: null, volumes: null, quantidade: null };
+}
+
+/** Ano (2 dígitos) + semana ISO do ano: "01/09/2026" -> "2636". */
+export function anoSemana(data: string): string {
+  const [d, m, a] = data.split("/").map(Number);
+  const dt = new Date(Date.UTC(a, m - 1, d));
+  const diaSemana = dt.getUTCDay() || 7;
+  dt.setUTCDate(dt.getUTCDate() + 4 - diaSemana); // quinta-feira da mesma semana
+  const inicioAno = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+  const semana = Math.ceil(((dt.getTime() - inicioAno.getTime()) / 86400000 + 1) / 7);
+  return `${String(dt.getUTCFullYear()).slice(2)}${String(semana).padStart(2, "0")}`;
 }
 
 /** "4-43" -> "4-043" */
@@ -259,12 +314,18 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     curva.temperatura != null && duracaoTexto ? `${tempBR(curva.temperatura)}°C / Duração: ${duracaoTexto}` : null;
   if (!temperatura) avisos.push("Temperatura/duração não encontradas na curva.");
 
-  const { produto, volumes, quantidade } = montarProduto(e, tipo, avisos);
+  const montadoProduto = montarProduto(e, tipo, avisos);
+  const { volumes, quantidade } = montadoProduto;
+  const produto = regra.produto ?? montadoProduto.produto;
+  // "1.234,5 m³" (milhar) ou "46.1106 m³" (ponto decimal da curva)
+  const q = (quantidade ?? "").replace(/\s*m³.*$/, "");
+  const m3 = parseFloat(q.includes(",") ? q.replace(/\./g, "").replace(",", ".") : q);
+  if (/m³/.test(quantidade ?? "") && m3 > 400) avisos.push(`Quantidade de ${quantidade} parece alta — confira (pode ser erro de leitura).`);
 
   // Nº do comunicado ou da programação mensal (MM/AAAA do início).
   let numComunicado: string | null = null;
   if (comunicado?.numero) numComunicado = comunicado.numero;
-  else if (empresa.documento === "comunicado") {
+  else if (empresa.documento === "comunicado" || regra.prestadora) {
     avisos.push("Esta empresa usa comunicado por tratamento: envie o PDF do comunicado ou digite o número.");
   } else if (inicio) {
     numComunicado = inicio.data.slice(3); // "21/09/2026" -> "09/2026"
@@ -272,6 +333,15 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
 
   let lote = arq.lote ?? curva.lote ?? curva.ciclo;
   if (lote && regra.loteTresDigitos) lote = loteTres(lote);
+  if (regra.loteAnoSemana && inicio) lote = anoSemana(inicio.data);
+  if (regra.loteSequencial) {
+    const ultimo = parseInt(e.ultimoLote ?? "", 10);
+    if (Number.isFinite(ultimo)) lote = String(ultimo + 1);
+    else {
+      lote = null;
+      avisos.push("Lote sequencial desta empresa: informe o lote (a partir do próximo, o site sugere o seguinte).");
+    }
+  }
 
   const ano = inicio?.data.slice(6) ?? String(new Date().getFullYear());
   let numero = arq.numero ? `${arq.numero}/${ano}` : "";
@@ -281,7 +351,7 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
 
   // Credenciada: tomador "Nihil", a não ser que o comunicado traga outra empresa.
   const tomadorOutro =
-    empresa.modalidade === "Credenciada" &&
+    (empresa.modalidade === "Credenciada" || regra.prestadora) &&
     comunicado?.tomadorCnpj &&
     soDigitos(comunicado.tomadorCnpj) !== soDigitos(empresa.cnpj);
   const salvo = tomadorOutro ? e.tomadores?.[soDigitos(comunicado!.tomadorCnpj)] : undefined;
@@ -296,7 +366,7 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     crea: empresa.crea,
     endereco: empresa.endereco,
     telefone: empresa.telefone,
-    email: empresa.email,
+    email: regra.email ?? empresa.email,
     regMapa: empresa.regMapa,
     tomRazao: tomadorOutro ? (salvo?.razao ?? comunicado!.tomadorNome) : "Nihil",
     tomCnpj: tomadorOutro ? (salvo?.cnpj ?? comunicado!.tomadorCnpj) : "Nihil",
@@ -304,13 +374,14 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     tomTelefone: tomadorOutro ? (salvo?.telefone ?? "") : "Nihil",
     tomEmail: tomadorOutro ? (salvo?.email ?? "") : "Nihil",
     comunicado: numComunicado,
-    enderecoTrat: empresa.endereco,
+    // Prestadora trata na casa do cliente: endereço do comunicado.
+    enderecoTrat: regra.prestadora ? (comunicado?.endereco ?? salvo?.endereco ?? null) : empresa.endereco,
     destino: regra.destino ?? "Estoque",
     produto,
     volumes,
     quantidade,
     lote,
-    ciclo: curva.sistema === "SV520" ? cicloNoFormato(curva.ciclo, regra.cicloSV520) : curva.ciclo,
+    ciclo: curva.sistema === "SV520" || curva.sistema === "Mahild" ? cicloNoFormato(curva.ciclo, regra.cicloSV520) : curva.ciclo,
     marcas: "Nihil",
     modalidade: tipo === "AQF" ? "AQF - HT" : tipo,
     dataInicio: inicio?.data ?? null,
