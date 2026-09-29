@@ -27,12 +27,14 @@ function colunaDe(cabecalho: string): Col | null {
   if (!c) return null;
   if (c.includes("FARDO") || c === "PACOTES" || c.includes("GRADES")) return "fardos";
   if (c.includes("BITOLA") || c.includes("ESPESSURA")) return "bitola";
-  if (c.includes("VOLUME") || c === "M3" || c.includes("CUBAGEM")) return "volume";
+  // "VOLUME M³", "M³" (chaveNome tira o "³" -> "M")
+  if (c.includes("VOLUME") || c === "M" || c === "M3" || c.includes("CUBAGEM")) return "volume";
   if (c.startsWith("ESTUFA") || c.startsWith("CAMARA")) return "estufa";
   if (c.includes("SECAGEM") && !c.includes("DATA") && !c.includes("HORA")) return "secagem";
   if (c.startsWith("CICLO") && !c.includes("LOTE")) return "secagem";
   if (c.startsWith("DATA")) return "data";
-  if (c.includes("ESPECIE") || c.includes("MADEIRA")) return "especie";
+  // "PRODUTO" traz a espécie e a bitola: "Pinus 19mm", "17mm"
+  if (c.startsWith("PRODUTO") || c.includes("ESPECIE") || c.includes("MADEIRA")) return "especie";
   return null;
 }
 
@@ -72,15 +74,20 @@ export async function lerPlanilhaControle(buffer: ArrayBuffer): Promise<LinhaCon
     let cab = -1;
     const mapa = new Map<number, Col>();
     for (let r = 1; r <= Math.min(ws.rowCount, 15) && cab < 0; r++) {
-      const tent = new Map<number, Col>();
+      // Uma coluna pode aparecer mais de uma vez (IR: dois blocos com CICLO e M³ lado a lado):
+      // fica a mais próxima da coluna de FARDOS.
+      const candidatas = new Map<Col, number[]>();
       ws.getRow(r).eachCell((cell, col) => {
         const k = colunaDe(texto(cell.value));
-        if (k && ![...tent.values()].includes(k)) tent.set(col, k);
+        if (k) candidatas.set(k, [...(candidatas.get(k) ?? []), col]);
       });
-      const ks = [...tent.values()];
-      if (ks.includes("fardos") && (ks.includes("volume") || ks.includes("bitola"))) {
+      const colFardos = candidatas.get("fardos")?.[0];
+      if (colFardos != null && (candidatas.has("volume") || candidatas.has("bitola") || candidatas.has("especie"))) {
         cab = r;
-        tent.forEach((v, k) => mapa.set(k, v));
+        candidatas.forEach((cols, k) => {
+          const melhor = cols.reduce((a, b) => (Math.abs(b - colFardos) < Math.abs(a - colFardos) ? b : a));
+          mapa.set(melhor, k);
+        });
       }
     }
     if (cab < 0) continue;
@@ -89,12 +96,16 @@ export async function lerPlanilhaControle(buffer: ArrayBuffer): Promise<LinhaCon
       const d: Partial<Record<Col, string>> = {};
       mapa.forEach((k, col) => (d[k] = texto(row.getCell(col).value)));
       if (!d.fardos && !d.volume) continue;
-      const bitolaMm = d.bitola?.match(/(\d+(?:[.,]\d+)?)/)?.[1];
+      // Bitola: coluna própria ("23 mm", "22") ou dentro do PRODUTO ("Pinus 19mm", "17mm").
+      const bitolaMm =
+        d.bitola?.match(/(\d+(?:[.,]\d+)?)/)?.[1] ?? d.especie?.match(/(\d+(?:[.,]\d+)?)\s*mm/i)?.[1];
+      // Ciclo: "380", "380/1162" (secagem/lote), "4-354" ou "1_773" (estufa-ciclo).
+      const mEC = d.secagem?.match(/^\s*(\d+)\s*[-_]\s*(\d+)\s*$/);
       linhas.push({
         aba: ws.name,
         linha: r,
-        estufa: d.estufa ? num(d.estufa) : null,
-        secagem: d.secagem ? num(d.secagem.split("/")[0]) : null,
+        estufa: mEC ? parseInt(mEC[1], 10) : d.estufa ? num(d.estufa) : null,
+        secagem: mEC ? parseInt(mEC[2], 10) : d.secagem ? num(d.secagem.split("/")[0]) : null,
         data: d.data ? dataBR(d.data) : null,
         fardos: d.fardos ? num(d.fardos) : null,
         bitola: bitolaMm ? `${bitolaMm.replace(".", ",")} mm` : null,
