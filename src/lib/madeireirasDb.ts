@@ -168,6 +168,7 @@ export async function salvarPadraoRelatorio(cnpj: string, novo: PadraoRelatorio)
     ...antigo,
     ...novo,
     volumesCamara: { ...(antigo.volumesCamara ?? {}), ...(novo.volumesCamara ?? {}) },
+    tomadores: { ...(antigo.tomadores ?? {}), ...(novo.tomadores ?? {}) },
   };
   const { error } = await getSupabaseServerClient()
     .from(TABELA)

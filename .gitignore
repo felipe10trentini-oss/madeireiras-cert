@@ -47,3 +47,6 @@ next-env.d.ts
 # PDFs e planilhas reais de clientes (usados só nos testes locais)
 /tests/fixtures/
 /tests/modelos-sei/*_files/
+
+# Cache do idioma do OCR (tesseract)
+*.traineddata

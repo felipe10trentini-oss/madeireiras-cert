@@ -15,7 +15,8 @@ export const TEMPERATURA_SV520 = 60;
 export function parseSV520(texto: string): Curva {
   const c = curvaVazia("SV520");
 
-  const mEstufa = texto.match(/Estufa\s*(\d+)\s*-\s*Ciclo\s*(\d+)/i);
+  // "Estufa 04 - Ciclo 208" (versões antigas: "CLP 01 - Ciclo 171"); no certificado sai sempre "Estufa".
+  const mEstufa = texto.match(/(?:Estufa|CLP)\s*(\d+)\s*-?\s*Ciclo\s*(\d+)/i);
   if (mEstufa) {
     c.camara = String(parseInt(mEstufa[1], 10));
     c.ciclo = `Estufa ${mEstufa[1]} - Ciclo ${mEstufa[2]}`;

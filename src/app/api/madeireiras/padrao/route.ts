@@ -24,6 +24,17 @@ export async function POST(req: Request) {
           .map(([k, v]) => [k, String(v).slice(0, 20)])
       ),
     }),
+    ...(p.tomadores && typeof p.tomadores === "object" && {
+      tomadores: Object.fromEntries(
+        Object.entries(p.tomadores)
+          .filter(([k, t]) => /^\d{14}$/.test(k) && t && typeof t === "object")
+          .slice(0, 5)
+          .map(([k, t]) => {
+            const s = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+            return [k, { razao: s(t.razao, 200), cnpj: s(t.cnpj, 30), endereco: s(t.endereco, 300), telefone: s(t.telefone, 80), email: s(t.email, 200) }];
+          })
+      ),
+    }),
   };
   try {
     return NextResponse.json({ padrao: await salvarPadraoRelatorio(corpo.cnpj, limpo) });

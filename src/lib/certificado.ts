@@ -1,8 +1,10 @@
 import type { Comunicado } from "./comunicado";
-import type { Curva, ProdutoCurva } from "./curvas/tipos";
+import type { Curva } from "./curvas/tipos";
 import { lerNomeArquivo, type Madeireira } from "./madeireiras";
 import { MODELOS, type Modelo, type ValoresCertificado } from "./modelos";
-import { duracaoHM, horaFmt, m3BR, semAcento, soDigitos, tempBR, type DataHora } from "./util";
+import { descricaoSerrada, fardos, frasePropria } from "./produtoTexto";
+import type { Tomador } from "./relatorio";
+import { duracaoHM, horaFmt, m3BR, semAcento, soDigitos, somarMinutos, tempBR, type DataHora } from "./util";
 
 /**
  * KD  = secagem em estufa, umidade final < 18%
@@ -18,34 +20,84 @@ export interface EntradaCertificado {
   empresa: Madeireira;
   comunicado: Comunicado | null;
   nomeArquivo: string;
+  /** Tomadores já preenchidos antes para esta empresa (por CNPJ só com dígitos). */
+  tomadores?: Record<string, Tomador>;
 }
 
-const EMBALAGEM = /PALET|PALLET|KIT|EMBALA|SKID|SUPORTE|CAIXA/;
-
 /**
- * Unidade dos volumes quando a madeira vem em m³: "Fardos" para todas, exceto as
- * listadas aqui (por CNPJ). A coluna UNIDADE da planilha, se existir, tem prioridade.
+ * Padrões próprios de algumas empresas, observados nos certificados emitidos
+ * (setembro/2026). Chave: CNPJ só com dígitos.
  */
-const UNIDADE_VOLUMES_POR_CNPJ: Record<string, string> = {
-  "39271111000178": "Tábuas", // ABB Wood
+interface RegraEmpresa {
+  /** Unidade dos volumes quando a curva traz a contagem ("Tábuas" em vez de "Fardos"). */
+  unidadeVolumes?: string;
+  /** Lote com o ciclo em 3 dígitos: "4-43" -> "4-043". */
+  loteTresDigitos?: boolean;
+  /** O nº do certificado é o próprio lote ("11-298"). */
+  numeroEhLote?: boolean;
+  /** O lote é o nº do certificado ("247/2026"). */
+  loteEhNumero?: boolean;
+  destino?: string;
+  /** Skids: "Madeira para suportes" / "N peças" / m³ (em vez de "Suportes de madeira" / "N unidades"). */
+  suportesEmPecas?: boolean;
+  /** Como a empresa escreve o ciclo do SV520: {e} estufa, {e2} estufa com 2 dígitos, {c} ciclo. */
+  cicloSV520?: string;
+  /** Minutos a somar ao término do tratamento HT/AQF (Madeico usa 1 minuto a menos). */
+  ajusteFimMin?: number;
+}
+
+export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
+  "39271111000178": { unidadeVolumes: "Tábuas", suportesEmPecas: true }, // ABB Wood
+  "73931933000176": { unidadeVolumes: "tábuas", loteTresDigitos: true }, // Decorbras
+  "06941489000182": { loteTresDigitos: true }, // CL
+  "49890808000180": { loteTresDigitos: true }, // Serraria Céu Azul
+  "03298956000100": { numeroEhLote: true }, // Pinustan
+  "02927182000176": { loteEhNumero: true }, // JJ Thomazi
+  "24046686000110": { destino: "Nihil" }, // Exata
+  "79235917000125": { cicloSV520: "Estufa {e} Ciclo {c}" }, // Rio Verde
+  "03917690000136": { cicloSV520: "Estufa {e2} Ciclo {c}" }, // Selva Norte
+  "33094099000197": { cicloSV520: "Estufa {e2} Ciclo {c}" }, // São Jorge
+  "00667464000156": { cicloSV520: "Estufa {e2} Ciclo {c}" }, // Videpinus
+  "83951012000129": { ajusteFimMin: -1 }, // Madeico
 };
 
-function textoProdutos(e: EntradaCertificado): string {
-  return semAcento(
-    [e.comunicado?.produto, e.curva.descricao, ...e.curva.produtos.map((p) => p.descricao)].filter(Boolean).join(" ")
-  ).toUpperCase();
+/** "Estufa 03 - Ciclo 761" no formato da empresa. */
+function cicloNoFormato(ciclo: string | null, formato: string | undefined): string | null {
+  const m = ciclo?.match(/Estufa\s*(\d+)\s*-?\s*Ciclo\s*(\d+)/i);
+  if (!m || !formato) return ciclo;
+  const e = parseInt(m[1], 10);
+  return formato.replace("{e2}", String(e).padStart(2, "0")).replace("{e}", String(e)).replace("{c}", m[2]);
+}
+
+const regraDe = (e: Madeireira): RegraEmpresa => REGRAS_EMPRESA[soDigitos(e.cnpj)] ?? {};
+
+const up = (s: string | null | undefined) => semAcento(s ?? "").toUpperCase();
+
+/**
+ * Embalagens (paletes, kits, caixas, skids) no comunicado ou na descrição da curva Digisystem.
+ * Não contam: "Palete / Tábua" (rótulo genérico do SV580) e "madeira serrada para embalagens" (é madeira).
+ */
+const EMBALAGEM = /PALET|PALLET|KIT|EMBALA|SKID|SUPORTE|CAIXA|ENGRADADO/;
+const SUPORTES = /SKID|SUPORTE/;
+
+function ehEmbalagem(texto: string): boolean {
+  return EMBALAGEM.test(up(texto).replace(/PALETE\s*\/\s*TABUA/g, "").replace(/PARA\s+EMBALAG\w*/g, ""));
 }
 
 /** Tipo sugerido pelas regras da equipe; o usuário pode trocar na tela. */
 export function sugerirTipo(e: EntradaCertificado): { tipo: TipoTratamento; motivo: string } {
-  const { empresa, curva } = e;
+  const { empresa, curva, comunicado } = e;
   const fazKD = empresa.tratamentos.includes("KD");
   const fazHT = empresa.tratamentos.includes("HT");
   if (fazHT && !fazKD) return { tipo: "AQF", motivo: "a empresa é habilitada só para HT" };
   if (fazKD && !fazHT) return { tipo: "KD", motivo: "a empresa é habilitada só para KD" };
 
-  if (EMBALAGEM.test(textoProdutos(e))) {
+  if (curva.sistema === "CRG08 HT") return { tipo: "AQF", motivo: "curva de equipamento HT (CRG08 HT)" };
+  if (SUPORTES.test(up(curva.textoProduto)) || (comunicado?.produto && ehEmbalagem(comunicado.produto))) {
     return { tipo: "AQF", motivo: "produto é embalagem/skid/suporte (exceção: ar quente forçado)" };
+  }
+  if (!curva.produtos.some((p) => p.m3 != null) && curva.descricao && ehEmbalagem(curva.descricao)) {
+    return { tipo: "AQF", motivo: "produto é embalagem (paletes/caixas)" };
   }
   if (curva.umidadeFinal != null) {
     return curva.umidadeFinal < UMIDADE_LIMITE_KD
@@ -67,27 +119,28 @@ export function localDoEndereco(endereco: string | null): string {
   return m ? `${m[1].trim()} ${m[2]} ${m[3]}` : "";
 }
 
-/** Menor dimensão da bitola = espessura: "17X145X2280" -> 17, "(1200.000X75.000X15.000)" -> 15. */
-function espessura(descricao: string): number | null {
-  const m = descricao.match(/(\d+(?:[.,]\d+)?)\s*[Xx]\s*(\d+(?:[.,]\d+)?)\s*[Xx]\s*(\d+(?:[.,]\d+)?)/);
-  if (!m) return null;
-  return Math.round(Math.min(...[m[1], m[2], m[3]].map((n) => parseFloat(n.replace(",", ".")))));
-}
-
-function descricaoMadeiraSerrada(produtos: ProdutoCurva[]): string {
-  const txt = semAcento(produtos.map((p) => p.descricao).join(" ")).toUpperCase();
-  const especies = [txt.includes("PINUS") && "pinus", txt.includes("EUCALIP") && "eucalipto"].filter(Boolean);
-  const esp = [...new Set(produtos.map((p) => espessura(p.descricao)).filter((n): n is number => n != null))].sort(
-    (a, b) => a - b
-  );
-  const base = `Madeira serrada de ${especies.length ? especies.join(" e ") : "pinus"}`;
-  return esp.length ? `${base} ${esp.map((n) => `${n} mm`).join("; ")}` : base;
+/** "pallets de madeirs", "PALLETS DE MADEIRA" -> "Paletes de madeira". */
+function normalizarProdutoComunicado(produto: string): string {
+  let t = produto.trim().replace(/\s+/g, " ");
+  t = t.replace(/\bpallets?\b/gi, "Paletes").replace(/\bmadei\w*\s*$/i, "madeira");
+  return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
 }
 
 /** "Paletes de madeira" -> "paletes" (unidade da quantidade no certificado). */
 function unidadeDoProduto(produto: string): string {
-  return produto.replace(/\s+de madeira\s*$/i, "").trim().toLowerCase();
+  return produto.replace(/\s+de\s+madei\w*\s*$/i, "").trim().toLowerCase();
 }
+
+/** "60 Paletes 1000x1200 mm 40 Kit caixas 1000x1200x680 mm" -> "60 Paletes (1000x1200mm) 40 Kit caixas (1000x1200x680mm)". */
+function quantidadeDetalhada(q: string): string {
+  return q
+    .replace(/\s+/g, " ")
+    .replace(/(?<!\()\b(\d+(?:[xX]\d+){1,2})\s*mm\b(?!\))/g, "($1mm)")
+    .trim();
+}
+
+/** "31,00" -> "31"; "19,064" e "46.1106" ficam como estão. */
+const m3Limpo = (bruto: string) => bruto.replace(/[.,]0+$/, "");
 
 export interface CertificadoMontado {
   modelo: Modelo;
@@ -98,8 +151,84 @@ export interface CertificadoMontado {
   duracaoTexto: string | null;
 }
 
+interface Produto {
+  produto: string | null;
+  volumes: string | null;
+  quantidade: string | null;
+}
+
+function montarProduto(e: EntradaCertificado, tipo: TipoTratamento, avisos: string[]): Produto {
+  const { curva, empresa, comunicado } = e;
+  const regra = regraDe(empresa);
+  const comM3 = curva.produtos.filter((p) => p.m3 != null);
+  const texto = curva.textoProduto;
+
+  // 1) Comunicado de embalagens (paletes, kits, caixas): produto e quantidade vêm dele.
+  if (comunicado?.produto && (ehEmbalagem(comunicado.produto) || (!comM3.length && curva.totalM3 == null))) {
+    const volumes = normalizarProdutoComunicado(comunicado.produto);
+    const q = (comunicado.quantidade ?? "").trim();
+    const soNumero = /^[\d.]+$/.test(q);
+    return {
+      produto: "Madeira reflorestada",
+      volumes,
+      quantidade: !q ? null : soNumero ? `${q} ${unidadeDoProduto(volumes)}` : quantidadeDetalhada(q),
+    };
+  }
+
+  // 2) Skids/suportes.
+  if (comM3.length && SUPORTES.test(up(texto))) {
+    const pecas = comM3.reduce((s, p) => s + p.quantidade, 0);
+    const total = curva.totalM3 ?? comM3.reduce((s, p) => s + (p.m3 ?? 0), 0);
+    return regra.suportesEmPecas
+      ? { produto: "Madeira para suportes", volumes: `${pecas} peças`, quantidade: `${m3BR(total)} m³` }
+      : { produto: "Madeira reflorestada", volumes: "Suportes de madeira", quantidade: `${pecas} unidades` };
+  }
+
+  // 3) Tabela de produtos com m³ (SV580).
+  if (comM3.length) {
+    const unidade = empresa.unidadeVolumes || regra.unidadeVolumes || "Fardos";
+    // Contagem de fardos: citada no texto ("5 fardos", "48 GRADES") ou na coluna de
+    // quantidade, quando é contagem de verdade (volume unitário pequeno). "1" com
+    // dezenas de m³ não é contagem -> "Nihil".
+    const citados = fardos(texto);
+    const ehContagem = comM3.every((p) => p.quantidade > 1 && (p.m3 ?? 0) / p.quantidade <= 5);
+    const pecas = comM3.reduce((s, p) => s + p.quantidade, 0);
+    const volumes = citados != null ? `${citados} ${unidade}` : ehContagem ? `${pecas} ${unidade}` : "Nihil";
+    const total = curva.totalM3 ?? comM3.reduce((s, p) => s + (p.m3 ?? 0), 0);
+    return { produto: descricaoSerrada(texto), volumes, quantidade: `${m3BR(total)} m³` };
+  }
+
+  // 4) Digisystem sem tabela: paletes contados em peças/unidades.
+  if (curva.produtos.length && curva.totalM3 == null) {
+    const nome = normalizarProdutoComunicado(curva.descricao ?? curva.produtos[0].descricao);
+    return {
+      produto: "Madeira reflorestada",
+      volumes: nome,
+      quantidade: `${curva.produtos[0].quantidade} ${unidadeDoProduto(nome)}`,
+    };
+  }
+
+  // 5) Digisystem com m³ escrito na descrição/bitola ("com 85 M3", "54m³", "Volume total: 19,064m³").
+  if (curva.totalM3 != null) {
+    const nFardos = fardos(texto);
+    const volumes = nFardos != null ? `${nFardos} ${empresa.unidadeVolumes || regra.unidadeVolumes || "Fardos"}` : "Nihil";
+    if (tipo === "AQF" && curva.descricao && /MADEIRA/.test(up(curva.descricao))) {
+      // Embalagens (LG, MART, Exata): a descrição da curva, m³ como escrito.
+      return { produto: frasePropria(curva.descricao), volumes, quantidade: `${m3Limpo(curva.m3Bruto ?? String(curva.totalM3))} m³` };
+    }
+    return { produto: descricaoSerrada(texto), volumes, quantidade: `${m3BR(curva.totalM3)} m³` };
+  }
+
+  avisos.push("Esta curva não traz produto nem cubagem: preencha descrição, volumes e quantidade (planilha do cliente).");
+  return { produto: null, volumes: null, quantidade: null };
+}
+
+/** "4-43" -> "4-043" */
+const loteTres = (lote: string) => lote.replace(/^(\d+)-(\d{1,2})$/, (_, a: string, b: string) => `${a}-${b.padStart(3, "0")}`);
+
 export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): CertificadoMontado {
   const { curva, empresa, comunicado } = e;
+  const regra = regraDe(empresa);
   const avisos: string[] = [];
   const modelo = modeloPara(empresa, tipo);
   const arq = lerNomeArquivo(e.nomeArquivo);
@@ -107,48 +236,30 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
   // Datas: KD usa o ciclo inteiro; HT/AQF usa a janela do tratamento.
   const usaCiclo = tipo === "KD" || !curva.htInicio;
   const inicio = usaCiclo ? curva.cicloInicio : curva.htInicio;
-  const fim = usaCiclo ? curva.cicloFim : curva.htFim;
+  const fimHT = curva.htFim && regra.ajusteFimMin ? somarMinutos(curva.htFim, regra.ajusteFimMin) : curva.htFim;
+  const fim = usaCiclo ? curva.cicloFim : fimHT;
   const duracaoMin = usaCiclo ? curva.cicloDuracaoMin : curva.htDuracaoMin;
   const duracaoTexto =
-    duracaoMin == null ? null : usaCiclo ? duracaoHM(duracaoMin) : `${duracaoMin} min`;
+    usaCiclo && curva.duracaoFixa
+      ? curva.duracaoFixa
+      : duracaoMin == null
+        ? null
+        : usaCiclo
+          ? duracaoHM(duracaoMin)
+          : `${duracaoMin} min`;
   if (tipo !== "KD" && !curva.htInicio) {
     avisos.push("A curva não marca o período do tratamento térmico: as datas usadas são as do ciclo inteiro.");
   }
+  if (usaCiclo && curva.fimEstimado) {
+    avisos.push("A curva foi impressa antes do fim da secagem: o término foi estimado (início + tempo total). Confira.");
+  }
   if (!inicio || !fim) avisos.push("Não foi possível ler início/término na curva — preencha as datas.");
 
-  const temperatura = curva.temperatura != null && duracaoTexto
-    ? `${tempBR(curva.temperatura)}°C / Duração: ${duracaoTexto}`
-    : null;
+  const temperatura =
+    curva.temperatura != null && duracaoTexto ? `${tempBR(curva.temperatura)}°C / Duração: ${duracaoTexto}` : null;
   if (!temperatura) avisos.push("Temperatura/duração não encontradas na curva.");
 
-  // Produto, volumes e quantidade.
-  let produto: string | null = null;
-  let volumes: string | null = null;
-  let quantidade: string | null = null;
-  const comM3 = curva.produtos.filter((p) => p.m3 != null);
-  if (comunicado || (!comM3.length && curva.produtos.length)) {
-    const nomeProduto = comunicado?.produto ?? curva.descricao ?? curva.produtos[0]?.descricao ?? null;
-    const qtd = comunicado?.quantidade?.match(/\d+/)?.[0] ?? curva.produtos[0]?.quantidade?.toString() ?? null;
-    produto = "Madeira reflorestada";
-    volumes = nomeProduto;
-    quantidade = qtd && nomeProduto ? `${qtd} ${unidadeDoProduto(nomeProduto)}` : qtd;
-  } else if (comM3.length) {
-    const pecas = comM3.reduce((s, p) => s + p.quantidade, 0);
-    // Skids/suportes (ex.: ABB "SKIDS-1100"): "Madeira para suportes", volumes em peças.
-    const suportes = /SKID|SUPORTE/.test(semAcento(comM3.map((p) => p.descricao).join(" ")).toUpperCase());
-    if (suportes) {
-      produto = "Madeira para suportes";
-      volumes = `${pecas} peças`;
-    } else {
-      produto = descricaoMadeiraSerrada(comM3);
-      const unidade = empresa.unidadeVolumes || UNIDADE_VOLUMES_POR_CNPJ[soDigitos(empresa.cnpj)] || "Fardos";
-      volumes = `${pecas} ${unidade}`;
-    }
-    const total = curva.totalM3 ?? comM3.reduce((s, p) => s + (p.m3 ?? 0), 0);
-    quantidade = `${m3BR(total)} m³`;
-  } else {
-    avisos.push("Esta curva não traz produto nem cubagem: preencha descrição, volumes e quantidade (planilha do cliente).");
-  }
+  const { produto, volumes, quantidade } = montarProduto(e, tipo, avisos);
 
   // Nº do comunicado ou da programação mensal (MM/AAAA do início).
   let numComunicado: string | null = null;
@@ -159,9 +270,24 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     numComunicado = inicio.data.slice(3); // "21/09/2026" -> "09/2026"
   }
 
+  let lote = arq.lote ?? curva.lote ?? curva.ciclo;
+  if (lote && regra.loteTresDigitos) lote = loteTres(lote);
+
   const ano = inicio?.data.slice(6) ?? String(new Date().getFullYear());
-  const numero = arq.numero ? `${arq.numero}/${ano}` : "";
+  let numero = arq.numero ? `${arq.numero}/${ano}` : "";
+  if (regra.numeroEhLote && lote) numero = lote;
+  if (regra.loteEhNumero && numero) lote = numero;
   if (!numero) avisos.push("Informe o número do certificado (não veio no nome do arquivo da curva).");
+
+  // Credenciada: tomador "Nihil", a não ser que o comunicado traga outra empresa.
+  const tomadorOutro =
+    empresa.modalidade === "Credenciada" &&
+    comunicado?.tomadorCnpj &&
+    soDigitos(comunicado.tomadorCnpj) !== soDigitos(empresa.cnpj);
+  const salvo = tomadorOutro ? e.tomadores?.[soDigitos(comunicado!.tomadorCnpj)] : undefined;
+  if (tomadorOutro && !salvo) {
+    avisos.push("O comunicado traz outro tomador: preencha endereço, telefone e e-mail dele (fica salvo para as próximas vezes).");
+  }
 
   const valores: ValoresCertificado = {
     numero,
@@ -172,19 +298,19 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     telefone: empresa.telefone,
     email: empresa.email,
     regMapa: empresa.regMapa,
-    tomRazao: "Nihil",
-    tomCnpj: "Nihil",
-    tomEndereco: "Nihil",
-    tomTelefone: "Nihil",
-    tomEmail: "Nihil",
+    tomRazao: tomadorOutro ? (salvo?.razao ?? comunicado!.tomadorNome) : "Nihil",
+    tomCnpj: tomadorOutro ? (salvo?.cnpj ?? comunicado!.tomadorCnpj) : "Nihil",
+    tomEndereco: tomadorOutro ? (salvo?.endereco ?? "") : "Nihil",
+    tomTelefone: tomadorOutro ? (salvo?.telefone ?? "") : "Nihil",
+    tomEmail: tomadorOutro ? (salvo?.email ?? "") : "Nihil",
     comunicado: numComunicado,
     enderecoTrat: empresa.endereco,
-    destino: "Estoque",
+    destino: regra.destino ?? "Estoque",
     produto,
     volumes,
     quantidade,
-    lote: arq.lote ?? curva.lote ?? curva.ciclo,
-    ciclo: curva.ciclo,
+    lote,
+    ciclo: curva.sistema === "SV520" ? cicloNoFormato(curva.ciclo, regra.cicloSV520) : curva.ciclo,
     marcas: "Nihil",
     modalidade: tipo === "AQF" ? "AQF - HT" : tipo,
     dataInicio: inicio?.data ?? null,

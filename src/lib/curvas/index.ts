@@ -16,6 +16,6 @@ export function lerCurva(texto: string): Curva | null {
     return parseSV580(texto);
   }
   if (/SV520|Hist[óo]rico da Secagem/i.test(texto)) return parseSV520(texto);
-  if (/Controlador/i.test(texto)) return parseDigisystem(texto);
+  if (/Controlador|Dados gerais|Secagem n[ºo°]/i.test(texto)) return parseDigisystem(texto);
   return null;
 }

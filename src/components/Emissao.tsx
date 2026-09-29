@@ -16,6 +16,7 @@ import { Steps } from "./Steps";
 interface Extraido {
   nomeArquivo: string;
   semTexto: boolean;
+  ocr?: boolean;
   curva: Curva | null;
   comunicado: Comunicado | null;
   dataComunicado: string | null;
@@ -72,7 +73,13 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
   const curva: Curva | null = extraido ? (extraido.curva ?? curvaVazia("CRG08 KDHT")) : null;
   const entrada =
     extraido && curva && empresa
-      ? { curva, empresa, comunicado: extraido.comunicado, nomeArquivo: extraido.nomeArquivo }
+      ? {
+          curva,
+          empresa,
+          comunicado: extraido.comunicado,
+          nomeArquivo: extraido.nomeArquivo,
+          tomadores: empresa.relatorio?.tomadores,
+        }
       : null;
   const sugestao = entrada ? sugerirTipo(entrada) : null;
 
@@ -133,6 +140,33 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
     setEditando(false);
   }
 
+  /** Tomador preenchido (credenciada) fica salvo na empresa para completar os próximos certificados. */
+  async function guardarTomador() {
+    if (!empresa || !valores) return;
+    const cnpj = soDigitos(valores.tomCnpj);
+    if (cnpj.length !== 14 || cnpj === soDigitos(empresa.cnpj) || !valores.tomEndereco) return;
+    const tomador = {
+      razao: valores.tomRazao ?? "",
+      cnpj: valores.tomCnpj ?? "",
+      endereco: valores.tomEndereco ?? "",
+      telefone: valores.tomTelefone ?? "",
+      email: valores.tomEmail ?? "",
+    };
+    try {
+      const res = await fetch("/api/madeireiras/padrao", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...cabecalhoSenha(senha) },
+        body: JSON.stringify({ cnpj: empresa.cnpj, padrao: { tomadores: { [cnpj]: tomador } } }),
+      });
+      if (res.ok) {
+        const { padrao } = await res.json();
+        setEmpresas((lista) => lista?.map((x) => (x.cnpj === empresa.cnpj ? { ...x, relatorio: padrao } : x)) ?? lista);
+      }
+    } catch {
+      // conveniência: o certificado já foi copiado
+    }
+  }
+
   async function copiar() {
     const texto = docRef.current?.innerText ?? "";
     try {
@@ -147,6 +181,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
         await navigator.clipboard.writeText(texto);
       }
       setCopiado(true);
+      void guardarTomador();
       setToast("Copiado! No editor do SEI: Ctrl+A e Ctrl+V.");
     } catch {
       setToast("Não foi possível copiar. Permita o acesso à área de transferência e tente de novo.");
@@ -208,7 +243,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
           )}
           <div className="actions">
             <button type="submit" className="btn primary lg" disabled={carregando || !empresas}>
-              {carregando ? "Lendo os PDFs…" : "Extrair dados"}
+              {carregando ? "Lendo os PDFs… (curvas em imagem levam até 30 s)" : "Extrair dados"}
             </button>
             <span className="hint">
               O nº do certificado e o lote vêm do nome do arquivo da curva (“341 ABB 1-350” → 341/2026, lote 1-350).
@@ -217,7 +252,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
         </form>
       ) : (
         <div className="view">
-          {(extraido.semTexto || !empresa || (montado && montado.avisos.length > 0)) && (
+          {(extraido.semTexto || extraido.ocr || !empresa || (montado && montado.avisos.length > 0)) && (
             <div className="alert-box">
               <h4>Confira antes de copiar</h4>
               <ul>
@@ -225,6 +260,12 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
                   <li>
                     Este PDF é uma imagem (sem texto): preencha início, término, ciclo e temperatura em “Editar
                     campos”.
+                  </li>
+                )}
+                {extraido.ocr && (
+                  <li>
+                    Esta curva é uma imagem e foi lida por OCR: confira com atenção datas, horários, ciclo e
+                    temperatura.
                   </li>
                 )}
                 {!empresa && <li>Não identifiquei a empresa: escolha na lista abaixo.</li>}

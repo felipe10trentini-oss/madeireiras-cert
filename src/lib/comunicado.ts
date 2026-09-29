@@ -17,9 +17,10 @@ export interface Comunicado {
 // Os comunicados das madeireiras variam maiúsculas/minúsculas e espaços
 // ("Comunicado De Tratamento N°:", "Razão Social / CNPJ (Tomador De Serviço):").
 const ROTULOS: { campo: keyof Comunicado | "razaoCnpj" | "marcas"; re: RegExp }[] = [
-  { campo: "numero", re: /^comunicado de tratamento n\s*[°º]?\s*:/i },
+  // "Comunicado de tratamento n°:" ou "N° do comunicado de tratamento:" (DM)
+  { campo: "numero", re: /^(?:comunicado de tratamento n\s*[°º]?|n\s*[°º]?\s*do comunicado de tratamento)\s*:/i },
   { campo: "razaoCnpj", re: /^raz[ãa]o social\s*\/\s*cnpj\s*\(tomador de servi[çc]o\)\s*:/i },
-  { campo: "endereco", re: /^endere[çc]o do local de realiza[çc][ãa]o do tratamento\s*:/i },
+  { campo: "endereco", re: /^endere[çc]o (?:do local )?de realiza[çc][ãa]o do tratamento\s*:/i },
   { campo: "destino", re: /^destino\s*:/i },
   { campo: "produto", re: /^produto a ser tratado\s*:/i },
   { campo: "volumes", re: /^n\s*[°º]?\s*e descri[çc][ãa]o dos volumes\s*:/i },

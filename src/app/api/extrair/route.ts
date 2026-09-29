@@ -2,9 +2,12 @@ import { NextResponse } from "next/server";
 import { respostaNaoAutorizado, senhaEquipeValida } from "@/lib/auth";
 import { lerComunicado } from "@/lib/comunicado";
 import { curvaSemTexto, lerCurva } from "@/lib/curvas";
+import { ocrPrimeiraPagina } from "@/lib/ocr";
 import { extractPdf } from "@/lib/pdfText";
 
 export const runtime = "nodejs";
+// O OCR de curvas que são imagem leva ~15–25 s.
+export const maxDuration = 60;
 
 /**
  * Lê a curva (e o comunicado, quando houver) e devolve os dados normalizados.
@@ -22,12 +25,28 @@ export async function POST(req: Request) {
   }
 
   try {
-    const curvaPdf = await extractPdf(Buffer.from(await curvaArq.arrayBuffer()));
+    const curvaBuffer = Buffer.from(await curvaArq.arrayBuffer());
+    const curvaPdf = await extractPdf(curvaBuffer);
     const comunicadoPdf =
       comunicadoArq instanceof File ? await extractPdf(Buffer.from(await comunicadoArq.arrayBuffer())) : null;
 
-    const semTexto = curvaSemTexto(curvaPdf.text);
-    const curva = semTexto ? null : lerCurva(curvaPdf.text);
+    let semTexto = curvaSemTexto(curvaPdf.text);
+    let ocr = false;
+    let textoCurva = curvaPdf.text;
+    if (semTexto) {
+      // PDF que é só imagem: tenta ler por OCR (pode levar ~20 s).
+      try {
+        const lido = await ocrPrimeiraPagina(curvaBuffer);
+        if (!curvaSemTexto(lido)) {
+          textoCurva = lido;
+          semTexto = false;
+          ocr = true;
+        }
+      } catch (err) {
+        console.error("Falha no OCR da curva", err);
+      }
+    }
+    const curva = semTexto ? null : lerCurva(textoCurva);
     if (!semTexto && !curva) {
       return NextResponse.json(
         { error: "Não reconheci o sistema desta curva (SV580, SV520, CRG08 ou DMC2051)." },
@@ -38,6 +57,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       nomeArquivo: curvaArq.name,
       semTexto,
+      ocr,
       curva,
       comunicado: comunicadoPdf ? lerComunicado(comunicadoPdf.text) : null,
       dataComunicado: comunicadoPdf?.criadoEm ?? null,

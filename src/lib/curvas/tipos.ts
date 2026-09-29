@@ -5,6 +5,7 @@ export type Sistema =
   | "SV520"
   | "DMC2051"
   | "DMC2051 Gráfico"
+  | "Digisystem Relatório"
   | "CRG08 HT"
   | "CRG08 KDHT";
 
@@ -47,8 +48,16 @@ export interface Curva {
 
   produtos: ProdutoCurva[];
   totalM3: number | null;
+  /** Volume em m³ como escrito na curva ("46.1106", "19,064"), quando não há tabela de produtos. */
+  m3Bruto: string | null;
   /** Descrição livre do produto (Digisystem "Descrição: Paletes de madeira"). */
   descricao: string | null;
+  /** Todo o texto livre sobre o produto (descrição, bitola, produtos) para extrair mm, fardos e m³. */
+  textoProduto: string;
+  /** O fim do ciclo não veio na curva (impressa antes do fim) e foi estimado. */
+  fimEstimado: boolean;
+  /** Duração que o certificado usa quando a curva fixa uma (Relatório novo: "programado: 360 min"). */
+  duracaoFixa?: string | null;
 }
 
 export function curvaVazia(sistema: Sistema): Curva {
@@ -71,7 +80,10 @@ export function curvaVazia(sistema: Sistema): Curva {
     temperatura: null,
     produtos: [],
     totalM3: null,
+    m3Bruto: null,
     descricao: null,
+    textoProduto: "",
+    fimEstimado: false,
   };
 }
 

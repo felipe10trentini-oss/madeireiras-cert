@@ -106,6 +106,7 @@ export function parseSV580(texto: string): Curva {
   c.htDuracaoMin = tempoMinimo ? parseInt(tempoMinimo, 10) : c.htInicio && c.htFim ? minutosEntre(c.htInicio, c.htFim) : null;
 
   c.produtos = lerProdutos(texto);
+  c.textoProduto = c.produtos.map((p) => p.descricao).join(" ");
   c.totalM3 = numeroBR(texto.match(/Total \(m³\)\s*([\d,]+)/)?.[1]);
   return c;
 }

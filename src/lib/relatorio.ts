@@ -12,6 +12,16 @@ export interface PadraoRelatorio {
   dataDocumento?: string; // data da programação do mês
   rt?: string; // nome completo do responsável técnico
   volumesCamara?: Record<string, string>; // câmara -> volume (m³)
+  /** Tomadores já usados nos certificados (credenciadas), por CNPJ só com dígitos. */
+  tomadores?: Record<string, Tomador>;
+}
+
+export interface Tomador {
+  razao: string;
+  cnpj: string;
+  endereco: string;
+  telefone: string;
+  email: string;
 }
 
 type Coluna = { key: string; titulo: string };
@@ -117,7 +127,8 @@ export function montarLinhaRelatorio(args: {
     produto: produtoRel,
     volumes: emM3 && mV ? mV[1] : "",
     unidadeVolumes: emM3 && mV ? up(mV[2]) : "",
-    quantidade: mQ ? mQ[1] : "",
+    // Excel em pt-BR: "46.1106" (ponto decimal da curva) precisa ir como "46,1106".
+    quantidade: mQ ? (/^\d+\.\d+$/.test(mQ[1]) && !/^\d{1,3}\.\d{3}$/.test(mQ[1]) ? mQ[1].replace(".", ",") : mQ[1]) : "",
     unidadeQuantidade: emM3 ? "m³" : "Unidades",
     destino: "INDEFINIDO",
     data: v.dataInicio ?? "",
