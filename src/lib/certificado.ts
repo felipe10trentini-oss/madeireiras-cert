@@ -387,6 +387,23 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
   } else if (inicio) {
     numComunicado = inicio.data.slice(3); // "21/09/2026" -> "09/2026"
   }
+  // Ciclo que atravessa o mês (ou o trimestre): pode ser lançado na programação do início ou do término.
+  const fimCiclo = curva.cicloFim ?? fim;
+  if (numComunicado && !comunicado?.numero && inicio && fimCiclo && empresa.documento !== "comunicado" && !regra.prestadora) {
+    const periodo = (data: string) => {
+      const [, mes, ano] = data.split("/");
+      return regra.programacaoTrimestral
+        ? `${String(Math.ceil(parseInt(mes, 10) / 3)).padStart(2, "0")}/${ano}`
+        : `${mes}/${ano}`;
+    };
+    const doFim = periodo(fimCiclo.data);
+    if (doFim !== numComunicado) {
+      avisos.push(
+        `O ciclo começou em ${inicio.data} e terminou em ${fimCiclo.data}: pode ser lançado na programação ${numComunicado} ou ${doFim}. ` +
+          `Está ${numComunicado}; para lançar na ${doFim}, troque no campo do comunicado/programação.`
+      );
+    }
+  }
 
   let lote = arq.lote ?? curva.lote ?? curva.ciclo;
   if (lote && regra.loteTresDigitos) lote = loteTres(lote);
