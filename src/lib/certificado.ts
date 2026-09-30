@@ -387,9 +387,10 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
   } else if (inicio) {
     numComunicado = inicio.data.slice(3); // "21/09/2026" -> "09/2026"
   }
-  // Ciclo que atravessa o mês (ou o trimestre): pode ir na programação do início ou do término.
+  // Secagem que atravessa o mês (ou o trimestre): pode ir na programação do início ou do término.
   // Padrão: a do término (é o que a equipe usa — ex.: 30/08 a 03/09 lançado em 09/2026).
-  const fimCiclo = curva.cicloFim ?? fim;
+  // AQF começa e termina no mesmo dia (vale a data da janela HT): só a secagem atravessa o mês.
+  const fimCiclo = tipo === "AQF" ? inicio : (curva.cicloFim ?? fim);
   if (numComunicado && !comunicado?.numero && inicio && fimCiclo && empresa.documento !== "comunicado" && !regra.prestadora) {
     const periodo = (data: string) => {
       const [, mes, ano] = data.split("/");
