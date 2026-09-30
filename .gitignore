@@ -50,3 +50,6 @@ next-env.d.ts
 
 # Cache do idioma do OCR (tesseract)
 *.traineddata
+
+# estilos dos relatórios (dados de clientes)
+*estilos*.json

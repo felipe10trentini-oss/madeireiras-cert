@@ -1,3 +1,4 @@
+import type { EstiloRelatorio } from "./estiloRelatorio";
 import { lerTratamentos, type Madeireira } from "./madeireiras";
 import type { PadraoRelatorio } from "./relatorio";
 import { getSupabaseServerClient } from "./supabaseServer";
@@ -8,6 +9,8 @@ const TABELA = "empresas";
 
 export interface MadeireiraSalva extends Madeireira {
   relatorio: PadraoRelatorio;
+  /** Estilo das linhas já lançadas na planilha de relatório (entregue pela API, fora do bundle público). */
+  estilo?: EstiloRelatorio | null;
 }
 
 interface Row {
@@ -26,13 +29,15 @@ interface Row {
   email: string | null;
   documento: string | null;
   unidade_volumes: string | null;
-  relatorio: PadraoRelatorio | null;
+  // O estilo aprendido das planilhas de relatório fica junto, em relatorio.estilo (gravado por scripts/gerarEstilos.ts).
+  relatorio: (PadraoRelatorio & { estilo?: EstiloRelatorio }) | null;
 }
 
 const COLS =
   "id, apelido, rt, uf, modalidade, tratamentos, razao_social, cnpj, crea, telefone, endereco, reg_mapa, email, documento, unidade_volumes, relatorio";
 
 function deRow(r: Row): MadeireiraSalva {
+  const { estilo, ...relatorio } = r.relatorio ?? {};
   return {
     apelido: r.apelido,
     rt: r.rt,
@@ -48,7 +53,8 @@ function deRow(r: Row): MadeireiraSalva {
     email: r.email,
     documento: r.documento === "comunicado" ? "comunicado" : r.documento === "programacao" ? "programacao" : null,
     unidadeVolumes: r.unidade_volumes,
-    relatorio: r.relatorio ?? {},
+    relatorio,
+    estilo: estilo ?? null,
   };
 }
 
@@ -175,5 +181,23 @@ export async function salvarPadraoRelatorio(cnpj: string, novo: PadraoRelatorio)
     .update({ relatorio: mesclado, updated_at: new Date().toISOString() })
     .eq("id", atual.id);
   if (error) throw new Error(`Falha ao salvar: ${error.message}`);
-  return mesclado;
+  const { estilo: _estilo, ...semEstilo } = mesclado as PadraoRelatorio & { estilo?: unknown };
+  return semEstilo;
+}
+
+/** Grava o estilo do relatório de cada empresa (chave: CNPJ só com dígitos) em relatorio.estilo. */
+export async function gravarEstilos(estilos: Record<string, EstiloRelatorio>): Promise<number> {
+  const sb = getSupabaseServerClient();
+  let n = 0;
+  for (const r of await lerRows()) {
+    const estilo = estilos[soDigitos(r.cnpj)];
+    if (!estilo) continue;
+    const { error } = await sb
+      .from(TABELA)
+      .update({ relatorio: { ...(r.relatorio ?? {}), estilo }, updated_at: new Date().toISOString() })
+      .eq("id", r.id);
+    if (error) throw new Error(`Falha ao gravar estilo de ${r.apelido}: ${error.message}`);
+    n++;
+  }
+  return n;
 }

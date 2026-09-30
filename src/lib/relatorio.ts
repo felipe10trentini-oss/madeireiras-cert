@@ -4,7 +4,9 @@
 import type { TipoTratamento } from "./certificado";
 import type { Madeireira } from "./madeireiras";
 import type { ValoresCertificado } from "./modelos";
-import { hojeBR } from "./util";
+import { REGRAS_EMPRESA } from "./certificado";
+import { EMBALAGEM, type EstiloGrupo, type EstiloRelatorio } from "./estiloRelatorio";
+import { hojeBR, soDigitos } from "./util";
 
 /** Dados do relatório que não estão na curva e se repetem: ficam salvos por empresa. */
 export interface PadraoRelatorio {
@@ -88,16 +90,41 @@ export const COLUNAS_CREDENCIADA: Coluna[] = [
 
 export type LinhaRelatorio = Record<string, string>;
 
+/** Modelo da planilha de relatório da empresa: A–Z (credenciadas, com tomador) ou A–X. */
 export function colunasRelatorio(empresa: Madeireira): Coluna[] {
-  return empresa.modalidade === "Credenciada" ? COLUNAS_CREDENCIADA : COLUNAS_CADASTRADA;
+  const semTomador = REGRAS_EMPRESA[soDigitos(empresa.cnpj)]?.relatorioSemTomador;
+  return empresa.modalidade === "Credenciada" && !semTomador ? COLUNAS_CREDENCIADA : COLUNAS_CADASTRADA;
 }
 
 const up = (s: string | null | undefined) => (s ?? "").toUpperCase();
 
-/** "09/2026" -> "009/2026" (o relatório usa 3 dígitos). */
-function documento3(n: string | null | undefined): string {
+/** Número do documento no formato da empresa. Programação "09/2026" -> "09.26" / "9.26" / "009/2026". */
+function formatarDocumento(n: string | null | undefined, formato: EstiloGrupo["documento"]): string {
   const m = n?.match(/^(\d{1,3})\/(\d{4})$/);
-  return m ? `${m[1].padStart(3, "0")}/${m[2]}` : (n ?? "");
+  if (!m) return n ?? "";
+  const mes = parseInt(m[1], 10);
+  // Nº de comunicado ("099/2026") não é mês: só a programação (mês 1–12 com 2 dígitos) muda de formato.
+  const ehProgramacao = m[1].length <= 2 && mes >= 1 && mes <= 12;
+  if (!ehProgramacao) return `${m[1].padStart(3, "0")}/${m[2]}`;
+  switch (formato) {
+    case "MM.YY":
+      return `${String(mes).padStart(2, "0")}.${m[2].slice(2)}`;
+    case "M.YY":
+      return `${mes}.${m[2].slice(2)}`;
+    case "MM/YYYY":
+      return `${String(mes).padStart(2, "0")}/${m[2]}`;
+    default:
+      return `${String(mes).padStart(3, "0")}/${m[2]}`;
+  }
+}
+
+/** Nº do ciclo: "UR030851PR160926" -> 851; "Estufa 01 - Ciclo 279" -> 279; "477" -> 477. */
+function numeroCiclo(ciclo: string): { estufa: number | null; numero: string } {
+  const ur = ciclo.match(/^UR(\d{2})(\d{4})/i);
+  if (ur) return { estufa: parseInt(ur[1], 10), numero: String(parseInt(ur[2], 10)) };
+  const ec = ciclo.match(/Estufa\s*(\d+)\D+Ciclo\s*(\d+)/i);
+  if (ec) return { estufa: parseInt(ec[1], 10), numero: String(parseInt(ec[2], 10)) };
+  return { estufa: null, numero: ciclo.match(/\d+/)?.[0] ?? ciclo };
 }
 
 export function montarLinhaRelatorio(args: {
@@ -106,43 +133,109 @@ export function montarLinhaRelatorio(args: {
   tipo: TipoTratamento;
   camara: string | null;
   padrao: PadraoRelatorio;
+  /** Estilo aprendido da planilha de relatório da empresa (quando existe). */
+  estilo?: EstiloRelatorio | null;
 }): LinhaRelatorio {
-  const { empresa, valores: v, tipo, camara, padrao } = args;
+  const { empresa, valores: v, tipo, camara, padrao, estilo } = args;
+  const aqf = tipo === "AQF";
+  const g: EstiloGrupo = (aqf ? (estilo?.aqf ?? estilo?.kd) : (estilo?.kd ?? estilo?.aqf)) ?? {};
+  const caixa = (s: string) => (g.maiusculas ? up(s) : s);
 
   // "209,088 m³" -> 209,088 / m³ ; "720 paletes" -> 720 / Unidades
   const mQ = (v.quantidade ?? "").match(/^([\d.,]+)\s*(.*)$/);
   const emM3 = /m³/.test(v.quantidade ?? "");
   const mV = (v.volumes ?? "").match(/^(\d+)\s+(.*)$/);
-  const produtoRel = emM3 ? up(v.produto?.replace(/\s+\d+\s*mm.*$/i, "")) : up(v.volumes ?? v.produto);
   const tomadorNihil = !v.tomRazao || /^nihil$/i.test(v.tomRazao);
   const mTemp = (v.temperatura ?? "").match(/^([\d,]+)°C\s*\/\s*Dura[çc][ãa]o:\s*(.+)$/);
+  // Excel em pt-BR: "46.1106" (ponto decimal da curva) precisa ir como "46,1106".
+  const qtd = mQ ? (/^\d+\.\d+$/.test(mQ[1]) && !/^\d{1,3}\.\d{3}$/.test(mQ[1]) ? mQ[1].replace(".", ",") : mQ[1]) : "";
+
+  // Produto, volumes e quantidade.
+  let produto: string;
+  let volumes = "";
+  let unidadeVolumes = "";
+  let quantidade = "";
+  let unidadeQuantidade = "";
+  if (emM3) {
+    const nosso = (v.produto ?? "").replace(/\s+\d+(?:,\d+)?\s*mm.*$/i, "");
+    if (g.produto && !g.produtoComMm && /madeira|mad\./i.test(g.produto) && /madeira/i.test(nosso)) {
+      // Texto da empresa ("MADEIRA SERRADA", "Madeira de Pinus"), trocando a espécie se for outra.
+      const euc = /eucalipto/i.test(nosso) && !/pinus/i.test(nosso);
+      produto = euc ? g.produto.replace(/pinus/i, (p) => (p === p.toUpperCase() ? "EUCALIPTO" : "eucalipto")) : g.produto;
+    } else produto = caixa(g.produtoComMm ? (v.produto ?? "") : nosso);
+    if (mV && (g.preencheVolumes ?? true)) volumes = mV[1];
+    unidadeVolumes = mV || g.unidadeVolumes ? (g.unidadeVolumes ?? caixa(up(mV?.[2] ?? ""))) : "";
+    quantidade = qtd;
+    unidadeQuantidade = g.unidadeQuantidade ?? "m³";
+  } else {
+    // Embalagens contadas ("720 paletes"): produto = descrição das embalagens.
+    produto = v.volumes && !/^\d/.test(v.volumes) ? v.volumes : (v.produto ?? "");
+    if (g.embalagemDeMadeira && EMBALAGEM.test(produto) && !/madeira/i.test(produto)) produto += " de madeira";
+    produto = caixa(produto);
+    const unidade = g.contagemEm === "volumes" ? (g.unidadeVolumes ?? "Unidades") : (g.unidadeQuantidade ?? caixa("Unidades"));
+    if (g.contagemEm === "volumes") {
+      volumes = qtd;
+      unidadeVolumes = unidade;
+    } else {
+      quantidade = qtd;
+      unidadeQuantidade = unidade;
+    }
+  }
+
+  const { estufa: estufaCiclo, numero } = numeroCiclo(v.ciclo ?? "");
+  const cam = camara ?? (estufaCiclo != null ? String(estufaCiclo) : "");
+  let ciclo = v.ciclo ?? "";
+  if (g.ciclo === "numero") ciclo = numero;
+  else if (g.ciclo === "E;C" && cam) ciclo = `${cam};${numero}`;
+
+  const duracaoTexto = mTemp ? mTemp[2] : "";
+  const minutos = duracaoTexto.match(/^(\d+)\s*min$/)?.[1];
+  const hm = duracaoTexto.match(/^(\d+)h(\d+)m$/);
+  let duracao = minutos ?? duracaoTexto;
+  if (minutos) {
+    if (g.duracao === "00hMMm") duracao = `00h${minutos}m`;
+    else if (g.duracao === "00hMMmin") duracao = `00h${minutos}min`;
+    else if (g.duracao === "hhmm") duracao = `${String(Math.floor(+minutos / 60)).padStart(2, "0")}h${String(+minutos % 60).padStart(2, "0")}m`;
+  } else if (hm && g.duracao === "min") duracao = String(parseInt(hm[1], 10) * 60 + parseInt(hm[2], 10));
+
+  let lote = v.lote ?? "";
+  const mL = lote.match(/^(\d+)-(\d+)$/);
+  if (g.lote === "certificado") lote = v.numero ?? lote;
+  else if (g.lote === "ciclo") lote = numero;
+  else if (g.lote === "E;C") lote = mL ? `${parseInt(mL[1], 10)};${parseInt(mL[2], 10)}` : cam ? `${cam};${numero}` : lote;
+  else if (g.lote === "E-CCC" && mL) lote = `${parseInt(mL[1], 10)}-${mL[2].padStart(3, "0")}`;
+  else if (g.lote === "concat") lote = mL ? `${parseInt(mL[1], 10)}${parseInt(mL[2], 10)}` : `${cam}${numero}`;
+
+  const horario = g.horario === ":" ? (v.horaInicio ?? "").replace(/^(\d{2})h(\d{2})m$/, "$1:$2") : (v.horaInicio ?? "");
+  const tomadorTexto = tomadorNihil ? empresa.razaoSocial : (v.tomRazao ?? "");
+  // "000 TUNAS DO PARANÁ - PR" -> "TUNAS DO PARANÁ" (sobra de número do endereço no comunicado)
+  const local = (v.local ?? "").replace(/\s*[-–]\s*[A-Z]{2}$/, "").replace(/^\d+\s+/, "");
 
   return {
-    objetivo: "Certificação fitossanitária",
+    objetivo: (EMBALAGEM.test(produto) && !/serrad/i.test(produto) ? g.objetivoEmbalagem : undefined) ?? g.objetivo ?? (aqf ? "Atendimento à NIMF15" : "Certificação fitossanitária"),
     finalidade: "Exp.",
-    documento: documento3(v.comunicado),
-    processo: padrao.processo ?? "",
-    dataDocumento: padrao.dataDocumento ?? "",
-    tomador: tomadorNihil ? up(empresa.razaoSocial) : up(v.tomRazao),
-    tomadorCnpj: tomadorNihil ? empresa.cnpj : (v.tomCnpj ?? ""),
-    rt: padrao.rt ?? empresa.rt ?? "",
-    produto: produtoRel,
-    volumes: emM3 && mV ? mV[1] : "",
-    unidadeVolumes: emM3 && mV ? up(mV[2]) : "",
-    // Excel em pt-BR: "46.1106" (ponto decimal da curva) precisa ir como "46,1106".
-    quantidade: mQ ? (/^\d+\.\d+$/.test(mQ[1]) && !/^\d{1,3}\.\d{3}$/.test(mQ[1]) ? mQ[1].replace(".", ",") : mQ[1]) : "",
-    unidadeQuantidade: emM3 ? "m³" : "Unidades",
-    destino: "INDEFINIDO",
+    documento: formatarDocumento(v.comunicado, g.documento),
+    processo: padrao.processo ?? estilo?.processo ?? "",
+    dataDocumento: padrao.dataDocumento ?? estilo?.dataDocumento ?? "",
+    tomador: g.tomadorNihil ? "NIHIL" : g.tomadorMaiusculas === false ? tomadorTexto : up(tomadorTexto),
+    tomadorCnpj: g.tomadorNihil ? "NIHIL" : tomadorNihil ? empresa.cnpj : (v.tomCnpj ?? ""),
+    rt: padrao.rt ?? estilo?.rt ?? empresa.rt ?? "",
+    produto,
+    volumes,
+    unidadeVolumes,
+    quantidade,
+    unidadeQuantidade,
+    destino: g.destino ?? "INDEFINIDO",
     data: v.dataInicio ?? "",
-    horario: v.horaInicio ?? "",
-    local: up((v.local ?? "").replace(/\s*[-–]\s*[A-Z]{2}$/, "")),
-    modalidade: tipo === "AQF" ? "AQF - HT" : "Secagem em Estufa",
-    camara: camara ?? "",
-    volumeCamara: (camara && padrao.volumesCamara?.[camara]) || "",
-    ciclo: v.ciclo ?? "",
+    horario,
+    local: g.localMaiusculas === false ? local : up(local),
+    modalidade: g.modalidade ?? (aqf ? "AQF" : "Secagem em Estufa"),
+    camara: g.estufa === "Estufa NN" && cam ? `Estufa ${cam.padStart(2, "0")}` : cam,
+    volumeCamara: (cam && (padrao.volumesCamara?.[cam] || estilo?.volumesCamara?.[cam])) || "",
+    ciclo,
     temperatura: mTemp ? mTemp[1] : "",
-    duracao: mTemp ? mTemp[2].replace(/\s*min$/, "") : "",
-    lote: v.lote ?? "",
+    duracao,
+    lote,
     certificado: v.numero ?? "",
     processoCertificado: "",
     dataEmissao: hojeBR(),

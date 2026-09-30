@@ -30,14 +30,18 @@ interface Props {
  */
 export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, dataComunicado, onToast, onPadraoSalvo }: Props) {
   const salvo = empresa.relatorio ?? {};
-  const [processo, setProcesso] = useState(salvo.processo ?? "");
+  // Padrão das linhas já lançadas na planilha de relatório da empresa (objetivo, formatos, processo, RT...).
+  const estilo = empresa.estilo ?? null;
+  const [processo, setProcesso] = useState(salvo.processo || estilo?.processo || "");
   // Com comunicado enviado, a data é a de criação do PDF; na programação, a data salva do mês.
   const usaComunicado = dataComunicado != null || empresa.documento === "comunicado";
   const [dataDocumento, setDataDocumento] = useState(
-    usaComunicado ? (dataComunicado ?? "") : (salvo.dataDocumento ?? "")
+    usaComunicado ? (dataComunicado ?? "") : (salvo.dataDocumento || estilo?.dataDocumento || "")
   );
-  const [rt, setRt] = useState(salvo.rt ?? empresa.rt ?? "");
-  const [volumeCamara, setVolumeCamara] = useState((camara && salvo.volumesCamara?.[camara]) || "");
+  const [rt, setRt] = useState(salvo.rt || estilo?.rt || empresa.rt || "");
+  const [volumeCamara, setVolumeCamara] = useState(
+    (camara && (salvo.volumesCamara?.[camara] || estilo?.volumesCamara?.[String(parseInt(camara, 10))])) || ""
+  );
   const [ajustes, setAjustes] = useState<Record<string, string>>({});
 
   const colunas = colunasRelatorio(empresa);
@@ -47,7 +51,7 @@ export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, data
     rt,
     volumesCamara: camara ? { [camara]: volumeCamara } : {},
   };
-  const linha = { ...montarLinhaRelatorio({ empresa, valores, tipo, camara, padrao }), ...ajustes };
+  const linha = { ...montarLinhaRelatorio({ empresa, valores, tipo, camara, padrao, estilo }), ...ajustes };
 
   async function copiar() {
     try {
