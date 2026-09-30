@@ -105,6 +105,7 @@ a { color: var(--accent-2); }
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 16px; box-shadow: var(--shadow);
 }
+.kpi-valor { font-family: var(--font-display, inherit); font-size: 30px; font-weight: 700; line-height: 1.1; color: var(--text); }
 .kpi-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; }
 .kpi-value { font-family: var(--font-mono); font-size: 28px; font-weight: 600; line-height: 1; }
 .kpi-value.text { font-family: var(--font-body); font-size: 17px; line-height: 1.25; font-weight: 600; }
@@ -204,6 +205,10 @@ select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent-2); 
 footer.note { margin-top: 34px; font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 14px; }
 
 /* ---------- Navegação por abas (igual ao Controle GLP) ---------- */
+.nav-wrap { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.usuario { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+.usuario span { font-weight: 600; color: var(--text); }
+button.link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; }
 nav.tabs { display: flex; gap: 4px; background: var(--surface-2); padding: 4px; border-radius: 999px; flex-wrap: wrap; }
 nav.tabs a {
   color: var(--text-muted); padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 600;

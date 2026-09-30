@@ -1,5 +1,5 @@
 import type { EstiloRelatorio } from "./estiloRelatorio";
-import { lerTratamentos, type Madeireira } from "./madeireiras";
+import { lerTratamentos, type ConfigEmpresa, type Madeireira } from "./madeireiras";
 import type { PadraoRelatorio } from "./relatorio";
 import { juntarUltimos } from "./sequenciaCiclo";
 import { getSupabaseServerClient } from "./supabaseServer";
@@ -32,10 +32,11 @@ interface Row {
   unidade_volumes: string | null;
   // O estilo aprendido das planilhas de relatório fica junto, em relatorio.estilo (gravado por scripts/gerarEstilos.ts).
   relatorio: (PadraoRelatorio & { estilo?: EstiloRelatorio }) | null;
+  config: ConfigEmpresa | null;
 }
 
 const COLS =
-  "id, apelido, rt, uf, modalidade, tratamentos, razao_social, cnpj, crea, telefone, endereco, reg_mapa, email, documento, unidade_volumes, relatorio";
+  "id, apelido, rt, uf, modalidade, tratamentos, razao_social, cnpj, crea, telefone, endereco, reg_mapa, email, documento, unidade_volumes, relatorio, config";
 
 function deRow(r: Row): MadeireiraSalva {
   const { estilo, ...relatorio } = r.relatorio ?? {};
@@ -56,6 +57,7 @@ function deRow(r: Row): MadeireiraSalva {
     unidadeVolumes: r.unidade_volumes,
     relatorio,
     estilo: estilo ?? null,
+    config: r.config ?? {},
   };
 }
 
@@ -75,6 +77,8 @@ function paraRow(m: Madeireira) {
     email: m.email,
     documento: m.documento,
     unidade_volumes: m.unidadeVolumes,
+    // A Planilha Geral não traz configurações: só a planilha de cadastro nova grava a coluna.
+    ...(m.config && { config: m.config }),
   };
 }
 
@@ -131,8 +135,10 @@ export async function sincronizarMadeireiras(
       resumo.novas.push(e.apelido);
       continue;
     }
-    const campos: string[] = (Object.keys(row) as (keyof typeof row)[]).filter(
-      (k) => (row[k] ?? "").toString().trim() !== (atual[k] ?? "").toString().trim()
+    const campos: string[] = (Object.keys(row) as (keyof typeof row)[]).filter((k) =>
+      k === "config"
+        ? JSON.stringify(row.config ?? {}) !== JSON.stringify(atual.config ?? {})
+        : (row[k] ?? "").toString().trim() !== (atual[k] ?? "").toString().trim()
     );
     // O processo da programação (aba PROGRAMAÇÕES) vai para os dados do relatório.
     let relatorio: PadraoRelatorio | undefined;

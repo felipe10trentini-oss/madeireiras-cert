@@ -33,6 +33,7 @@ const NOME_CAMPO: Record<string, string> = {
   documento: "programação/comunicado",
   processo: "processo da programação",
   unidade_volumes: "unidade dos volumes",
+  config: "configurações (lote, ciclo, tomador, DR…)",
 };
 
 function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
@@ -106,10 +107,10 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
   return (
     <div className="view">
       <p className="lead">
-        Envie a <b>Planilha Geral</b>: o site lê a aba <b>DADOS CADASTRAIS</b> (dados das empresas) e a aba{" "}
-        <b>PROGRAMAÇÕES</b> (quem usa programação mensal e o nº do processo; as demais usam comunicado). A comparação é
-        pelo <b>CNPJ</b>: cadastra as novas e atualiza as que mudaram. Nenhuma empresa é apagada. Coluna opcional na
-        aba de dados: <b>UNIDADE</b> (Fardos, Tábuas…).
+        Envie a planilha <b>Cadastro Madeireiras</b> (aba <b>CADASTRO</b>): dados das empresas e as configurações de
+        cada uma (programação/comunicado, formato do lote e do ciclo, tomador fixo, DR…). Também aceita a{" "}
+        <b>Planilha Geral</b> antiga (abas DADOS CADASTRAIS e PROGRAMAÇÕES). A comparação é pelo <b>CNPJ</b>: cadastra as
+        novas e atualiza as que mudaram. Nenhuma empresa é apagada — para tirar uma da lista, marque <b>Ativa: Não</b>.
       </p>
 
       {erroLista && (
@@ -123,8 +124,8 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
 
       <div className="drops" style={{ gridTemplateColumns: "1fr" }}>
         <FileDrop
-          titulo="Planilha Geral"
-          dica="Arraste a Planilha Geral (.xlsx) aqui ou clique para escolher"
+          titulo="Planilha de cadastro"
+          dica="Arraste a Cadastro Madeireiras.xlsx (ou a Planilha Geral) aqui ou clique para escolher"
           arquivo={arquivo}
           onArquivo={(x) => {
             setArquivo(x);

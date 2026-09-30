@@ -12,6 +12,7 @@ import { chaveDoCiclo, juntarUltimos, verificarSequencia } from "@/lib/sequencia
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { soDigitos } from "@/lib/util";
 import { FileDrop } from "./FileDrop";
+import { DrCard } from "./DrCard";
 import { LinhaRelatorioCard } from "./LinhaRelatorioCard";
 import { PlanilhaControleCard } from "./PlanilhaControleCard";
 import { Steps } from "./Steps";
@@ -50,6 +51,8 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
   const [conferiuDivergencias, setConferiuDivergencias] = useState(false);
   const [sequenciaConferida, setSequenciaConferida] = useState<string[]>([]);
   const docRef = useRef<HTMLDivElement>(null);
+  // Certificados já registrados nesta tela (copiar duas vezes não conta duas emissões).
+  const registrados = useRef(new Set<string>());
 
   // `sair` muda a cada render do portão de senha: guardado em ref para não refazer a busca.
   const sairRef = useRef(sair);
@@ -84,6 +87,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
           comunicado: extraido.comunicado,
           nomeArquivo: extraido.nomeArquivo,
           tomadores: empresa.relatorio?.tomadores,
+          empresas: empresas ?? undefined,
           ultimoLote: empresa.relatorio?.ultimoLote,
         }
       : null;
@@ -200,6 +204,32 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
     }
   }
 
+  /** Controladoria: quem copiou qual certificado (e se passou por divergências conferidas). */
+  async function registrarEmissao() {
+    if (!empresa || !valores) return;
+    const chave = `${empresa.cnpj}|${valores.numero}|${valores.lote}`;
+    if (registrados.current.has(chave)) return;
+    registrados.current.add(chave);
+    try {
+      await fetch("/api/emissoes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...cabecalhoSenha(senha) },
+        body: JSON.stringify({
+          empresaCnpj: empresa.cnpj,
+          empresaApelido: empresa.apelido,
+          numero: valores.numero,
+          tipo,
+          lote: valores.lote,
+          ciclo: valores.ciclo,
+          dataTratamento: valores.dataInicio,
+          divergencias: conferiuDivergencias ? errosDivergencia.map((d) => `${d.campo}: ${d.detalhe}`) : [],
+        }),
+      });
+    } catch {
+      registrados.current.delete(chave); // tenta de novo na próxima cópia
+    }
+  }
+
   async function copiar() {
     if (travado) {
       setToast("Há divergências entre o comunicado e a curva: confira e marque “Conferi as divergências” para copiar.");
@@ -220,6 +250,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
       }
       setCopiado(true);
       void guardarTomador();
+      void registrarEmissao();
       setToast("Copiado! No editor do SEI: Ctrl+A e Ctrl+V.");
     } catch {
       setToast("Não foi possível copiar. Permita o acesso à área de transferência e tente de novo.");
@@ -363,7 +394,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
               <div className="kpi-label">Empresa</div>
               <select value={cnpjEscolhido} onChange={(e) => trocarEmpresa(e.target.value)} aria-label="Empresa">
                 <option value="">— escolha —</option>
-                {empresas?.map((e) => (
+                {empresas?.filter((e) => !e.config?.inativa || e.cnpj === cnpjEscolhido).map((e) => (
                   <option key={e.cnpj} value={e.cnpj}>
                     {e.apelido} · {e.regMapa}
                   </option>
@@ -511,6 +542,9 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
                     )
                   }
                 />
+              )}
+              {empresa && valores && (
+                <DrCard empresa={empresa} valores={valores} tipo={tipo} curva={curva} onToast={setToast} />
               )}
             </>
           ) : (

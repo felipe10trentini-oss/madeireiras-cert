@@ -1,6 +1,35 @@
 import ExcelJS from "exceljs";
 import { lerDocumento, lerTratamentos, type Madeireira } from "./madeireiras";
+import { COLUNAS_CADASTRO, empresaDaLinha } from "./cadastroColunas";
 import { chaveNome, soDigitos } from "./util";
+
+/** Aba CADASTRO da planilha nova: cabeçalho com os títulos de COLUNAS_CADASTRO. */
+function lerCadastro(wb: ExcelJS.Workbook): { empresas: Madeireira[]; ignoradas: number } | null {
+  const ws = wb.worksheets.find((w) => w.name.trim().toUpperCase() === "CADASTRO");
+  if (!ws) return null;
+  const titulos = new Set(COLUNAS_CADASTRO.map((c) => c.titulo));
+  for (let r = 1; r <= Math.min(ws.rowCount, 10); r++) {
+    const colunas = new Map<number, string>();
+    ws.getRow(r).eachCell((cell, col) => {
+      const t = textoDaCelula(cell.value);
+      if (t && titulos.has(t)) colunas.set(col, t);
+    });
+    if (!colunas.size || ![...colunas.values()].includes("CNPJ")) continue;
+    const empresas: Madeireira[] = [];
+    let ignoradas = 0;
+    for (let i = r + 1; i <= ws.rowCount; i++) {
+      const linha: Record<string, string | null> = {};
+      const row = ws.getRow(i);
+      for (const [col, t] of colunas) linha[t] = textoDaCelula(row.getCell(col).value);
+      if (!Object.values(linha).some(Boolean)) continue;
+      const lida = empresaDaLinha(linha);
+      if (!lida || soDigitos(lida.empresa.cnpj).length !== 14) ignoradas++;
+      else empresas.push(lida.empresa);
+    }
+    return { empresas, ignoradas };
+  }
+  return null;
+}
 
 function textoDaCelula(valor: ExcelJS.CellValue): string | null {
   if (valor == null) return null;
@@ -47,6 +76,9 @@ export async function lerPlanilhaMadeireiras(
 ): Promise<{ empresas: Madeireira[]; ignoradas: number }> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer as ArrayBuffer);
+  // Planilha nova "Cadastro Madeireiras.xlsx" (aba CADASTRO, com as colunas de configuração).
+  const novo = lerCadastro(wb);
+  if (novo) return novo;
   const ws = wb.worksheets.find((w) => /cadastr/i.test(w.name)) ?? wb.worksheets[0];
   if (!ws) throw new Error("A planilha não tem nenhuma aba.");
 

@@ -25,9 +25,8 @@ async function main() {
   const { empresas } = await lerPlanilhaMadeireiras(fs.readFileSync("tests/fixtures/PlanilhaGeral.xlsx"));
   const saida: Record<string, { arquivo: string; estilo: unknown; nota: number }> = {};
 
-  for (const [arquivo, rel] of Object.entries(rels)) {
-    if (!rel.rows.length) continue;
-    const nome = arquivo.replace(/\s*-\s*2026.*$/i, "").replace(/\.xlsx$/i, "");
+  /** Empresas cujo apelido ou razão social casa com o nome do arquivo (e a nota do casamento). */
+  function empresasDoArquivo(nome: string) {
     const pa = palavras(nome);
     // Empresas cujo apelido ou razão social casa com o nome do arquivo.
     const cands = empresas
@@ -41,11 +40,23 @@ async function main() {
       })
       .filter((x) => x.s >= 0.5)
       .sort((a, b) => b.s - a.s);
-    if (!cands.length) {
+    if (!cands.length) return null;
+    let melhor = cands.filter((c) => c.s === cands[0].s).map((c) => c.e);
+    // Empate ("HENRIQUE. MAD" x Henrique, Henrique Grando, Mad. Pontal): vale o apelido que abre o nome do arquivo.
+    const prefixo = melhor.filter((e) => chaveNome(nome).startsWith(chaveNome(e.apelido)));
+    if (melhor.length > 1 && prefixo.length) melhor = prefixo;
+    return { melhor, nota: cands[0].s };
+  }
+
+  for (const [arquivo, rel] of Object.entries(rels)) {
+    if (!rel.rows.length) continue;
+    const achou = empresasDoArquivo(arquivo.replace(/\s*-\s*2026.*$/i, "").replace(/\.xlsx$/i, ""));
+    if (!achou) {
       console.log(`?? ${arquivo}: nenhuma empresa`);
       continue;
     }
-    const melhor = cands.filter((c) => c.s === cands[0].s).map((c) => c.e);
+    const { melhor } = achou;
+    const cands = [{ s: achou.nota }];
     const estilo = derivarEstilo(rel.header, rel.rows);
     if (!estilo) continue;
     for (const e of melhor) {
@@ -53,6 +64,33 @@ async function main() {
       if (!saida[k] || saida[k].nota < cands[0].s) saida[k] = { arquivo, estilo, nota: cands[0].s };
     }
     console.log(`${arquivo} -> ${melhor.map((e) => e.apelido).join(", ")}`);
+  }
+  // DR (Demonstrativo de Rastreabilidade): em que colunas da aba DADOS se digita o fim
+  // (e, na Pinustan, o início e o fim do HT na aba DADOS HT).
+  const iDrs = process.argv.indexOf("--drs");
+  if (iDrs > 0) {
+    const drs: Record<string, Record<string, { header: string[] }>> = JSON.parse(fs.readFileSync(process.argv[iDrs + 1], "utf8"));
+    const letra = (i: number) => String.fromCharCode(65 + i);
+    for (const [arquivo, abas] of Object.entries(drs)) {
+      const achou = empresasDoArquivo(arquivo.replace(/\s*-\s*DR.*$/i, ""));
+      if (!achou || !Object.keys(abas).length) {
+        console.log(`?? DR ${arquivo}: nenhuma empresa`);
+        continue;
+      }
+      const dr = {
+        arquivo,
+        abas: Object.entries(abas).map(([aba, v]) => {
+          const datas = v.header.map((h, i) => (/^data$/i.test(h.trim()) ? i : -1)).filter((i) => i >= 0);
+          return { aba, colunaInicio: datas[0] != null ? letra(datas[0]) : null, colunaFim: datas[1] != null ? letra(datas[1]) : null };
+        }),
+      };
+      for (const e of achou.melhor) {
+        const k = soDigitos(e.cnpj);
+        saida[k] ??= { arquivo: "", estilo: {}, nota: 0 };
+        (saida[k].estilo as { dr?: unknown }).dr = dr;
+      }
+      console.log(`DR ${arquivo} -> ${achou.melhor.map((e) => e.apelido).join(", ")} ${dr.abas.map((a) => `${a.aba}:${a.colunaFim}`).join(" ")}`);
+    }
   }
   const final = Object.fromEntries(Object.entries(saida).map(([k, v]) => [k, { arquivo: v.arquivo, estilo: v.estilo }]));
   fs.writeFileSync(process.argv[3], JSON.stringify(final, null, 1));

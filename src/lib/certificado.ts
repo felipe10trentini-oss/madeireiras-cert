@@ -2,6 +2,7 @@ import type { Comunicado } from "./comunicado";
 import type { Curva } from "./curvas/tipos";
 import { lerNomeArquivo, type Madeireira } from "./madeireiras";
 import { MODELOS, type Modelo, type ValoresCertificado } from "./modelos";
+import { chaveDoCiclo } from "./sequenciaCiclo";
 import { descricaoSerrada, fardos, frasePropria } from "./produtoTexto";
 import type { Tomador } from "./relatorio";
 import { duracaoHM, horaFmt, m3BR, semAcento, soDigitos, somarMinutos, tempBR, type DataHora } from "./util";
@@ -22,6 +23,8 @@ export interface EntradaCertificado {
   nomeArquivo: string;
   /** Tomadores já preenchidos antes para esta empresa (por CNPJ só com dígitos). */
   tomadores?: Record<string, Tomador>;
+  /** Cadastro inteiro (para achar a matriz de uma filial: regra prestadorCnpj). */
+  empresas?: Madeireira[];
   /** Último lote usado pela empresa (para empresas com lote sequencial, ex.: GM). */
   ultimoLote?: string | null;
 }
@@ -42,7 +45,7 @@ interface RegraEmpresa {
   destino?: string;
   /** Skids: "Madeira para suportes" / "N peças" / m³ (em vez de "Suportes de madeira" / "N unidades"). */
   suportesEmPecas?: boolean;
-  /** Como a empresa escreve o ciclo do SV520: {e} estufa, {e2} estufa com 2 dígitos, {c} ciclo. */
+  /** Formato próprio do ciclo (secagem SV520/DMC2051/Mahild), se não for o padrão "Estufa {e} - Ciclo {c3}". */
   cicloSV520?: string;
   /** Minutos a somar ao término do tratamento HT/AQF (Madeico usa 1 minuto a menos). */
   ajusteFimMin?: number;
@@ -69,6 +72,21 @@ interface RegraEmpresa {
   programacaoTrimestral?: boolean;
   /** Kits de paletes são sempre AQF em unidades (Maxi). */
   kitEhAqf?: boolean;
+  /** Curva SV580 "Finalizado (HT)" vai no modelo AQF "AQF - HT" (Palletimber). */
+  htEhAqf?: boolean;
+  /** Lote sem hífen: "1-514" -> "1514" (Palletimber). */
+  loteSemHifen?: boolean;
+  /** Bitola quando a curva não traz (Rio Timbó: quase sempre 17 mm; o operador corrige se for outra). */
+  bitolaPadraoMm?: number;
+  /** Embalagens sempre "… de madeira" na descrição dos volumes (MD: "Paletes de madeira"). */
+  embalagemDeMadeira?: boolean;
+  /**
+   * Filial que emite em nome da matriz (Inexport Capivari): os dados do prestador (1.x) são
+   * os da empresa com este CNPJ, e o tomador (2.x) é a própria filial.
+   */
+  prestadorCnpj?: string;
+  /** Tomador sempre o mesmo (Reis -> Madeireira São Gabriel); campos vazios usam os da empresa. */
+  tomadorFixo?: Partial<Tomador> & { razao: string; cnpj: string };
 }
 
 export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
@@ -84,12 +102,11 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "03636539000120": { loteAnoSemana: true, produto: "Madeira serrada para embalagens", programacaoTrimestral: true }, // MART
   "21495060000283": { kitEhAqf: true }, // Maxi
   "50709371000115": { email: "faturamento2@lgpallets.com.br" }, // LG Logística
-  "83054544000163": { cicloSV520: "Estufa {e} - Ciclo {c}" }, // Salamoni (SV520 e Mahild)
-  "93470243000174": { cicloSV520: "Estufa {e} Ciclo {c}" }, // Madesozo
-  "79235917000125": { cicloSV520: "Estufa {e} Ciclo {c}" }, // Rio Verde
-  "03917690000136": { cicloSV520: "Estufa {e2} Ciclo {c}" }, // Selva Norte
-  "33094099000197": { cicloSV520: "Estufa {e2} Ciclo {c}" }, // São Jorge
-  "00667464000156": { cicloSV520: "Estufa {e2} Ciclo {c}" }, // Videpinus
+  "20593206000180": { htEhAqf: true, loteSemHifen: true }, // Palletimber
+  "13804475000182": { bitolaPadraoMm: 17, loteTresDigitos: true }, // Rio Timbó
+  "04456108000144": { embalagemDeMadeira: true }, // MD Paletes
+  "05199829000260": { prestadorCnpj: "05199829000189" }, // Inexport Capivari: prestador é a matriz (Palmares)
+  "06249793000163": { tomadorFixo: { razao: "Madeireira São Gabriel Ltda", cnpj: "40.950.343/0001-31" } }, // Reis
   "83951012000129": { ajusteFimMin: -1 }, // Madeico
 };
 
@@ -122,15 +139,34 @@ export function diaSemComunicado(data: string): string | null {
   return moveis[dias] ? `feriado (${moveis[dias]})` : null;
 }
 
-/** "Estufa 03 - Ciclo 761" no formato da empresa. */
+/** "Estufa 03 - Ciclo 761" num formato próprio: {e} estufa, {e2} estufa com 2 dígitos, {c} ciclo, {c3} ciclo com 3. */
 function cicloNoFormato(ciclo: string | null, formato: string | undefined): string | null {
   const m = ciclo?.match(/Estufa\s*(\d+)\s*-?\s*Ciclo\s*(\d+)/i);
   if (!m || !formato) return ciclo;
   const e = parseInt(m[1], 10);
-  return formato.replace("{e2}", String(e).padStart(2, "0")).replace("{e}", String(e)).replace("{c}", m[2]);
+  const c = parseInt(m[2], 10);
+  return formato
+    .replace("{e2}", String(e).padStart(2, "0"))
+    .replace("{e}", String(e))
+    .replace("{c3}", String(c).padStart(3, "0"))
+    .replace("{c}", m[2]);
 }
 
-const regraDe = (e: Madeireira): RegraEmpresa => REGRAS_EMPRESA[soDigitos(e.cnpj)] ?? {};
+/** Padrão da equipe para secagem (KD ou KD/HT) nas curvas sem código UR: "Estufa 04 - Ciclo 208". */
+const FORMATO_CICLO_PADRAO = "Estufa {e2} - Ciclo {c3}";
+const SISTEMAS_CICLO_PADRAO = new Set(["SV520", "DMC2051", "DMC2051 Gráfico", "Digisystem Relatório", "Mahild"]);
+
+function cicloDoCertificado(curva: Curva, empresa: Madeireira, regra: RegraEmpresa): string | null {
+  // Empresas que secam (KD ou KD/HT); as só HT (AQF) mantêm o nº da curva.
+  if (!SISTEMAS_CICLO_PADRAO.has(curva.sistema) || !empresa.tratamentos.includes("KD")) return curva.ciclo;
+  // DMC2051 traz só o nº da secagem ("478"): a estufa vem do controlador.
+  const ch = chaveDoCiclo(curva.ciclo, curva.camara, curva.lote);
+  if (!ch) return curva.ciclo;
+  return cicloNoFormato(`Estufa ${ch.estufa} Ciclo ${ch.numero}`, regra.cicloSV520 ?? FORMATO_CICLO_PADRAO);
+}
+
+/** Regras do código + as da planilha de cadastro (colunas de configuração), que valem por cima. */
+const regraDe = (e: Madeireira): RegraEmpresa => ({ ...(REGRAS_EMPRESA[soDigitos(e.cnpj)] ?? {}), ...(e.config ?? {}) });
 
 const up = (s: string | null | undefined) => semAcento(s ?? "").toUpperCase();
 
@@ -155,6 +191,9 @@ export function sugerirTipo(e: EntradaCertificado): { tipo: TipoTratamento; moti
 
   if (regraDe(empresa).kitEhAqf && curva.produtos.some((p) => /\bKIT\b/.test(up(p.descricao)))) {
     return { tipo: "AQF", motivo: "kit de paletes (sempre AQF nesta empresa)" };
+  }
+  if (regraDe(empresa).htEhAqf && curva.sistema === "SV580" && curva.statusTipo === "HT") {
+    return { tipo: "AQF", motivo: "curva SV580 finalizada em HT: ar quente forçado nesta empresa" };
   }
   if (curva.sistema === "CRG08 HT") return { tipo: "AQF", motivo: "curva de equipamento HT (CRG08 HT)" };
   if (SUPORTES.test(up(curva.textoProduto)) || (comunicado?.produto && ehEmbalagem(comunicado.produto))) {
@@ -271,10 +310,10 @@ function montarProduto(e: EntradaCertificado, tipo: TipoTratamento, avisos: stri
   if (comM3.length) {
     const unidade = empresa.unidadeVolumes || regra.unidadeVolumes || "Fardos";
     // Contagem de fardos: citada no texto ("5 fardos", "48 GRADES") ou na coluna de
-    // quantidade, quando é contagem de verdade (volume unitário pequeno). "1" com
-    // dezenas de m³ não é contagem -> "Nihil".
+    // quantidade, somando todas as linhas (21 + 5 + 1 = 27 fardos), quando é contagem de
+    // verdade: volume unitário de fardo (até 5 m³). "1" com dezenas de m³ não é contagem -> "Nihil".
     const citados = fardos(texto);
-    const ehContagem = comM3.every((p) => p.quantidade > 1 && (p.m3 ?? 0) / p.quantidade <= 5);
+    const ehContagem = comM3.every((p) => p.quantidade >= 1 && (p.m3 ?? 0) / p.quantidade <= 5);
     const pecas = comM3.reduce((s, p) => s + p.quantidade, 0);
     const volumes = citados != null ? `${citados} ${unidade}` : ehContagem ? `${pecas} ${unidade}` : "Nihil";
     const total = curva.totalM3 ?? comM3.reduce((s, p) => s + (p.m3 ?? 0), 0);
@@ -364,8 +403,18 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
   if (!temperatura) avisos.push("Temperatura/duração não encontradas na curva.");
 
   const montadoProduto = montarProduto(e, tipo, avisos);
-  const { volumes, quantidade } = montadoProduto;
-  const produto = regra.produto ?? montadoProduto.produto;
+  const { quantidade } = montadoProduto;
+  let { volumes } = montadoProduto;
+  let produto = regra.produto ?? montadoProduto.produto;
+  // Rio Timbó: a curva quase nunca traz a bitola; o padrão é 17 mm (o operador corrige se for outra).
+  if (regra.bitolaPadraoMm && produto && /serrad/i.test(produto) && !/\d\s*mm/i.test(produto)) {
+    produto = `${produto} ${String(regra.bitolaPadraoMm).replace(".", ",")} mm`;
+    avisos.push(`A curva não traz a bitola: usei ${regra.bitolaPadraoMm} mm (padrão da empresa). Confira.`);
+  }
+  // MD: "Paletes" -> "Paletes de madeira".
+  if (regra.embalagemDeMadeira && volumes && ehEmbalagem(volumes) && !/madeira/i.test(volumes)) {
+    volumes = `${volumes.replace(/\bpalete\b/i, "Paletes")} de madeira`;
+  }
   // "1.234,5 m³" (milhar) ou "46.1106 m³" (ponto decimal da curva)
   const q = (quantidade ?? "").replace(/\s*m³.*$/, "");
   const m3 = parseFloat(q.includes(",") ? q.replace(/\./g, "").replace(",", ".") : q);
@@ -412,6 +461,7 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
 
   let lote = arq.lote ?? curva.lote ?? curva.ciclo;
   if (lote && regra.loteTresDigitos) lote = loteTres(lote);
+  if (lote && regra.loteSemHifen) lote = lote.replace(/^(\d+)-(\d+)$/, "$1$2");
   if (regra.loteAnoSemana && inicio) lote = anoSemana(inicio.data);
   if (arq.loteInformado) {
     // Lote informado no nome do arquivo ("165 GM 1-446(833)") vale sobre as outras regras.
@@ -441,20 +491,39 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     avisos.push("O comunicado traz outro tomador: preencha endereço, telefone e e-mail dele (fica salvo para as próximas vezes).");
   }
 
+  // Filial que emite em nome da matriz (Inexport Capivari): prestador = matriz, tomador = a filial.
+  const matriz = regra.prestadorCnpj
+    ? (e.empresas ?? []).find((x) => soDigitos(x.cnpj) === soDigitos(regra.prestadorCnpj!))
+    : undefined;
+  if (regra.prestadorCnpj && !matriz) avisos.push("Não achei a matriz no cadastro: confira os dados do prestador (1.x).");
+  const prestador = matriz ?? empresa;
+  // Tomador fixo (Reis -> São Gabriel) ou a própria filial; sem isso, o do comunicado ou "Nihil".
+  const fixo: Tomador | null = matriz
+    ? { razao: empresa.razaoSocial, cnpj: empresa.cnpj, endereco: empresa.endereco ?? "", telefone: empresa.telefone ?? "", email: regra.email ?? empresa.email ?? "" }
+    : regra.tomadorFixo && !tomadorOutro
+      ? {
+          razao: regra.tomadorFixo.razao,
+          cnpj: regra.tomadorFixo.cnpj,
+          endereco: regra.tomadorFixo.endereco || empresa.endereco || "",
+          telefone: regra.tomadorFixo.telefone || empresa.telefone || "",
+          email: regra.tomadorFixo.email || regra.email || empresa.email || "",
+        }
+      : null;
+
   const valores: ValoresCertificado = {
     numero,
-    razao: empresa.razaoSocial,
-    cnpj: empresa.cnpj,
-    crea: empresa.crea,
-    endereco: empresa.endereco,
-    telefone: empresa.telefone,
-    email: regra.email ?? empresa.email,
-    regMapa: empresa.regMapa,
-    tomRazao: tomadorOutro ? (salvo?.razao ?? comunicado!.tomadorNome) : "Nihil",
-    tomCnpj: tomadorOutro ? (salvo?.cnpj ?? comunicado!.tomadorCnpj) : "Nihil",
-    tomEndereco: tomadorOutro ? (salvo?.endereco ?? "") : "Nihil",
-    tomTelefone: tomadorOutro ? (salvo?.telefone ?? "") : "Nihil",
-    tomEmail: tomadorOutro ? (salvo?.email ?? "") : "Nihil",
+    razao: prestador.razaoSocial,
+    cnpj: prestador.cnpj,
+    crea: prestador.crea,
+    endereco: prestador.endereco,
+    telefone: prestador.telefone,
+    email: matriz ? matriz.email : (regra.email ?? empresa.email),
+    regMapa: prestador.regMapa,
+    tomRazao: fixo ? fixo.razao : tomadorOutro ? (salvo?.razao ?? comunicado!.tomadorNome) : "Nihil",
+    tomCnpj: fixo ? fixo.cnpj : tomadorOutro ? (salvo?.cnpj ?? comunicado!.tomadorCnpj) : "Nihil",
+    tomEndereco: fixo ? fixo.endereco : tomadorOutro ? (salvo?.endereco ?? "") : "Nihil",
+    tomTelefone: fixo ? fixo.telefone : tomadorOutro ? (salvo?.telefone ?? "") : "Nihil",
+    tomEmail: fixo ? fixo.email : tomadorOutro ? (salvo?.email ?? "") : "Nihil",
     comunicado: numComunicado,
     // Prestadora trata na casa do cliente: endereço do comunicado.
     enderecoTrat: regra.prestadora ? (comunicado?.endereco ?? salvo?.endereco ?? null) : empresa.endereco,
@@ -463,7 +532,7 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     volumes,
     quantidade,
     lote,
-    ciclo: curva.sistema === "SV520" || curva.sistema === "Mahild" ? cicloNoFormato(curva.ciclo, regra.cicloSV520) : curva.ciclo,
+    ciclo: cicloDoCertificado(curva, empresa, regra),
     marcas: "Nihil",
     modalidade: tipo === "AQF" ? "AQF - HT" : tipo,
     dataInicio: inicio?.data ?? null,

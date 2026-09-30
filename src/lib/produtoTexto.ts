@@ -28,6 +28,12 @@ const BITOLA = new RegExp(`${NUM}${SEP}${NUM}${SEP}${NUM}|${MM}${MM}${MM}`, "gi"
 
 /** Espessuras (menor dimensão de cada bitola) encontradas no texto, em mm. */
 export function espessuras(texto: string): number[] {
+  // Centímetros (REIS): "36cmx100cmx2050cm" traz os números em mm com a unidade errada;
+  // "3,6cm" (decimal pequeno) é cm de verdade -> 36 mm.
+  texto = texto.replace(/(\d+(?:[.,]\d+)?)\s*cm(?![a-wyz])/gi, (_, n: string) => {
+    const v = numero(n);
+    return `${v < 10 && /[.,]/.test(n) ? Math.round(v * 100) / 10 : n}mm`;
+  });
   const achadas: number[] = [];
   for (const m of texto.matchAll(BITOLA)) {
     const dims = (m[1] ? [m[1], m[2], m[3]] : [m[4], m[5], m[6]]).map((x) => emMm(numero(x)));

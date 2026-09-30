@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { respostaNaoAutorizado, senhaEquipeValida } from "@/lib/auth";
-import { lerDocumento, lerTratamentos, type Madeireira } from "@/lib/madeireiras";
+import { lerDocumento, lerTratamentos, type ConfigEmpresa, type Madeireira } from "@/lib/madeireiras";
 import { sincronizarMadeireiras } from "@/lib/madeireirasDb";
 import { soDigitos } from "@/lib/util";
 
@@ -8,6 +8,30 @@ export const runtime = "nodejs";
 
 const txt = (v: unknown, max = 300): string | null =>
   typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null;
+
+const BOOLS = ["loteTresDigitos", "loteSemHifen", "numeroEhLote", "loteEhNumero", "loteSequencial", "loteAnoSemana",
+  "prestadora", "programacaoTrimestral", "kitEhAqf", "htEhAqf", "embalagemDeMadeira", "temDR", "drKdHt", "planilhaControle", "inativa"] as const;
+const TEXTOS = ["unidadeVolumes", "email", "produto", "cicloSV520", "prestadorCnpj", "sistemaCurva", "observacoes"] as const;
+
+/** Só as chaves conhecidas da planilha de cadastro, com tipo e tamanho conferidos. */
+function limparConfig(c: Record<string, unknown>): ConfigEmpresa {
+  const r: ConfigEmpresa = {};
+  for (const k of BOOLS) if (c[k] === true) r[k] = true;
+  for (const k of TEXTOS) {
+    const t = txt(c[k], k === "observacoes" ? 500 : 200);
+    if (t) r[k] = t;
+  }
+  if (typeof c.bitolaPadraoMm === "number" && c.bitolaPadraoMm > 0 && c.bitolaPadraoMm < 500) r.bitolaPadraoMm = c.bitolaPadraoMm;
+  const t = c.tomadorFixo as Record<string, unknown> | undefined;
+  if (t && txt(t.razao) && txt(t.cnpj, 30)) {
+    r.tomadorFixo = { razao: txt(t.razao)!, cnpj: txt(t.cnpj, 30)! };
+    for (const k of ["endereco", "telefone", "email"] as const) {
+      const v = txt(t[k]);
+      if (v) r.tomadorFixo[k] = v;
+    }
+  }
+  return r;
+}
 
 /**
  * A planilha (Planilha Geral tem ~6 MB, acima do limite da Vercel) é lida no
@@ -47,6 +71,7 @@ export async function POST(req: Request) {
       documento: lerDocumento(txt(e.documento, 20)),
       unidadeVolumes: txt(e.unidadeVolumes, 40),
       processoProgramacao: txt(e.processoProgramacao, 40)?.match(/^\d{5}\.\d{6}\/\d{4}-\d{2}$/)?.[0] ?? null,
+      ...(e.config && typeof e.config === "object" ? { config: limparConfig(e.config as Record<string, unknown>) } : {}),
     });
   }
   if (!empresas.length) {

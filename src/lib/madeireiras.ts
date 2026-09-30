@@ -24,6 +24,41 @@ export interface Madeireira {
   unidadeVolumes: string | null;
   /** Nº do processo SEI da programação (aba PROGRAMAÇÕES da Planilha Geral). */
   processoProgramacao?: string | null;
+  /** Configurações da planilha de cadastro (regras da empresa: lote, ciclo, tomador fixo, DR...). */
+  config?: ConfigEmpresa | null;
+}
+
+/** Colunas de configuração da planilha de cadastro; valem por cima das regras do código. */
+export interface ConfigEmpresa {
+  unidadeVolumes?: string;
+  loteTresDigitos?: boolean;
+  loteSemHifen?: boolean;
+  numeroEhLote?: boolean;
+  loteEhNumero?: boolean;
+  loteSequencial?: boolean;
+  loteAnoSemana?: boolean;
+  email?: string;
+  produto?: string;
+  prestadora?: boolean;
+  programacaoTrimestral?: boolean;
+  kitEhAqf?: boolean;
+  htEhAqf?: boolean;
+  bitolaPadraoMm?: number;
+  embalagemDeMadeira?: boolean;
+  cicloSV520?: string;
+  prestadorCnpj?: string;
+  tomadorFixo?: { razao: string; cnpj: string; endereco?: string; telefone?: string; email?: string };
+  /** A empresa tem Demonstrativo de Rastreabilidade (DR). */
+  temDR?: boolean;
+  /** DR com abas separadas para KD e HT (Pinustan): início/fim da secagem e da janela HT (#). */
+  drKdHt?: boolean;
+  /** Planilha de controle do cliente (SV520/Mahild): bitola, fardos e m³ vêm dela. */
+  planilhaControle?: boolean;
+  /** Sistema da curva, para referência ("SV580", "SV520", "DMC2051"...). */
+  sistemaCurva?: string;
+  observacoes?: string;
+  /** "Ativa: Não" na planilha: some da lista do site. */
+  inativa?: boolean;
 }
 
 export function lerTratamentos(s: string | null | undefined): ("KD" | "HT")[] {

@@ -1,16 +1,19 @@
 "use client";
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import { cabecalhoSenha, useSenhaEquipe } from "@/lib/senhaEquipe";
+import { useSenhaEquipe, type SessaoCliente } from "@/lib/senhaEquipe";
 
 interface Props {
   titulo: string;
-  children: (senha: string, sair: () => void) => ReactNode;
+  /** Só o login master (controladoria) entra. */
+  master?: boolean;
+  children: (senha: string, sair: () => void, sessao: SessaoCliente) => ReactNode;
 }
 
-/** Só mostra o conteúdo depois que a senha da equipe for validada no servidor. */
-export function PortaoSenha({ titulo, children }: Props) {
-  const { senha, pronto, definir } = useSenhaEquipe();
+/** Só mostra o conteúdo depois do login do operador (cada emissão fica registrada no nome dele). */
+export function PortaoSenha({ titulo, master, children }: Props) {
+  const { senha, sessao, pronto, definir } = useSenhaEquipe();
+  const [login, setLogin] = useState("");
   const [digitada, setDigitada] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [verificando, setVerificando] = useState(false);
@@ -20,9 +23,16 @@ export function PortaoSenha({ titulo, children }: Props) {
     setVerificando(true);
     setErro(null);
     try {
-      const res = await fetch("/api/auth", { method: "POST", headers: cabecalhoSenha(digitada) });
-      if (res.ok) definir(digitada);
-      else setErro("Senha da equipe incorreta.");
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login, senha: digitada }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        definir({ token: data.token, sessao: data.sessao });
+        setDigitada("");
+      } else setErro(data.error ?? "Login ou senha incorretos.");
     } catch {
       setErro("Não foi possível conectar ao servidor.");
     } finally {
@@ -31,18 +41,34 @@ export function PortaoSenha({ titulo, children }: Props) {
   }
 
   if (!pronto) return null;
-  if (senha) return <>{children(senha, () => definir(null))}</>;
+  const sair = () => definir(null);
+  if (senha && sessao && (!master || sessao.perfil === "master")) return <>{children(senha, sair, sessao)}</>;
 
   return (
     <form className="card view" onSubmit={entrar} style={{ maxWidth: 420, margin: "24px auto" }}>
       <h2 style={{ fontSize: 20, margin: "0 0 6px" }}>{titulo}</h2>
       <p className="lead" style={{ marginBottom: 14 }}>
-        Digite a senha da equipe para continuar.
+        {master
+          ? sessao
+            ? `Você entrou como ${sessao.nome}. A controladoria precisa do login master.`
+            : "Entre com o login da controladoria."
+          : "Entre com o seu login: os certificados ficam registrados no seu nome."}
       </p>
       <div className="field" style={{ marginBottom: 12 }}>
-        <label htmlFor="senha-equipe">Senha da equipe</label>
+        <label htmlFor="login-operador">Login</label>
         <input
-          id="senha-equipe"
+          id="login-operador"
+          type="text"
+          autoComplete="username"
+          autoCapitalize="none"
+          value={login}
+          onChange={(e) => setLogin(e.target.value)}
+        />
+      </div>
+      <div className="field" style={{ marginBottom: 12 }}>
+        <label htmlFor="senha-operador">Senha</label>
+        <input
+          id="senha-operador"
           type="password"
           autoComplete="current-password"
           value={digitada}
@@ -50,7 +76,7 @@ export function PortaoSenha({ titulo, children }: Props) {
         />
       </div>
       {erro && <p style={{ color: "var(--bad)", fontSize: 13, margin: "0 0 10px" }}>{erro}</p>}
-      <button type="submit" className="btn primary" disabled={verificando || !digitada} style={{ width: "100%" }}>
+      <button type="submit" className="btn primary" disabled={verificando || !digitada || !login} style={{ width: "100%" }}>
         {verificando ? "Verificando…" : "Entrar"}
       </button>
     </form>

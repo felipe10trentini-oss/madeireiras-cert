@@ -217,7 +217,12 @@ export function montarLinhaRelatorio(args: {
   const local = (v.local ?? "").replace(/\s*[-–]\s*[A-Z]{2}$/, "").replace(/^\d+\s+/, "");
 
   return {
-    objetivo: (EMBALAGEM.test(produto) && !/serrad/i.test(produto) ? g.objetivoEmbalagem : undefined) ?? g.objetivo ?? (aqf ? "Atendimento à NIMF15" : "Certificação fitossanitária"),
+    // AQF e embalagens (paletes, caixas, kits, skids, suportes): sempre atendimento à NIMF 15, no texto
+    // que a planilha da empresa já usa ("1. Atendimento à NIMF 15;" na Exata). Secagem: o da empresa.
+    objetivo:
+      aqf || (EMBALAGEM.test(`${produto} ${v.volumes ?? ""}`) && !/serrad/i.test(produto))
+        ? (estilo?.objetivoNimf ?? "Atendimento à NIMF15")
+        : (g.objetivo && !/nimf/i.test(g.objetivo) ? g.objetivo : "Certificação fitossanitária"),
     finalidade: "Exp.",
     documento: formatarDocumento(v.comunicado, g.documento),
     processo: padrao.processo ?? estilo?.processo ?? "",

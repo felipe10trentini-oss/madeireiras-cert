@@ -43,6 +43,10 @@ export interface EstiloRelatorio {
   dataDocumento?: string;
   rt?: string;
   volumesCamara?: Record<string, string>;
+  /** DR da empresa: aba(s) DADOS e as colunas onde se digita o início/fim (o resto vem por fórmula). */
+  dr?: { arquivo: string; abas: { aba: string; colunaInicio: string | null; colunaFim: string | null }[] };
+  /** Como a empresa escreve "Atendimento à NIMF15" na coluna Objetivo (quando já usou). */
+  objetivoNimf?: string;
   /** Último ciclo lançado no relatório em cada estufa (base do aviso de curva faltando). */
   ultimosCiclos?: Record<string, number>;
 }
@@ -152,7 +156,9 @@ export function derivarEstilo(cabecalho: string[], linhas: Celula[][]): EstiloRe
     // A linha mais recente de cada estufa (não o maior: um erro de digitação como "6931" travaria a sequência).
     if (ch) ultimosCiclos[ch.estufa] = ch.numero;
   }
+  const nimf = [...objs].reverse().find((o) => /nimf/i.test(o.objetivo))?.objetivo;
   return {
+    objetivoNimf: nimf || undefined,
     ultimosCiclos,
     kd: grupo(kd),
     aqf: grupo(aqf),
