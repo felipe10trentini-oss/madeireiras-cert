@@ -257,7 +257,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
               {carregando ? "Lendo os PDFs… (curvas em imagem levam até 30 s)" : "Extrair dados"}
             </button>
             <span className="hint">
-              O nº do certificado e o lote vêm do nome do arquivo da curva (“341 ABB 1-350” → 341/2026, lote 1-350).
+              O nº do certificado e o lote vêm do nome do arquivo da curva (“341 ABB 1-350” → 341/2026, lote 1-350). Lote próprio da empresa no fim, entre parênteses: “165 GM 1-446(833)”.
             </span>
           </div>
         </form>

@@ -334,12 +334,15 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
   let lote = arq.lote ?? curva.lote ?? curva.ciclo;
   if (lote && regra.loteTresDigitos) lote = loteTres(lote);
   if (regra.loteAnoSemana && inicio) lote = anoSemana(inicio.data);
-  if (regra.loteSequencial) {
+  if (arq.loteInformado) {
+    // Lote informado no nome do arquivo ("165 GM 1-446(833)") vale sobre as outras regras.
+    lote = arq.loteInformado;
+  } else if (regra.loteSequencial) {
     const ultimo = parseInt(e.ultimoLote ?? "", 10);
     if (Number.isFinite(ultimo)) lote = String(ultimo + 1);
     else {
       lote = null;
-      avisos.push("Lote sequencial desta empresa: informe o lote (a partir do próximo, o site sugere o seguinte).");
+      avisos.push("Lote desta empresa: coloque no fim do nome da curva, ex.: \"165 GM 1-446(833)\", ou digite o lote.");
     }
   }
 

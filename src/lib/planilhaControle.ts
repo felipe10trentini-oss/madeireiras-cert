@@ -55,6 +55,9 @@ const num = (s: string) => {
   return Number.isFinite(n) ? n : null;
 };
 
+/** Rio Verde digita "100000" para 100,000 m³: nenhuma carga de estufa passa de 1.000 m³. */
+const volumeM3 = (n: number | null) => (n != null && n > 1000 ? n / 1000 : n);
+
 /** "14/09/026", "2026-09-14" -> "14/09/2026" */
 function dataBR(s: string): string | null {
   let m = s.match(/(\d{1,2})\/;?(\d{1,2})\/;?(\d{2,4})/);
@@ -66,11 +69,68 @@ function dataBR(s: string): string | null {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : null;
 }
 
+/**
+ * Quadros por secagem (Selva Norte, "PRODUÇÃO DIÁRIA"), no fim de cada aba mensal:
+ *   DIA:    | 01/09/2026
+ *   ESTUFA: | 2
+ *   CICLO:  | 314
+ *   98X1,5X1,100=42,863=47 GRADES        (largura x espessura em cm x comprimento em m = m³ = grades)
+ *   12,7X1,5X1,168=13,594=13 GRADES
+ *   TOTAL M3: |   | 56,457
+ */
+function quadrosDeSecagem(ws: ExcelJS.Worksheet): LinhaControle[] {
+  const quadros: LinhaControle[] = [];
+  const valor = (r: number, c: number) => texto(ws.getRow(r).getCell(c).value);
+  for (let r = 1; r <= ws.rowCount; r++) {
+    ws.getRow(r).eachCell((cell, c) => {
+      if (!/^DIA\s*:?$/i.test(texto(cell.value).trim())) return;
+      if (!/^ESTUFA/i.test(valor(r + 1, c)) || !/^CICLO/i.test(valor(r + 2, c))) return;
+      const estufa = num(valor(r + 1, c + 1));
+      const secagem = num(valor(r + 2, c + 1));
+      if (estufa == null || secagem == null) return;
+      let fardos = 0;
+      let somaM3 = 0;
+      const mm: number[] = [];
+      let total: number | null = null;
+      for (let i = r + 3; i <= Math.min(r + 15, ws.rowCount); i++) {
+        const t = valor(i, c);
+        if (/^TOTAL\s*M/i.test(t)) {
+          total = num(valor(i, c + 2)) ?? num(valor(i, c + 1));
+          break;
+        }
+        const m = t.match(/([\d.,]+)\s*[xX]\s*([\d.,]+)\s*[xX]\s*[\d.,]+\s*=\s*([\d.,]+)\s*=\s*(\d+)\s*grades?/i);
+        if (!m) continue;
+        const a = num(m[1]) ?? 0;
+        const b = num(m[2]) ?? 0;
+        const menor = Math.min(a, b);
+        // Espessura em cm ("1,5" = 15 mm); peças quadradas grandes já vêm em mm ("75x75").
+        mm.push(Math.round((menor < 10 ? menor * 10 : menor) * 10) / 10);
+        somaM3 += num(m[3]) ?? 0;
+        fardos += parseInt(m[4], 10);
+      }
+      if (!mm.length) return;
+      quadros.push({
+        aba: ws.name,
+        linha: r,
+        estufa,
+        secagem,
+        data: dataBR(valor(r, c + 1)),
+        fardos: fardos || null,
+        bitola: [...new Set(mm)].map((n) => `${String(n).replace(".", ",")} mm`).join(" "),
+        volume: total ?? (somaM3 ? Math.round(somaM3 * 1000) / 1000 : null),
+        especie: null,
+      });
+    });
+  }
+  return quadros;
+}
+
 export async function lerPlanilhaControle(buffer: ArrayBuffer): Promise<LinhaControle[]> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
   const linhas: LinhaControle[] = [];
   for (const ws of wb.worksheets) {
+    linhas.push(...quadrosDeSecagem(ws));
     let cab = -1;
     const mapa = new Map<number, Col>();
     for (let r = 1; r <= Math.min(ws.rowCount, 15) && cab < 0; r++) {
@@ -109,7 +169,7 @@ export async function lerPlanilhaControle(buffer: ArrayBuffer): Promise<LinhaCon
         data: d.data ? dataBR(d.data) : null,
         fardos: d.fardos ? num(d.fardos) : null,
         bitola: bitolaMm ? `${bitolaMm.replace(".", ",")} mm` : null,
-        volume: d.volume ? num(d.volume) : null,
+        volume: d.volume ? volumeM3(num(d.volume)) : null,
         especie: d.especie || null,
       });
     }

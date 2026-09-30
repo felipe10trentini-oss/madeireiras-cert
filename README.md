@@ -34,7 +34,12 @@ Essas curvas não trazem bitola, fardos nem m³. Depois de ler a curva, o site p
 **planilha de controle da secagem** do cliente (.xlsx, com colunas ESTUFA, FARDOS,
 Bitola, VOLUME M³ e Nº DA SECAGEM): acha a linha pela estufa + nº da secagem (ou
 data de início) e preenche descrição, volumes e quantidade. Sem a planilha, esses
-campos ficam em branco para preencher à mão.
+campos ficam em branco para preencher à mão. Formatos testados: NASA, Ponte Alta,
+Videpinus, IR, Artemobili, Rio Verde (volume digitado sem vírgula), Palletimber e
+os quadros por secagem da "Produção diária" da Selva Norte. São Jorge é sempre digitado.
+
+Lote próprio da empresa (GM, Ronaldo RCB) vai no fim do nome da curva:
+`165 GM 1-446(833).pdf` (ou `… LOTE 833`) -> lote 833.
 
 ## Padrões por empresa
 

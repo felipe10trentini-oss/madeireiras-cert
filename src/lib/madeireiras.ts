@@ -98,12 +98,27 @@ function melhorPorNome(lista: Madeireira[], nome: string): Madeireira | null {
   return melhor.d <= limite ? melhor.e : null;
 }
 
-/** "341 ABB 1-350.pdf" -> { numero: "341", nome: "ABB", lote: "1-350" } */
-export function lerNomeArquivo(nomeArquivo: string): { numero: string | null; nome: string | null; lote: string | null } {
-  const base = nomeArquivo.replace(/\.[^./\\]+$/, "").replace(/^CERT\.?\s+/i, "").trim();
+/**
+ * "341 ABB 1-350.pdf" -> { numero: "341", nome: "ABB", lote: "1-350" }
+ * Lote da empresa informado no fim do nome (GM, Ronaldo RCB):
+ *   "165 GM 1-446(833).pdf" / "165 RONALDO 3-544 LOTE 810.pdf" -> loteInformado "833" / "810"
+ */
+export function lerNomeArquivo(nomeArquivo: string): {
+  numero: string | null;
+  nome: string | null;
+  lote: string | null;
+  loteInformado: string | null;
+} {
+  let base = nomeArquivo.replace(/\.[^./\\]+$/, "").replace(/^CERT\.?\s+/i, "").trim();
+  let loteInformado: string | null = null;
+  const mLote = base.match(/\s*(?:\(\s*(\d+)\s*\)|\bLOTE\s*(\d+))\s*$/i);
+  if (mLote) {
+    loteInformado = mLote[1] ?? mLote[2];
+    base = base.slice(0, mLote.index).trim();
+  }
   const partes = base.split(/\s+/);
   const numero = /^\d{1,6}$/.test(partes[0] ?? "") ? partes.shift()! : null;
   const lote = partes.length > 1 && /^\d+(-\d+)?$/.test(partes[partes.length - 1]) ? partes.pop()! : null;
   const nome = partes.join(" ").trim() || null;
-  return { numero, nome, lote };
+  return { numero, nome, lote, loteInformado };
 }
