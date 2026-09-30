@@ -37,7 +37,12 @@ export async function POST(req: Request) {
     if (semTexto) {
       // PDF que é só imagem: tenta ler por OCR (pode levar ~20 s).
       try {
-        const lido = await ocrPrimeiraPagina(curvaBuffer);
+        // Se o OCR travar (o worker do tesseract não rejeita quando falha ao carregar),
+        // desiste antes do limite da função: a tela pede o preenchimento manual.
+        const lido = await Promise.race([
+          ocrPrimeiraPagina(curvaBuffer),
+          new Promise<string>((resolve) => setTimeout(() => resolve(""), 100_000)),
+        ]);
         if (!curvaSemTexto(lido)) {
           textoCurva = lido;
           semTexto = false;

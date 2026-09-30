@@ -11,6 +11,18 @@ const nextConfig: NextConfig = {
     "/api/extrair": [
       "./node_modules/tesseract.js/**/*",
       "./node_modules/tesseract.js-core/**/*",
+      // O worker do tesseract roda em outra thread e o rastreio da Vercel não vê os require
+      // dele: sem estes pacotes o OCR travava na produção ("Cannot find module 'bmp-js'").
+      "./node_modules/bmp-js/**/*",
+      "./node_modules/idb-keyval/**/*",
+      "./node_modules/is-url/**/*",
+      "./node_modules/node-fetch/**/*",
+      "./node_modules/whatwg-url/**/*",
+      "./node_modules/tr46/**/*",
+      "./node_modules/webidl-conversions/**/*",
+      "./node_modules/regenerator-runtime/**/*",
+      "./node_modules/wasm-feature-detect/**/*",
+      "./node_modules/zlibjs/**/*",
       "./ocr/por.traineddata.gz",
     ],
   },
