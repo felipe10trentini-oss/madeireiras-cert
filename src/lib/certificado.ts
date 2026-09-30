@@ -75,6 +75,7 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "03636539000120": { loteAnoSemana: true, produto: "Madeira serrada para embalagens" }, // MART
   "50709371000115": { email: "faturamento2@lgpallets.com.br" }, // LG Logística
   "83054544000163": { cicloSV520: "Estufa {e} - Ciclo {c}" }, // Salamoni (SV520 e Mahild)
+  "93470243000174": { cicloSV520: "Estufa {e} Ciclo {c}" }, // Madesozo
   "79235917000125": { cicloSV520: "Estufa {e} Ciclo {c}" }, // Rio Verde
   "03917690000136": { cicloSV520: "Estufa {e2} Ciclo {c}" }, // Selva Norte
   "33094099000197": { cicloSV520: "Estufa {e2} Ciclo {c}" }, // São Jorge
@@ -256,8 +257,8 @@ function montarProduto(e: EntradaCertificado, tipo: TipoTratamento, avisos: stri
   if (curva.totalM3 != null) {
     const nFardos = fardos(texto);
     const volumes = nFardos != null ? `${nFardos} ${empresa.unidadeVolumes || regra.unidadeVolumes || "Fardos"}` : "Nihil";
-    if (tipo === "AQF" && curva.descricao && /MADEIRA/.test(up(curva.descricao))) {
-      // Embalagens (LG, MART, Exata): a descrição da curva, m³ como escrito.
+    if (tipo === "AQF" && (!empresa.tratamentos.includes("KD") || regra.prestadora) && curva.descricao && /MADEIRA/.test(up(curva.descricao))) {
+      // Empresas só HT que fazem embalagem (LG, MART) e prestadoras (Exata): a descrição da curva, m³ como escrito.
       return { produto: frasePropria(curva.descricao), volumes, quantidade: `${m3Limpo(curva.m3Bruto ?? String(curva.totalM3))} m³` };
     }
     return { produto: descricaoSerrada(texto), volumes, quantidade: `${m3BR(curva.totalM3)} m³` };
