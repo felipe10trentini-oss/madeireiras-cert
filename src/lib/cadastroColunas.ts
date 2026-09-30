@@ -3,6 +3,7 @@
 // (scripts/gerarPlanilhaCadastro.ts) e lê o arquivo na aba Madeireiras do site.
 import type { ConfigEmpresa, Madeireira } from "./madeireiras";
 import { lerTratamentos } from "./madeireiras";
+import { rtCompleto } from "./responsaveis";
 
 export type TipoColuna = "texto" | "simnao" | "numero" | "lista";
 
@@ -126,7 +127,7 @@ export function empresaDaLinha(linha: Record<string, string | null>): { empresa:
     ativa,
     empresa: {
       apelido: v("Apelido") ?? v("Razão social")!,
-      rt: v("Responsável técnico"),
+      rt: rtCompleto(v("Responsável técnico")),
       uf: v("UF"),
       modalidade: /credenc/i.test(v("Modalidade") ?? "") ? "Credenciada" : "Cadastrada",
       tratamentos: lerTratamentos(v("Tratamentos")),

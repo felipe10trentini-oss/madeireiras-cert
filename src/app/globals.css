@@ -101,6 +101,11 @@ a { color: var(--accent-2); }
 /* ---------- Layout ---------- */
 .grid { display: grid; gap: 14px; }
 .kpis { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); margin-bottom: 18px; }
+.kpis.cinco { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.card.destaque { border-color: var(--accent); }
+.filtros { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.filtros .field { min-width: 150px; margin: 0; }
+table.dados td input { width: 100%; min-width: 120px; }
 .card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 16px; box-shadow: var(--shadow);

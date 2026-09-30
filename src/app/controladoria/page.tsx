@@ -25,18 +25,35 @@ interface Emissao {
   created_at: string;
 }
 
+type Contagem = { hoje: number; semana: number; mes: number; ano: number; periodo: number; divergencias: number };
+
 interface Painel {
   operadores: Operador[];
-  resumo: Record<string, { semana: number; mes: number; ano: number; divergencias: number }>;
-  porEmpresaMes: [string, number][];
-  ultimas: Emissao[];
-  totalAno: number;
+  periodo: { de: string; ate: string };
+  resumo: Record<string, Contagem>;
+  porEmpresa: [string, number][];
+  emissoes: Emissao[];
+  totalPeriodo: number;
 }
+
+type TipoPeriodo = "dia" | "mes" | "ano" | "intervalo";
 
 const quando = (iso: string) =>
   new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" }).format(
     new Date(iso)
   );
+
+/** Hoje em São Paulo: "2026-09-30". */
+const hojeSP = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+
+const ultimoDiaDoMes = (aaaaMm: string) => {
+  const [a, m] = aaaaMm.split("-").map(Number);
+  return `${aaaaMm}-${String(new Date(Date.UTC(a, m, 0)).getUTCDate()).padStart(2, "0")}`;
+};
+
+const dataBR = (iso: string) => iso.split("-").reverse().join("/");
+
+const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
 function csv(linhas: Emissao[], nomes: Record<string, string>): string {
   const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
@@ -50,23 +67,51 @@ function csv(linhas: Emissao[], nomes: Record<string, string>): string {
 }
 
 function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
+  const hoje = hojeSP();
   const [painel, setPainel] = useState<Painel | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [novo, setNovo] = useState({ login: "", nome: "", senha: "", perfil: "operador" });
-  const [filtro, setFiltro] = useState("");
+  const [editando, setEditando] = useState<{ id: number; nome: string; login: string } | null>(null);
+
+  // Filtro do período (padrão: mês atual) e filtros da lista.
+  const [tipo, setTipo] = useState<TipoPeriodo>("mes");
+  const [dia, setDia] = useState(hoje);
+  const [mes, setMes] = useState(hoje.slice(0, 7));
+  const [ano, setAno] = useState(hoje.slice(0, 4));
+  const [de, setDe] = useState(`${hoje.slice(0, 7)}-01`);
+  const [ate, setAte] = useState(hoje);
+  const [operador, setOperador] = useState("");
+  const [empresa, setEmpresa] = useState("");
+  const [busca, setBusca] = useState("");
+
+  const intervalo: [string, string] =
+    tipo === "dia" ? [dia, dia] : tipo === "mes" ? [`${mes}-01`, ultimoDiaDoMes(mes)] : tipo === "ano" ? [`${ano}-01-01`, `${ano}-12-31`] : [de, ate];
+  const [pDe, pAte] = intervalo;
+  const rotuloPeriodo =
+    tipo === "dia"
+      ? dataBR(dia)
+      : tipo === "mes"
+        ? `${MESES[Number(mes.slice(5, 7)) - 1]} de ${mes.slice(0, 4)}`
+        : tipo === "ano"
+          ? ano
+          : `${dataBR(de)} a ${dataBR(ate)}`;
 
   const carregar = useCallback(async () => {
+    if (!pDe || !pAte) return;
     try {
-      const res = await fetch("/api/controladoria", { headers: cabecalhoSenha(senha), cache: "no-store" });
+      const res = await fetch(`/api/controladoria?de=${pDe}&ate=${pAte}`, { headers: cabecalhoSenha(senha), cache: "no-store" });
       if (res.status === 401) return sair();
       const data = await res.json();
       if (!res.ok) setErro(data.error ?? "Falha ao carregar.");
-      else setPainel(data);
+      else {
+        setErro(null);
+        setPainel(data);
+      }
     } catch {
       setErro("Não foi possível conectar ao servidor.");
     }
-  }, [senha, sair]);
+  }, [senha, sair, pDe, pAte]);
 
   useEffect(() => {
     void carregar();
@@ -80,7 +125,10 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
       body: JSON.stringify(corpo),
     });
     const data = await res.json().catch(() => ({}));
-    if (res.status === 401) return sair();
+    if (res.status === 401) {
+      sair();
+      return false;
+    }
     if (!res.ok) {
       setAviso(data.error ?? "Não foi possível salvar.");
       return false;
@@ -95,12 +143,21 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
     if (await enviar("POST", novo, `Operador ${novo.nome} cadastrado.`)) setNovo({ login: "", nome: "", senha: "", perfil: "operador" });
   }
 
+  async function salvarEdicao(op: Operador) {
+    if (!editando) return;
+    const mudou: Record<string, unknown> = { id: op.id };
+    if (editando.nome.trim() !== op.nome) mudou.nome = editando.nome;
+    if (editando.login.trim().toLowerCase() !== op.login) mudou.login = editando.login;
+    if (Object.keys(mudou).length === 1) return setEditando(null);
+    if (await enviar("PATCH", mudou, `Operador ${editando.nome} atualizado.`)) setEditando(null);
+  }
+
   async function trocarSenha(op: Operador) {
     const nova = window.prompt(`Nova senha para ${op.nome} (mínimo 8 caracteres):`);
     if (nova) await enviar("PATCH", { id: op.id, senha: nova }, `Senha de ${op.nome} alterada.`);
   }
 
-  if (erro) {
+  if (erro && !painel) {
     return (
       <div className="alert-box critical" role="alert">
         <h4>Controladoria indisponível</h4>
@@ -113,27 +170,38 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
   if (!painel) return <p className="lead">Carregando…</p>;
 
   const nomes = Object.fromEntries(painel.operadores.map((o) => [o.login, o.nome]));
-  const soma = (k: "semana" | "mes" | "ano") => Object.values(painel.resumo).reduce((s, r) => s + r[k], 0);
-  const linhas = painel.ultimas.filter((e) =>
-    !filtro ? true : `${nomes[e.operador_login] ?? ""} ${e.operador_login} ${e.empresa_apelido} ${e.numero_certificado}`.toLowerCase().includes(filtro.toLowerCase())
+  const zero: Contagem = { hoje: 0, semana: 0, mes: 0, ano: 0, periodo: 0, divergencias: 0 };
+  const soma = (k: keyof Contagem) => Object.values(painel.resumo).reduce((s, r) => s + r[k], 0);
+  const empresasDoPeriodo = painel.porEmpresa.map(([e]) => e).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const linhas = painel.emissoes.filter(
+    (e) =>
+      (!operador || e.operador_login === operador) &&
+      (!empresa || e.empresa_apelido === empresa) &&
+      (!busca || `${e.numero_certificado} ${e.lote} ${e.ciclo}`.toLowerCase().includes(busca.toLowerCase()))
   );
+  const anos = Array.from({ length: Number(hoje.slice(0, 4)) - 2025 }, (_, i) => String(2026 + i)).reverse();
 
   function baixarCsv() {
     const url = URL.createObjectURL(new Blob([csv(linhas, nomes)], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `emissoes-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `emissoes-${pDe}-a-${pAte}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
   return (
     <div className="view">
-      <div className="grid kpis" style={{ marginBottom: 18 }}>
+      <div className="grid kpis cinco" style={{ marginBottom: 18 }}>
+        <div className="card">
+          <div className="kpi-label">Hoje</div>
+          <div className="kpi-valor">{soma("hoje")}</div>
+          <div className="kpi-sub">{dataBR(hoje)}</div>
+        </div>
         <div className="card">
           <div className="kpi-label">Na semana</div>
           <div className="kpi-valor">{soma("semana")}</div>
-          <div className="kpi-sub">certificados emitidos (seg. a dom.)</div>
+          <div className="kpi-sub">de segunda a domingo</div>
         </div>
         <div className="card">
           <div className="kpi-label">No mês</div>
@@ -143,58 +211,162 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
           <div className="kpi-label">No ano</div>
           <div className="kpi-valor">{soma("ano")}</div>
         </div>
-        <div className="card">
-          <div className="kpi-label">Com divergência conferida</div>
-          <div className="kpi-valor">{Object.values(painel.resumo).reduce((s, r) => s + r.divergencias, 0)}</div>
-          <div className="kpi-sub">copiados após marcar “Conferi”</div>
+        <div className="card destaque">
+          <div className="kpi-label">Período selecionado</div>
+          <div className="kpi-valor">{painel.totalPeriodo}</div>
+          <div className="kpi-sub">{rotuloPeriodo}</div>
+        </div>
+      </div>
+
+      <div className="card filtros" style={{ marginBottom: 18 }}>
+        <div className="field">
+          <label htmlFor="f-tipo">Ver por</label>
+          <select id="f-tipo" value={tipo} onChange={(e) => setTipo(e.target.value as TipoPeriodo)}>
+            <option value="dia">Dia</option>
+            <option value="mes">Mês</option>
+            <option value="ano">Ano</option>
+            <option value="intervalo">Intervalo de datas</option>
+          </select>
+        </div>
+        {tipo === "dia" && (
+          <div className="field">
+            <label htmlFor="f-dia">Dia</label>
+            <input id="f-dia" type="date" value={dia} max={hoje} onChange={(e) => e.target.value && setDia(e.target.value)} />
+          </div>
+        )}
+        {tipo === "mes" && (
+          <div className="field">
+            <label htmlFor="f-mes">Mês</label>
+            <input id="f-mes" type="month" value={mes} max={hoje.slice(0, 7)} onChange={(e) => e.target.value && setMes(e.target.value)} />
+          </div>
+        )}
+        {tipo === "ano" && (
+          <div className="field">
+            <label htmlFor="f-ano">Ano</label>
+            <select id="f-ano" value={ano} onChange={(e) => setAno(e.target.value)}>
+              {anos.map((a) => (
+                <option key={a}>{a}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {tipo === "intervalo" && (
+          <>
+            <div className="field">
+              <label htmlFor="f-de">De</label>
+              <input id="f-de" type="date" value={de} max={ate} onChange={(e) => e.target.value && setDe(e.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="f-ate">Até</label>
+              <input id="f-ate" type="date" value={ate} min={de} onChange={(e) => e.target.value && setAte(e.target.value)} />
+            </div>
+          </>
+        )}
+        <div className="field">
+          <label htmlFor="f-op">Operador</label>
+          <select id="f-op" value={operador} onChange={(e) => setOperador(e.target.value)}>
+            <option value="">Todos</option>
+            {painel.operadores.map((o) => (
+              <option key={o.id} value={o.login}>
+                {o.nome}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="f-emp">Empresa</label>
+          <select id="f-emp" value={empresa} onChange={(e) => setEmpresa(e.target.value)}>
+            <option value="">Todas</option>
+            {empresasDoPeriodo.map((e) => (
+              <option key={e}>{e}</option>
+            ))}
+          </select>
         </div>
       </div>
 
       <div className="section-title">
         <h2>Operadores</h2>
-        <p>Certificados copiados por operador (horário de Brasília).</p>
+        <p>Certificados copiados por operador (horário de Brasília). “Período” = {rotuloPeriodo}.</p>
       </div>
+      {aviso && <p className="hint" style={{ marginBottom: 8 }}>{aviso}</p>}
       <div className="table-wrap" style={{ marginBottom: 18 }}>
         <table className="dados">
           <thead>
             <tr>
               <th>Operador</th>
               <th>Login</th>
+              <th>Hoje</th>
               <th>Semana</th>
               <th>Mês</th>
               <th>Ano</th>
-              <th>Divergências conferidas</th>
+              <th>Período</th>
+              <th>Divergências conferidas (período)</th>
               <th>Situação</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {painel.operadores.map((o) => {
-              const r = painel.resumo[o.login] ?? { semana: 0, mes: 0, ano: 0, divergencias: 0 };
+              const r = painel.resumo[o.login] ?? zero;
+              const ed = editando?.id === o.id ? editando : null;
               return (
                 <tr key={o.id}>
                   <td>
-                    {o.nome}
-                    {o.perfil === "master" && <span className="kpi-sub"> · controladoria</span>}
+                    {ed ? (
+                      <input aria-label="Nome" value={ed.nome} onChange={(e) => setEditando({ ...ed, nome: e.target.value })} />
+                    ) : (
+                      <>
+                        {o.nome}
+                        {o.perfil === "master" && <span className="kpi-sub"> · controladoria</span>}
+                      </>
+                    )}
                   </td>
-                  <td className="mono">{o.login}</td>
+                  <td className="mono">
+                    {ed ? (
+                      <input aria-label="Login" autoCapitalize="none" value={ed.login} onChange={(e) => setEditando({ ...ed, login: e.target.value })} />
+                    ) : (
+                      o.login
+                    )}
+                  </td>
+                  <td>{r.hoje}</td>
                   <td>{r.semana}</td>
                   <td>{r.mes}</td>
                   <td>{r.ano}</td>
+                  <td>
+                    <b>{r.periodo}</b>
+                  </td>
                   <td>{r.divergencias}</td>
                   <td>{o.ativo ? "Ativo" : "Desativado"}</td>
                   <td style={{ whiteSpace: "nowrap" }}>
-                    <button type="button" className="link" onClick={() => trocarSenha(o)}>
-                      Trocar senha
-                    </button>{" "}
-                    ·{" "}
-                    <button
-                      type="button"
-                      className="link"
-                      onClick={() => enviar("PATCH", { id: o.id, ativo: !o.ativo }, `${o.nome} ${o.ativo ? "desativado" : "ativado"}.`)}
-                    >
-                      {o.ativo ? "Desativar" : "Ativar"}
-                    </button>
+                    {ed ? (
+                      <>
+                        <button type="button" className="link" onClick={() => salvarEdicao(o)}>
+                          Salvar
+                        </button>{" "}
+                        ·{" "}
+                        <button type="button" className="link" onClick={() => setEditando(null)}>
+                          Cancelar
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" className="link" onClick={() => setEditando({ id: o.id, nome: o.nome, login: o.login })}>
+                          Editar
+                        </button>{" "}
+                        ·{" "}
+                        <button type="button" className="link" onClick={() => trocarSenha(o)}>
+                          Trocar senha
+                        </button>{" "}
+                        ·{" "}
+                        <button
+                          type="button"
+                          className="link"
+                          onClick={() => enviar("PATCH", { id: o.id, ativo: !o.ativo }, `${o.nome} ${o.ativo ? "desativado" : "ativado"}.`)}
+                        >
+                          {o.ativo ? "Desativar" : "Ativar"}
+                        </button>
+                      </>
+                    )}
                   </td>
                 </tr>
               );
@@ -230,18 +402,18 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
           <button type="submit" className="btn primary" disabled={!novo.nome || !novo.login || !novo.senha}>
             Cadastrar
           </button>
-          {aviso && <span className="hint">{aviso}</span>}
         </div>
       </form>
 
       <div className="section-title">
-        <h2>Emissões no mês por empresa</h2>
+        <h2>Emissões por empresa</h2>
+        <p>{rotuloPeriodo}</p>
       </div>
       <div className="table-wrap" style={{ marginBottom: 18 }}>
         <table className="dados">
           <tbody>
-            {painel.porEmpresaMes.length ? (
-              painel.porEmpresaMes.map(([emp, n]) => (
+            {painel.porEmpresa.length ? (
+              painel.porEmpresa.map(([emp, n]) => (
                 <tr key={emp}>
                   <td>{emp}</td>
                   <td>{n}</td>
@@ -249,7 +421,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
               ))
             ) : (
               <tr>
-                <td>Nenhuma emissão neste mês ainda.</td>
+                <td>Nenhuma emissão neste período.</td>
               </tr>
             )}
           </tbody>
@@ -257,16 +429,19 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
       </div>
 
       <div className="section-title">
-        <h2>Últimas emissões</h2>
-        <p>As 200 mais recentes.</p>
+        <h2>Emissões do período</h2>
+        <p>
+          {linhas.length} de {painel.totalPeriodo}
+          {painel.totalPeriodo > painel.emissoes.length ? ` (mostrando as ${painel.emissoes.length} mais recentes)` : ""}
+        </p>
       </div>
       <div className="toolbar" style={{ marginBottom: 10, gap: 10 }}>
         <input
           type="search"
-          placeholder="Filtrar por operador, empresa ou certificado"
-          value={filtro}
-          onChange={(e) => setFiltro(e.target.value)}
-          aria-label="Filtrar emissões"
+          placeholder="Buscar certificado, lote ou ciclo"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          aria-label="Buscar emissões"
           style={{ flex: 1, minWidth: 200 }}
         />
         <button type="button" className="btn" onClick={baixarCsv} disabled={!linhas.length}>

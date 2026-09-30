@@ -6,6 +6,7 @@ import type { Madeireira } from "./madeireiras";
 import type { ValoresCertificado } from "./modelos";
 import { REGRAS_EMPRESA } from "./certificado";
 import { EMBALAGEM, type EstiloGrupo, type EstiloRelatorio } from "./estiloRelatorio";
+import { rtCompleto } from "./responsaveis";
 import { hojeBR, soDigitos } from "./util";
 
 /** Dados do relatório que não estão na curva e se repetem: ficam salvos por empresa. */
@@ -229,7 +230,7 @@ export function montarLinhaRelatorio(args: {
     dataDocumento: padrao.dataDocumento ?? estilo?.dataDocumento ?? "",
     tomador: g.tomadorNihil ? "NIHIL" : g.tomadorMaiusculas === false ? tomadorTexto : up(tomadorTexto),
     tomadorCnpj: g.tomadorNihil ? "NIHIL" : tomadorNihil ? empresa.cnpj : (v.tomCnpj ?? ""),
-    rt: padrao.rt ?? estilo?.rt ?? empresa.rt ?? "",
+    rt: padrao.rt ?? rtCompleto(empresa.rt) ?? estilo?.rt ?? "",
     produto,
     volumes,
     unidadeVolumes,

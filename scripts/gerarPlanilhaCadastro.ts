@@ -14,6 +14,7 @@ import { REGRAS_EMPRESA } from "../src/lib/certificado";
 import { curvaSemTexto, lerCurva } from "../src/lib/curvas";
 import { identificarEmpresa, lerNomeArquivo } from "../src/lib/madeireiras";
 import { listarMadeireiras, type MadeireiraSalva } from "../src/lib/madeireirasDb";
+import { rtCompleto } from "../src/lib/responsaveis";
 import { soDigitos } from "../src/lib/util";
 
 const INATIVAS = /^(WAS|Andreazza)/i; // desativadas (30/09/2026)
@@ -109,7 +110,7 @@ async function main() {
       Tratamentos: e.tratamentos.join("/"),
       "Registro MAPA": e.regMapa,
       CREA: e.crea,
-      "Responsável técnico": e.relatorio?.rt || e.estilo?.rt || e.rt,
+      "Responsável técnico": rtCompleto(e.rt) || e.estilo?.rt || null,
       UF: e.uf,
       "Endereço completo": e.endereco,
       Telefone: e.telefone,

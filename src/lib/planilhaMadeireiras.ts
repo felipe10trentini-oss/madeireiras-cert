@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import { lerDocumento, lerTratamentos, type Madeireira } from "./madeireiras";
 import { COLUNAS_CADASTRO, empresaDaLinha } from "./cadastroColunas";
+import { rtCompleto } from "./responsaveis";
 import { chaveNome, soDigitos } from "./util";
 
 /** Aba CADASTRO da planilha nova: cabeçalho com os títulos de COLUNAS_CADASTRO. */
@@ -114,7 +115,7 @@ export async function lerPlanilhaMadeireiras(
     vistos.add(cnpj);
     empresas.push({
       apelido: (d.apelido ?? d.razaoSocial).trim(),
-      rt: d.rt?.trim() ?? null,
+      rt: rtCompleto(d.rt),
       uf: d.uf?.trim() ?? null,
       modalidade: /credenc/i.test(d._modalidade ?? "") ? "Credenciada" : "Cadastrada",
       tratamentos: lerTratamentos(d._tratamentos),

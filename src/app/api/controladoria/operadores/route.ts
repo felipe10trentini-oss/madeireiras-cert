@@ -28,14 +28,18 @@ export async function POST(req: Request) {
 /** Troca senha, nome, perfil ou ativa/desativa um operador. */
 export async function PATCH(req: Request) {
   if (!ehMaster(req)) return respostaNaoAutorizado("Acesso só com o login da controladoria.");
-  const c = (await req.json().catch(() => null)) as { id?: number; nome?: string; senha?: string; ativo?: boolean; perfil?: string } | null;
+  const c = (await req.json().catch(() => null)) as { id?: number; nome?: string; login?: string; senha?: string; ativo?: boolean; perfil?: string } | null;
   if (!c?.id) return NextResponse.json({ error: "Informe o operador." }, { status: 400 });
+  if (c.login !== undefined && !/^[A-Za-z0-9._-]{3,40}$/.test(c.login.trim())) {
+    return NextResponse.json({ error: "Login: 3 a 40 letras, números, ponto, hífen ou sublinhado." }, { status: 400 });
+  }
+  if (c.nome !== undefined && !c.nome.trim()) return NextResponse.json({ error: "Informe o nome." }, { status: 400 });
   if (c.senha) {
     const fraca = senhaFraca(c.senha);
     if (fraca) return NextResponse.json({ error: fraca }, { status: 400 });
   }
   try {
-    await alterarOperador(c.id, { nome: c.nome, senha: c.senha, ativo: c.ativo, perfil: c.perfil ? perfil(c.perfil) : undefined });
+    await alterarOperador(c.id, { nome: c.nome, login: c.login?.trim(), senha: c.senha, ativo: c.ativo, perfil: c.perfil ? perfil(c.perfil) : undefined });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Erro ao alterar." }, { status: 422 });

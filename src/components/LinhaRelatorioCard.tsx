@@ -10,6 +10,7 @@ import {
   montarLinhaRelatorio,
   type PadraoRelatorio,
 } from "@/lib/relatorio";
+import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 
 interface Props {
@@ -38,7 +39,8 @@ export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, data
   const [dataDocumento, setDataDocumento] = useState(
     usaComunicado ? (dataComunicado ?? "") : (salvo.dataDocumento || estilo?.dataDocumento || "")
   );
-  const [rt, setRt] = useState(salvo.rt || estilo?.rt || empresa.rt || "");
+  // Nome completo do RT (o da assinatura no SEI), não o apelido da Planilha Geral.
+  const [rt, setRt] = useState(rtCompleto(empresa.rt) || salvo.rt || estilo?.rt || "");
   const [volumeCamara, setVolumeCamara] = useState(
     (camara && (salvo.volumesCamara?.[camara] || estilo?.volumesCamara?.[String(parseInt(camara, 10))])) || ""
   );
