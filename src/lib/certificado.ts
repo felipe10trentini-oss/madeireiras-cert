@@ -387,7 +387,8 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
   } else if (inicio) {
     numComunicado = inicio.data.slice(3); // "21/09/2026" -> "09/2026"
   }
-  // Ciclo que atravessa o mês (ou o trimestre): pode ser lançado na programação do início ou do término.
+  // Ciclo que atravessa o mês (ou o trimestre): pode ir na programação do início ou do término.
+  // Padrão: a do término (é o que a equipe usa — ex.: 30/08 a 03/09 lançado em 09/2026).
   const fimCiclo = curva.cicloFim ?? fim;
   if (numComunicado && !comunicado?.numero && inicio && fimCiclo && empresa.documento !== "comunicado" && !regra.prestadora) {
     const periodo = (data: string) => {
@@ -396,14 +397,17 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
         ? `${String(Math.ceil(parseInt(mes, 10) / 3)).padStart(2, "0")}/${ano}`
         : `${mes}/${ano}`;
     };
+    const doInicio = numComunicado;
     const doFim = periodo(fimCiclo.data);
-    if (doFim !== numComunicado) {
+    if (doFim !== doInicio) {
+      numComunicado = doFim;
       avisos.push(
-        `O ciclo começou em ${inicio.data} e terminou em ${fimCiclo.data}: pode ser lançado na programação ${numComunicado} ou ${doFim}. ` +
-          `Está ${numComunicado}; para lançar na ${doFim}, troque no campo do comunicado/programação.`
+        `O ciclo começou em ${inicio.data} e terminou em ${fimCiclo.data}: pode ser lançado na programação ${doInicio} ou ${doFim}. ` +
+          `Está ${doFim}; para lançar na ${doInicio}, troque no campo do comunicado/programação.`
       );
     }
   }
+
 
   let lote = arq.lote ?? curva.lote ?? curva.ciclo;
   if (lote && regra.loteTresDigitos) lote = loteTres(lote);
