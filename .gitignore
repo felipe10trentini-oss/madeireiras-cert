@@ -53,3 +53,5 @@ next-env.d.ts
 
 # estilos dos relatórios (dados de clientes)
 *estilos*.json
+# saídas de análise (dados de clientes)
+*.jsonl

@@ -185,17 +185,20 @@ export function montarLinhaRelatorio(args: {
   const { estufa: estufaCiclo, numero } = numeroCiclo(v.ciclo ?? "");
   const cam = camara ?? (estufaCiclo != null ? String(estufaCiclo) : "");
   let ciclo = v.ciclo ?? "";
-  if (g.ciclo === "numero") ciclo = numero;
-  else if (g.ciclo === "E;C" && cam) ciclo = `${cam};${numero}`;
+  // Curva sem código UR numa empresa que usa o código: formato das linhas sem UR (ex.: SV520 da Palletimber).
+  const formatoCiclo = g.ciclo === "codigo" && !/^UR/i.test(ciclo) ? (g.cicloSemCodigo ?? "numero") : g.ciclo;
+  if (formatoCiclo === "numero") ciclo = numero;
+  else if (formatoCiclo === "E;C" && cam) ciclo = `${cam};${numero}`;
 
   const duracaoTexto = mTemp ? mTemp[2] : "";
   const minutos = duracaoTexto.match(/^(\d+)\s*min$/)?.[1];
   const hm = duracaoTexto.match(/^(\d+)h(\d+)m$/);
   let duracao = minutos ?? duracaoTexto;
   if (minutos) {
-    if (g.duracao === "00hMMm") duracao = `00h${minutos}m`;
-    else if (g.duracao === "00hMMmin") duracao = `00h${minutos}min`;
-    else if (g.duracao === "hhmm") duracao = `${String(Math.floor(+minutos / 60)).padStart(2, "0")}h${String(+minutos % 60).padStart(2, "0")}m`;
+    const hh = String(Math.floor(+minutos / 60)).padStart(2, "0");
+    const mm = String(+minutos % 60).padStart(2, "0");
+    if (g.duracao === "00hMMmin") duracao = `${hh}h${mm}min`;
+    else if (g.duracao === "hhmm" || g.duracao === "00hMMm") duracao = `${hh}h${mm}m`;
   } else if (hm && g.duracao === "min") duracao = String(parseInt(hm[1], 10) * 60 + parseInt(hm[2], 10));
 
   let lote = v.lote ?? "";

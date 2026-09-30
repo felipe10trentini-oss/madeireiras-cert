@@ -62,6 +62,13 @@ interface RegraEmpresa {
    * quantidade vêm do comunicado; volumes "Nihil".
    */
   prestadora?: boolean;
+  /**
+   * Programação trimestral ("03/2026" = 3º trimestre). Sábado, domingo, feriado em SP ou
+   * mais de dois tratamentos no dia exigem comunicado próprio (MART).
+   */
+  programacaoTrimestral?: boolean;
+  /** Kits de paletes são sempre AQF em unidades (Maxi). */
+  kitEhAqf?: boolean;
 }
 
 export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
@@ -74,7 +81,8 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "24046686000110": { prestadora: true }, // Exata (prestadora de serviço, como a Mann móvel)
   "00093600000141": { prestadora: true }, // Mann Unid. Volante
   "21730230000186": { loteSequencial: true }, // GM
-  "03636539000120": { loteAnoSemana: true, produto: "Madeira serrada para embalagens" }, // MART
+  "03636539000120": { loteAnoSemana: true, produto: "Madeira serrada para embalagens", programacaoTrimestral: true }, // MART
+  "21495060000283": { kitEhAqf: true }, // Maxi
   "50709371000115": { email: "faturamento2@lgpallets.com.br" }, // LG Logística
   "83054544000163": { cicloSV520: "Estufa {e} - Ciclo {c}" }, // Salamoni (SV520 e Mahild)
   "93470243000174": { cicloSV520: "Estufa {e} Ciclo {c}" }, // Madesozo
@@ -84,6 +92,35 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "00667464000156": { cicloSV520: "Estufa {e2} Ciclo {c}" }, // Videpinus
   "83951012000129": { ajusteFimMin: -1 }, // Madeico
 };
+
+/** Páscoa (algoritmo de Meeus) — base dos feriados móveis. */
+function pascoa(ano: number): Date {
+  const a = ano % 19, b = Math.floor(ano / 100), c = ano % 100, d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mes = Math.floor((h + l - 7 * m + 114) / 31), dia = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(Date.UTC(ano, mes - 1, dia));
+}
+
+/** Sábado, domingo ou feriado em SP (nacionais, estadual 09/07 e móveis) — "dd/mm/aaaa" -> motivo ou null. */
+export function diaSemComunicado(data: string): string | null {
+  const [d, m, a] = data.split("/").map((x) => parseInt(x, 10));
+  const dt = new Date(Date.UTC(a, m - 1, d));
+  if (dt.getUTCDay() === 6) return "sábado";
+  if (dt.getUTCDay() === 0) return "domingo";
+  const fixos: Record<string, string> = {
+    "01/01": "Confraternização Universal", "21/04": "Tiradentes", "01/05": "Dia do Trabalho",
+    "09/07": "Revolução Constitucionalista (SP)", "07/09": "Independência", "12/10": "N. Sra. Aparecida",
+    "02/11": "Finados", "15/11": "Proclamação da República", "20/11": "Consciência Negra", "25/12": "Natal",
+  };
+  const fixo = fixos[data.slice(0, 5)];
+  if (fixo) return `feriado (${fixo})`;
+  const p = pascoa(a).getTime();
+  const dias = Math.round((dt.getTime() - p) / 86400000);
+  const moveis: Record<number, string> = { [-48]: "Carnaval", [-47]: "Carnaval", [-2]: "Sexta-feira Santa", 60: "Corpus Christi" };
+  return moveis[dias] ? `feriado (${moveis[dias]})` : null;
+}
 
 /** "Estufa 03 - Ciclo 761" no formato da empresa. */
 function cicloNoFormato(ciclo: string | null, formato: string | undefined): string | null {
@@ -116,6 +153,9 @@ export function sugerirTipo(e: EntradaCertificado): { tipo: TipoTratamento; moti
   if (fazHT && !fazKD) return { tipo: "AQF", motivo: "a empresa é habilitada só para HT" };
   if (fazKD && !fazHT) return { tipo: "KD", motivo: "a empresa é habilitada só para KD" };
 
+  if (regraDe(empresa).kitEhAqf && curva.produtos.some((p) => /\bKIT\b/.test(up(p.descricao)))) {
+    return { tipo: "AQF", motivo: "kit de paletes (sempre AQF nesta empresa)" };
+  }
   if (curva.sistema === "CRG08 HT") return { tipo: "AQF", motivo: "curva de equipamento HT (CRG08 HT)" };
   if (SUPORTES.test(up(curva.textoProduto)) || (comunicado?.produto && ehEmbalagem(comunicado.produto))) {
     return { tipo: "AQF", motivo: "produto é embalagem/skid/suporte (exceção: ar quente forçado)" };
@@ -210,6 +250,12 @@ function montarProduto(e: EntradaCertificado, tipo: TipoTratamento, avisos: stri
       volumes,
       quantidade: !q ? null : soNumero ? `${q} ${unidadeDoProduto(volumes)}` : quantidadeDetalhada(q),
     };
+  }
+
+  // Kits de paletes (Maxi): "Kit paletes de madeira" / soma das unidades.
+  if (comM3.length && regra.kitEhAqf && comM3.some((p) => /\bKIT\b/.test(up(p.descricao)))) {
+    const unidades = comM3.reduce((s, p) => s + p.quantidade, 0);
+    return { produto: "Madeira reflorestada", volumes: "Kit paletes de madeira", quantidade: `${unidades} unidades` };
   }
 
   // 2) Skids/suportes.
@@ -330,6 +376,14 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
   if (comunicado?.numero) numComunicado = comunicado.numero;
   else if (empresa.documento === "comunicado" || regra.prestadora) {
     avisos.push("Esta empresa usa comunicado por tratamento: envie o PDF do comunicado ou digite o número.");
+  } else if (inicio && regra.programacaoTrimestral) {
+    const dia = diaSemComunicado(inicio.data);
+    if (dia) avisos.push(`Tratamento em ${dia}: esta empresa precisa de comunicado próprio — envie o PDF ou digite o número.`);
+    else {
+      const [, mes, ano] = inicio.data.split("/");
+      numComunicado = `${String(Math.ceil(parseInt(mes, 10) / 3)).padStart(2, "0")}/${ano}`; // 3º trimestre -> "03/2026"
+      avisos.push("Programação trimestral: se for o 3º tratamento do dia (ou mais), use comunicado.");
+    }
   } else if (inicio) {
     numComunicado = inicio.data.slice(3); // "21/09/2026" -> "09/2026"
   }

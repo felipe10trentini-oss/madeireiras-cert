@@ -25,6 +25,8 @@ export interface EstiloGrupo {
   modalidade?: string;
   estufa?: "numero" | "Estufa NN";
   ciclo?: "codigo" | "numero" | "E;C";
+  /** Formato do ciclo quando a curva não tem código UR (Palletimber: SV520 "1024", SV580 "UR031513..."). */
+  cicloSemCodigo?: "numero" | "E;C";
   duracao?: "hhmm" | "min" | "00hMMm" | "00hMMmin";
   lote?: "nosso" | "E;C" | "E-CCC" | "certificado" | "ciclo" | "concat";
   tomadorNihil?: boolean;
@@ -67,14 +69,18 @@ function grupo(linhas: Record<string, string>[]): EstiloGrupo | undefined {
   const l = linhas[linhas.length - 1]; // a mais recente representa o padrão atual
   const g: EstiloGrupo = {};
   g.objetivo = l.objetivo || undefined;
-  const doc = l.documento;
+  // Formato da programação: só linhas cujo nº é mês/trimestre (1–12); "077/2026" é comunicado.
+  const doc = [...linhas].reverse().map((o) => o.documento).find((d) => {
+    const m = d.match(/^(\d{1,3})[./](\d{2}|\d{4})$/);
+    return !!m && parseInt(m[1], 10) >= 1 && parseInt(m[1], 10) <= 12;
+  }) ?? "";
   if (/^\d{2}\.\d{2}$/.test(doc)) g.documento = "MM.YY";
   else if (/^\d\.\d{2}$/.test(doc)) g.documento = "M.YY";
   else if (/^0\d{2}\/\d{4}$/.test(doc)) g.documento = "0MM/YYYY";
   else if (/^\d{2}\/\d{4}$/.test(doc)) g.documento = "MM/YYYY";
   g.produto = l.produto || undefined;
   g.produtoComMm = /\d\s*mm/i.test(l.produto);
-  g.maiusculas = ehMaiusculo(l.produto) || ehMaiusculo(l.destino);
+  g.maiusculas = ehMaiusculo(l.produto);
   const temVol = !!l.volumes || !!l.unidadeVolumes;
   const temQtd = !!l.quantidade;
   g.contagemEm = temVol && !temQtd ? "volumes" : "quantidade";
@@ -85,13 +91,16 @@ function grupo(linhas: Record<string, string>[]): EstiloGrupo | undefined {
   g.horario = /:/.test(l.horario) ? ":" : /h/i.test(l.horario) ? "h" : undefined;
   g.modalidade = l.modalidade || undefined;
   g.estufa = /^Estufa/i.test(l.camara) ? "Estufa NN" : "numero";
-  if (/^UR/i.test(l.ciclo)) g.ciclo = "codigo";
+  // Código UR usado nas linhas recentes vale para as curvas que têm código, mesmo que a última não tenha.
+  if (/^UR/i.test(l.ciclo) || linhas.slice(-30).some((o) => /^UR/i.test(o.ciclo))) g.ciclo = "codigo";
   else if (/^\d+;\d+$/.test(l.ciclo)) g.ciclo = "E;C";
   else if (/^\d+$/.test(l.ciclo)) g.ciclo = "numero";
+  const semUR = [...linhas].reverse().find((o) => o.ciclo && !/^UR/i.test(o.ciclo));
+  if (semUR) g.cicloSemCodigo = /^\d+;\d+$/.test(semUR.ciclo) ? "E;C" : "numero";
   const dur = l.duracao;
   if (/^\d+$/.test(dur)) g.duracao = "min";
   else if (/^00h\d+min$/i.test(dur)) g.duracao = "00hMMmin";
-  else if (/^00h\d+m$/i.test(dur)) g.duracao = "00hMMm";
+  else if (/^00h\d+m$/i.test(dur)) g.duracao = "hhmm"; // "00h39m" é hh/mm: 80 min -> "01h20m", não "00h80m"
   else if (/^\d+h\d+m$/i.test(dur)) g.duracao = "hhmm";
   const lote = l.lote ?? "";
   const ur = l.ciclo.match(/^UR(\d{2})(\d{4})/i);
@@ -99,6 +108,7 @@ function grupo(linhas: Record<string, string>[]): EstiloGrupo | undefined {
   else if (/^\d+;\d+$/.test(lote)) g.lote = "E;C";
   else if (/^\d+-0\d{2}$/.test(lote)) g.lote = "E-CCC";
   else if (/^\d+$/.test(lote) && ur && lote === `${parseInt(ur[1], 10)}${parseInt(ur[2], 10)}`) g.lote = "concat";
+  else if (/^\d+$/.test(lote) && /^\d+$/.test(l.ciclo) && lote === `${parseInt(l.camara.match(/\d+/)?.[0] ?? "", 10)}${l.ciclo}`) g.lote = "concat";
   else if (/^\d+$/.test(lote) && (lote === l.ciclo || (ur && lote === String(parseInt(ur[2], 10))))) g.lote = "ciclo";
   else g.lote = "nosso";
   if (l.tomador !== undefined) {
