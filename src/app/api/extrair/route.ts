@@ -7,7 +7,8 @@ import { extractPdf } from "@/lib/pdfText";
 
 export const runtime = "nodejs";
 // O OCR de curvas que são imagem leva ~15–25 s.
-export const maxDuration = 60;
+// OCR de curva em imagem pode passar de 1 min na primeira chamada (início a frio).
+export const maxDuration = 120;
 
 /**
  * Lê a curva (e o comunicado, quando houver) e devolve os dados normalizados.

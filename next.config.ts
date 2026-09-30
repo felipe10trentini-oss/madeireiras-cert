@@ -8,7 +8,11 @@ const nextConfig: NextConfig = {
   // O OCR (tesseract.js) carrega o worker e o núcleo WebAssembly por caminho em
   // tempo de execução: garante que esses arquivos vão junto na função da Vercel.
   outputFileTracingIncludes: {
-    "/api/extrair": ["./node_modules/tesseract.js/**/*", "./node_modules/tesseract.js-core/**/*"],
+    "/api/extrair": [
+      "./node_modules/tesseract.js/**/*",
+      "./node_modules/tesseract.js-core/**/*",
+      "./ocr/por.traineddata.gz",
+    ],
   },
 };
 

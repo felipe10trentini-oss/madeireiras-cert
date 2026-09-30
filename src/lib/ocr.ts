@@ -3,9 +3,11 @@
 // dentro do Next), extrai a imagem embutida, amplia e lê com o Tesseract em português.
 import "pdf-parse/worker";
 import os from "node:os";
+import path from "node:path";
 import { createCanvas, loadImage, type Image } from "@napi-rs/canvas";
 import { PDFParse } from "pdf-parse";
 import { createWorker, PSM, type Worker } from "tesseract.js";
+import { lerCurva } from "./curvas";
 
 /** Largura alvo da imagem para o OCR: o texto do cabeçalho fica legível. */
 const LARGURA_OCR = 2200;
@@ -15,12 +17,27 @@ async function imagemDaPagina(buffer: Buffer): Promise<Buffer | null> {
   try {
     const r = await parser.getImage({ imageBuffer: true, first: 1 });
     const imagens = r.pages.flatMap((p) => p.images).filter((i) => i.data?.length);
-    if (!imagens.length) return null;
+    if (!imagens.length) return await paginaDesenhada(parser);
     // A de cabeçalho/tabela é a mais alta; o gráfico é mais largo que alto.
     const img = imagens.sort((a, b) => b.height - a.height)[0];
     return Buffer.from(img.data);
   } finally {
     await parser.destroy();
+  }
+}
+
+/**
+ * PDF sem imagem e sem texto: as letras são desenhadas como vetores (SV520 Power-View
+ * "impresso" em PDF). Desenha a página em alta resolução (~2500 px de largura) para o OCR.
+ */
+async function paginaDesenhada(parser: PDFParse): Promise<Buffer | null> {
+  try {
+    const r = await parser.getScreenshot({ first: 1, scale: 3, imageBuffer: true, imageDataUrl: false });
+    const pg = r.pages[0];
+    return pg?.data?.length ? Buffer.from(pg.data) : null;
+  } catch (err) {
+    console.error("Falha ao desenhar a página para o OCR", err);
+    return null;
   }
 }
 
@@ -84,13 +101,23 @@ export async function ocrPrimeiraPagina(buffer: Buffer): Promise<string> {
   if (!png) return "";
   const img = await loadImage(png);
 
-  // Na Vercel só /tmp é gravável: o arquivo de idioma baixado fica em cache lá.
-  const worker = await createWorker("por", undefined, { cachePath: os.tmpdir() });
+  // O idioma vai junto com o site (ocr/por.traineddata.gz): não baixa a cada início a frio
+  // na Vercel, onde só /tmp é gravável para o cache.
+  const worker = await createWorker("por", undefined, {
+    langPath: path.join(process.cwd(), "ocr"),
+    gzip: true,
+    cachePath: os.tmpdir(),
+  });
   try {
+    // Mahild (Salamoni): o quadro de dados basta e é uma leitura pequena — tenta primeiro,
+    // para não estourar o tempo limite lendo a página inteira.
+    const quadro = await ler(worker, quadroMahild(img), PSM.SINGLE_BLOCK);
+    const mahild = /LOTE\s*\(?\s*UR|TOTAL\s*CICLO|PRODUCTO/i.test(quadro);
+    if (mahild && lerCurva(quadro)?.cicloInicio) return quadro;
     const geral = await ler(worker, ampliar(img), PSM.AUTO);
-    if (/LOTE\s*\(?\s*UR|Bulbo|Relat[óo]rio de:?\s*Secagem/i.test(geral)) {
+    if (mahild || /LOTE\s*\(?\s*UR|Bulbo|Relat[óo]rio de:?\s*Secagem/i.test(geral)) {
       // Mahild: o quadro lido à parte vem primeiro (é onde o leitor procura os campos).
-      return `${await ler(worker, quadroMahild(img), PSM.SINGLE_BLOCK)}\n${geral}`;
+      return `${quadro}\n${geral}`;
     }
     return geral;
   } finally {

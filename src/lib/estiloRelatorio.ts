@@ -3,6 +3,8 @@
 // ("09.26" x "009/2026", "FARDOS" x "Fardos", "07h31m" x "13:12", lote "2-367" x "1;82"...),
 // e secagem (KD) e AQF costumam ser preenchidos de formas diferentes na mesma empresa.
 
+import { chaveDoCiclo } from "./sequenciaCiclo";
+
 export type Celula = string | number | { d: string } | { t: string } | { n: number } | null;
 
 export interface EstiloGrupo {
@@ -41,6 +43,8 @@ export interface EstiloRelatorio {
   dataDocumento?: string;
   rt?: string;
   volumesCamara?: Record<string, string>;
+  /** Último ciclo lançado no relatório em cada estufa (base do aviso de curva faltando). */
+  ultimosCiclos?: Record<string, number>;
 }
 
 const txt = (c: Celula): string => {
@@ -142,7 +146,14 @@ export function derivarEstilo(cabecalho: string[], linhas: Celula[][]): EstiloRe
     const cam = o.camara.match(/(\d+)\s*$/)?.[1];
     if (cam && o.volumeCamara) volumesCamara[String(parseInt(cam, 10))] = o.volumeCamara;
   }
+  const ultimosCiclos: Record<string, number> = {};
+  for (const o of objs) {
+    const ch = chaveDoCiclo(o.ciclo, o.camara, o.lote);
+    // A linha mais recente de cada estufa (não o maior: um erro de digitação como "6931" travaria a sequência).
+    if (ch) ultimosCiclos[ch.estufa] = ch.numero;
+  }
   return {
+    ultimosCiclos,
     kd: grupo(kd),
     aqf: grupo(aqf),
     processo: ultima.processo || undefined,

@@ -18,6 +18,8 @@ export interface PadraoRelatorio {
   ultimoLote?: string;
   /** Tomadores já usados nos certificados (credenciadas), por CNPJ só com dígitos. */
   tomadores?: Record<string, Tomador>;
+  /** Último ciclo emitido em cada estufa ("1" -> 25), para avisar quando falta curva. */
+  ciclos?: Record<string, number>;
 }
 
 export interface Tomador {

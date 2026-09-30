@@ -6,7 +6,9 @@ import type { Comunicado } from "@/lib/comunicado";
 import { curvaVazia, type Curva } from "@/lib/curvas/tipos";
 import { identificarEmpresa, lerNomeArquivo } from "@/lib/madeireiras";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
+import { validarComunicado } from "@/lib/divergencias";
 import { camposDoModelo, montarHtml, type Campo } from "@/lib/modelos";
+import { chaveDoCiclo, juntarUltimos, verificarSequencia } from "@/lib/sequenciaCiclo";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { soDigitos } from "@/lib/util";
 import { FileDrop } from "./FileDrop";
@@ -45,6 +47,8 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
   const [editando, setEditando] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [conferiuDivergencias, setConferiuDivergencias] = useState(false);
+  const [sequenciaConferida, setSequenciaConferida] = useState<string[]>([]);
   const docRef = useRef<HTMLDivElement>(null);
 
   // `sair` muda a cada render do portão de senha: guardado em ref para não refazer a busca.
@@ -89,6 +93,21 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
   const valores = montado ? { ...montado.valores, ...ajustes } : null;
   const html = montado && valores ? montarHtml(montado.modelo, valores) : "";
 
+  // Trava de divergência: comunicado x curva (dia, horário, material, quantidade).
+  const divergencias =
+    montado && valores && curva && extraido?.comunicado
+      ? validarComunicado({ curva, comunicado: extraido.comunicado, valores, tipo })
+      : [];
+  const errosDivergencia = divergencias.filter((d) => d.nivel === "erro");
+  const travado = errosDivergencia.length > 0 && !conferiuDivergencias;
+
+  // Sequência dos ciclos da estufa (curva faltando ou repetida).
+  const chaveCiclo = valores ? chaveDoCiclo(valores.ciclo, curva?.camara, curva?.lote) : null;
+  const avisoSequencia = empresa
+    ? verificarSequencia(chaveCiclo, juntarUltimos(empresa.estilo?.ultimosCiclos, empresa.relatorio?.ciclos))
+    : null;
+  const mostrarSequencia = avisoSequencia && !sequenciaConferida.includes(avisoSequencia.id);
+
   async function extrair(e: FormEvent) {
     e.preventDefault();
     if (!curvaArq) return setErro("Envie o PDF da curva de tratamento.");
@@ -116,6 +135,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
       }
       setAjustes({});
       setCopiado(false);
+      setConferiuDivergencias(false);
     } catch {
       setErro("Não foi possível conectar ao servidor. Tente novamente.");
     } finally {
@@ -138,6 +158,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
     setComunicadoArq(null);
     setAjustes({});
     setCopiado(false);
+    setConferiuDivergencias(false);
     setErro(null);
     setEditando(false);
   }
@@ -150,6 +171,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
     if (!empresa || !valores) return;
     const padrao: Record<string, unknown> = {};
     if (/^\d{1,8}$/.test(valores.lote ?? "")) padrao.ultimoLote = valores.lote;
+    if (chaveCiclo) padrao.ciclos = { [chaveCiclo.estufa]: chaveCiclo.numero };
     const cnpj = soDigitos(valores.tomCnpj);
     if (cnpj.length === 14 && cnpj !== soDigitos(empresa.cnpj) && valores.tomEndereco) {
       padrao.tomadores = {
@@ -179,6 +201,11 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
   }
 
   async function copiar() {
+    if (travado) {
+      setToast("Há divergências entre o comunicado e a curva: confira e marque “Conferi as divergências” para copiar.");
+      document.getElementById("divergencias")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     const texto = docRef.current?.innerText ?? "";
     try {
       try {
@@ -263,6 +290,52 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
         </form>
       ) : (
         <div className="view">
+          {divergencias.length > 0 && (
+            <div id="divergencias" className={`alert-box${errosDivergencia.length ? " critical" : ""}`} role="alert">
+              <h4>
+                {errosDivergencia.length
+                  ? "Divergências entre o comunicado e a curva — confira antes de copiar"
+                  : "Confira no comunicado"}
+              </h4>
+              <ul className="diverg">
+                {divergencias.map((d, i) => (
+                  <li key={i}>
+                    <b>{d.campo}:</b> {d.detalhe}
+                    <span className="diverg-lados mono">
+                      Comunicado: {d.comunicado} · Curva: {d.curva}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {errosDivergencia.length > 0 && (
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={conferiuDivergencias}
+                    onChange={(e) => setConferiuDivergencias(e.target.checked)}
+                  />{" "}
+                  Conferi as divergências e quero continuar mesmo assim
+                </label>
+              )}
+            </div>
+          )}
+
+          {mostrarSequencia && avisoSequencia && (
+            <div className="alert-box" role="status">
+              <h4>Sequência de ciclos</h4>
+              <ul>
+                <li>{avisoSequencia.texto}</li>
+              </ul>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setSequenciaConferida((l) => [...l, avisoSequencia.id])}
+              >
+                Conferido
+              </button>
+            </div>
+          )}
+
           {(extraido.semTexto || extraido.ocr || !empresa || (montado && montado.avisos.length > 0)) && (
             <div className="alert-box">
               <h4>Confira antes de copiar</h4>

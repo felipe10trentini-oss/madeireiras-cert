@@ -1,6 +1,7 @@
 import type { EstiloRelatorio } from "./estiloRelatorio";
 import { lerTratamentos, type Madeireira } from "./madeireiras";
 import type { PadraoRelatorio } from "./relatorio";
+import { juntarUltimos } from "./sequenciaCiclo";
 import { getSupabaseServerClient } from "./supabaseServer";
 import { soDigitos } from "./util";
 
@@ -175,6 +176,8 @@ export async function salvarPadraoRelatorio(cnpj: string, novo: PadraoRelatorio)
     ...novo,
     volumesCamara: { ...(antigo.volumesCamara ?? {}), ...(novo.volumesCamara ?? {}) },
     tomadores: { ...(antigo.tomadores ?? {}), ...(novo.tomadores ?? {}) },
+    // Último ciclo por estufa: guarda o maior (reemitir um ciclo antigo não volta a sequência).
+    ciclos: juntarUltimos(antigo.ciclos, novo.ciclos),
   };
   const { error } = await getSupabaseServerClient()
     .from(TABELA)

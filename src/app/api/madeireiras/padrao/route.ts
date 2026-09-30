@@ -25,6 +25,13 @@ export async function POST(req: Request) {
           .map(([k, v]) => [k, String(v).slice(0, 20)])
       ),
     }),
+    ...(p.ciclos && typeof p.ciclos === "object" && {
+      ciclos: Object.fromEntries(
+        Object.entries(p.ciclos)
+          .filter(([k, v]) => /^\d{1,3}$/.test(k) && Number.isInteger(v) && v >= 0 && v < 1e7)
+          .slice(0, 50)
+      ),
+    }),
     ...(p.tomadores && typeof p.tomadores === "object" && {
       tomadores: Object.fromEntries(
         Object.entries(p.tomadores)
