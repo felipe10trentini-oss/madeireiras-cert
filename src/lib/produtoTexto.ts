@@ -51,6 +51,19 @@ export function espessuras(texto: string): number[] {
 /** "17,5" para 17.5; "15" para 15. */
 export const mmBR = (n: number) => (Number.isInteger(n) ? String(n) : String(n).replace(".", ","));
 
+/**
+ * Soma das unidades de uma quantidade com vários itens: "530 Paletes + 140 tampas +2 caixas" = 672;
+ * "60 Paletes (1000x1200mm) 40 Kit caixas (1000x1200x680mm)" = 100. Vale o número que abre cada
+ * item — medidas (1000x1200), números entre parênteses e mm/cm/m não contam. "2.500 skids" = 2500.
+ */
+export function somaDeItens(texto: string): number | null {
+  const t = (texto ?? "").replace(/\([^)]*\)/g, " ");
+  const itens = [...t.matchAll(/(?<![\dx×.,/])(\d{1,3}(?:\.\d{3})+|\d+)(?![\dx×.,])\s*(?!mm\b|cm\b|m\b|m[³3])(?=[a-zà-ú])/gi)].map((m) =>
+    parseInt(m[1].replace(/\./g, ""), 10)
+  );
+  return itens.length ? itens.reduce((s, n) => s + n, 0) : null;
+}
+
 /** Soma dos fardos/grades/pacotes citados no texto ("5 fardos", "48 GRADES", "40FAR"). */
 export function fardos(texto: string): number | null {
   let total = 0;

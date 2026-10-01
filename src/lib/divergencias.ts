@@ -5,6 +5,7 @@ import type { TipoTratamento } from "./certificado";
 import type { Comunicado } from "./comunicado";
 import type { Curva } from "./curvas/tipos";
 import type { ValoresCertificado } from "./modelos";
+import { somaDeItens } from "./produtoTexto";
 import { semAcento } from "./util";
 
 export interface Divergencia {
@@ -61,8 +62,8 @@ function quantidadeComunicado(c: Comunicado): { valor: number; m3: boolean } | n
     return { valor: numeroBR(q), m3: /m[³3]|metro/i.test(c.volumes ?? "") || /,\d/.test(q) };
   }
   // Itens ("60 Paletes 1000x1200 mm", "40 Kit caixas…"): o número que abre cada item, não as medidas.
-  const itens = [...q.matchAll(/(?<![\dx×.,])(\d[\d.]*)\s+(?!mm\b|cm\b|m\b|m[³3])(?=[a-zà-ú])/gi)].map((m) => numeroBR(m[1]));
-  return itens.length ? { valor: itens.reduce((s, n) => s + n, 0), m3: false } : null;
+  const soma = somaDeItens(q);
+  return soma != null ? { valor: soma, m3: false } : null;
 }
 
 const fmt = (n: number, m3: boolean) =>

@@ -6,6 +6,7 @@ import type { Madeireira } from "./madeireiras";
 import type { ValoresCertificado } from "./modelos";
 import { REGRAS_EMPRESA } from "./certificado";
 import { EMBALAGEM, type EstiloGrupo, type EstiloRelatorio } from "./estiloRelatorio";
+import { somaDeItens } from "./produtoTexto";
 import { rtCompleto } from "./responsaveis";
 import { hojeBR, soDigitos } from "./util";
 
@@ -151,7 +152,14 @@ export function montarLinhaRelatorio(args: {
   const tomadorNihil = !v.tomRazao || /^nihil$/i.test(v.tomRazao);
   const mTemp = (v.temperatura ?? "").match(/^([\d,]+)°C\s*\/\s*Dura[çc][ãa]o:\s*(.+)$/);
   // Excel em pt-BR: "46.1106" (ponto decimal da curva) precisa ir como "46,1106".
-  const qtd = mQ ? (/^\d+\.\d+$/.test(mQ[1]) && !/^\d{1,3}\.\d{3}$/.test(mQ[1]) ? mQ[1].replace(".", ",") : mQ[1]) : "";
+  // Contagem com vários itens ("530 paletes e 140 tampas", "60 Paletes … 40 Kit caixas"): soma tudo.
+  const soma = !emM3 ? somaDeItens(v.quantidade ?? "") : null;
+  const qtd =
+    soma != null
+      ? String(soma)
+      : mQ
+        ? /^\d+\.\d+$/.test(mQ[1]) && !/^\d{1,3}\.\d{3}$/.test(mQ[1]) ? mQ[1].replace(".", ",") : mQ[1]
+        : "";
 
   // Produto, volumes e quantidade.
   let produto: string;
