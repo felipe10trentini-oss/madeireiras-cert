@@ -1,6 +1,7 @@
 import { m3DoTexto } from "../produtoTexto";
 import { minutosEntre, numeroBR, pad2, somarMinutos } from "../util";
 import { curvaVazia, primeiroCnpj, type Curva, type Sistema } from "./tipos";
+import type { DataHora } from "../util";
 
 function identificarSistema(texto: string): Sistema {
   if (/NTrat/i.test(texto)) return "CRG08 HT";
@@ -69,6 +70,31 @@ function parseRelatorio(texto: string): Curva {
 }
 
 /**
+ * Fim da faixa verde: a leitura de nº (NL) = leitura do início + `leiturasMin`. O controlador
+ * grava uma leitura por minuto e conta o tempo pelas leituras — numa interrupção (sem leituras
+ * entre 08:04 e 08:08) a faixa se estende (MD 475: leitura 103 + 31 = 134, às 08:22).
+ * Linha da tabela: "NLT NL Hora …" = "011 163 10:05 058 056 080 070".
+ */
+function fimPelasLeituras(texto: string, inicio: DataHora, leiturasMin: number): DataHora | null {
+  const leituras = [...texto.matchAll(/^\d{3}\s+(\d{1,5})\s+(\d{2}):(\d{2})\s+\d/gm)].map((m) => ({
+    nl: parseInt(m[1], 10),
+    min: parseInt(m[2], 10) * 60 + parseInt(m[3], 10),
+  }));
+  if (!leituras.length) return null;
+  const [hi, mi] = inicio.hora.split(":").map(Number);
+  const nlInicio =
+    Number(texto.match(/In[íi]cio do Tratamento na leitura\s+(\d+)/i)?.[1]) ||
+    leituras.find((l) => l.min === hi * 60 + mi)?.nl;
+  if (!nlInicio) return null;
+  const fim = leituras.filter((l) => l.nl >= nlInicio + leiturasMin).sort((a, b) => a.nl - b.nl)[0];
+  if (!fim) return null;
+  // Minutos desde o início pela hora da leitura (passando da meia-noite, soma um dia).
+  let delta = fim.min - (hi * 60 + mi);
+  if (delta < 0) delta += 1440;
+  return somarMinutos(inicio, delta);
+}
+
+/**
  * Controladores Digisystem: CRG08 HT, CRG08 KDHT e DMC2051 (relatório e gráfico).
  * Os quatro trazem os mesmos dados com rótulos ligeiramente diferentes, ex.:
  *   "Início do Tratamento na leitura 71 - 25/09/2026 09:04:00"
@@ -114,6 +140,13 @@ export function parseDigisystem(texto: string): Curva {
     c.htInicio = { data: mIni[1], hora: mIni[2] };
     // Convenção da equipe: início e último minuto contam inteiros -> término = início + (tt - 1).
     if (c.htDuracaoMin) c.htFim = somarMinutos(c.htInicio, c.htDuracaoMin - 1);
+    // CRG08 HT: o tratamento é a faixa verde da tabela de leituras — da leitura do início até a
+    // primeira leitura com (tt - 1) minutos ou mais. Sem leitura no minuto exato (10:35, 10:37),
+    // o término é a leitura seguinte (DM 425: 10:05 -> 10:37).
+    if (c.sistema === "CRG08 HT" && c.htDuracaoMin) {
+      const fim = fimPelasLeituras(texto, c.htInicio, c.htDuracaoMin - 1);
+      if (fim) c.htFim = fim;
+    }
   }
 
   c.umidadeFinal = numeroBR(texto.match(/UM Final\s*[:;=]\s*([\d,.]+)/i)?.[1]);
