@@ -211,6 +211,11 @@ export function montarLinhaRelatorio(args: {
     if (g.duracao === "00hMMmin") duracao = `${hh}h${mm}min`;
     else if (g.duracao === "hhmm" || g.duracao === "00hMMm") duracao = `${hh}h${mm}m`;
   } else if (hm && g.duracao === "min") duracao = String(parseInt(hm[1], 10) * 60 + parseInt(hm[2], 10));
+  // HT e AQF: em minutos, como no certificado ("Duração: 32 min" -> 32); o formato da planilha vale só para a secagem KD.
+  if (tipo !== "KD") {
+    if (minutos) duracao = minutos;
+    else if (hm) duracao = String(parseInt(hm[1], 10) * 60 + parseInt(hm[2], 10));
+  }
 
   let lote = v.lote ?? "";
   const mL = lote.match(/^(\d+)-(\d+)$/);
