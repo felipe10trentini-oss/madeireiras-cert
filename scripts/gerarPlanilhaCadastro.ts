@@ -124,6 +124,7 @@ async function main() {
       "Bitola padrão (mm)": r.bitolaPadraoMm ?? null,
       "Formato do lote": formatoLote(r),
       "Formato do ciclo": r.cicloSV520 ?? null,
+      "Ciclo com 3 dígitos": sn(r.cicloTresDigitos),
       "E-mail no certificado": r.email ?? null,
       "Kit de paletes = AQF": sn(r.kitEhAqf),
       "Curva SV580 HT = AQF": sn(r.htEhAqf),

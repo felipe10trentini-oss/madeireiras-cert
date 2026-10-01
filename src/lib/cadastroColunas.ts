@@ -57,6 +57,7 @@ export const COLUNAS_CADASTRO: ColunaCadastro[] = [
   { titulo: "Bitola padrão (mm)", grupo: "Certificado", tipo: "numero", largura: 10, ajuda: "Usada quando a curva não traz a bitola (Rio Timbó: 17)." },
   { titulo: "Formato do lote", grupo: "Certificado", tipo: "lista", opcoes: [...FORMATOS_LOTE], largura: 24, ajuda: "Como o lote vai no certificado. Lote próprio da empresa pode vir no nome da curva: \"165 GM 1-446(833)\"." },
   { titulo: "Formato do ciclo", grupo: "Certificado", tipo: "texto", largura: 22, ajuda: "Vazio = padrão \"Estufa 04 - Ciclo 208\" (secagem SV520/DMC2051/Mahild). Use {e} estufa, {e2} estufa com 2 dígitos, {c} ciclo, {c3} ciclo com 3 dígitos." },
+  { titulo: "Ciclo com 3 dígitos", grupo: "Certificado", tipo: "lista", opcoes: SIM_NAO, largura: 9, ajuda: "Nº do ciclo como o lote, com 3 dígitos: 77 -> 077 (Induspacking)." },
   { titulo: "E-mail no certificado", grupo: "Certificado", tipo: "texto", largura: 28, ajuda: "Só se for diferente do e-mail do cadastro (LG: faturamento2@…)." },
   { titulo: "Kit de paletes = AQF", grupo: "Certificado", tipo: "lista", opcoes: SIM_NAO, largura: 9, ajuda: "Curva com KIT sempre AQF em unidades (Maxi)." },
   { titulo: "Curva SV580 HT = AQF", grupo: "Certificado", tipo: "lista", opcoes: SIM_NAO, largura: 9, ajuda: "Curva SV580 \"Finalizado (HT)\" vai como ar quente forçado AQF-HT (Palletimber)." },
@@ -101,6 +102,7 @@ export function empresaDaLinha(linha: Record<string, string | null>): { empresa:
   put("loteSequencial", lote.startsWith("Sequencial"));
   put("loteAnoSemana", lote.startsWith("Ano + semana"));
   put("cicloSV520", v("Formato do ciclo"));
+  put("cicloTresDigitos", sim(v("Ciclo com 3 dígitos")));
   put("email", v("E-mail no certificado"));
   put("kitEhAqf", sim(v("Kit de paletes = AQF")));
   put("htEhAqf", sim(v("Curva SV580 HT = AQF")));

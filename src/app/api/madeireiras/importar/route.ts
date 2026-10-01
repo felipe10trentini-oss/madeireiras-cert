@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 const txt = (v: unknown, max = 300): string | null =>
   typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null;
 
-const BOOLS = ["loteTresDigitos", "loteSemHifen", "numeroEhLote", "loteEhNumero", "loteSequencial", "loteAnoSemana",
+const BOOLS = ["loteTresDigitos", "loteSemHifen", "cicloTresDigitos", "numeroEhLote", "loteEhNumero", "loteSequencial", "loteAnoSemana",
   "prestadora", "programacaoTrimestral", "kitEhAqf", "htEhAqf", "embalagemDeMadeira", "temDR", "drKdHt", "planilhaControle", "inativa"] as const;
 const TEXTOS = ["unidadeVolumes", "email", "produto", "cicloSV520", "prestadorCnpj", "sistemaCurva", "observacoes"] as const;
 

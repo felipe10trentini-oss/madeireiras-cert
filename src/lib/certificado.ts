@@ -74,6 +74,8 @@ interface RegraEmpresa {
   kitEhAqf?: boolean;
   /** Curva SV580 "Finalizado (HT)" vai no modelo AQF "AQF - HT" (Palletimber). */
   htEhAqf?: boolean;
+  /** Nº do ciclo com 3 dígitos quando a curva traz só o número: "77" -> "077" (Induspacking). */
+  cicloTresDigitos?: boolean;
   /** Lote sem hífen: "1-514" -> "1514" (Palletimber). */
   loteSemHifen?: boolean;
   /** Bitola quando a curva não traz (Rio Timbó: quase sempre 17 mm; o operador corrige se for outra). */
@@ -105,6 +107,7 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "20593206000180": { htEhAqf: true, loteSemHifen: true }, // Palletimber
   "13804475000182": { bitolaPadraoMm: 17, loteTresDigitos: true }, // Rio Timbó
   "04456108000144": { embalagemDeMadeira: true }, // MD Paletes
+  "26341045000113": { cicloTresDigitos: true }, // Induspacking Cotia: ciclo "077" como o lote
   "05199829000260": { prestadorCnpj: "05199829000189" }, // Inexport Capivari: prestador é a matriz (Palmares)
   "06249793000163": { tomadorFixo: { razao: "Madeireira São Gabriel Ltda", cnpj: "40.950.343/0001-31" } }, // Reis
   "83951012000129": { ajusteFimMin: -1 }, // Madeico
@@ -157,6 +160,7 @@ const FORMATO_CICLO_PADRAO = "Estufa {e2} - Ciclo {c3}";
 const SISTEMAS_CICLO_PADRAO = new Set(["SV520", "DMC2051", "DMC2051 Gráfico", "Digisystem Relatório", "Mahild"]);
 
 function cicloDoCertificado(curva: Curva, empresa: Madeireira, regra: RegraEmpresa): string | null {
+  if (regra.cicloTresDigitos && /^\d{1,2}$/.test(curva.ciclo ?? "")) return curva.ciclo!.padStart(3, "0");
   // Empresas que secam (KD ou KD/HT); as só HT (AQF) mantêm o nº da curva.
   if (!SISTEMAS_CICLO_PADRAO.has(curva.sistema) || !empresa.tratamentos.includes("KD")) return curva.ciclo;
   // DMC2051 traz só o nº da secagem ("478"): a estufa vem do controlador.

@@ -33,6 +33,7 @@ export interface ConfigEmpresa {
   unidadeVolumes?: string;
   loteTresDigitos?: boolean;
   loteSemHifen?: boolean;
+  cicloTresDigitos?: boolean;
   numeroEhLote?: boolean;
   loteEhNumero?: boolean;
   loteSequencial?: boolean;
