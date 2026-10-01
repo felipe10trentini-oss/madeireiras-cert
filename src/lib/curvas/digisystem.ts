@@ -76,7 +76,7 @@ function parseRelatorio(texto: string): Curva {
  * Linha da tabela: "NLT NL Hora …" = "011 163 10:05 058 056 080 070".
  */
 function fimPelasLeituras(texto: string, inicio: DataHora, leiturasMin: number): DataHora | null {
-  const leituras = [...texto.matchAll(/^\d{3}\s+(\d{1,5})\s+(\d{2}):(\d{2})\s+\d/gm)].map((m) => ({
+  const leituras = [...texto.matchAll(/^\d{3}\s+(\d{1,5})\s+(\d{2}):(\d{2})(?=\s|$)/gm)].map((m) => ({
     nl: parseInt(m[1], 10),
     min: parseInt(m[2], 10) * 60 + parseInt(m[3], 10),
   }));
