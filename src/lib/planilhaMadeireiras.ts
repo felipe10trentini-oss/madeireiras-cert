@@ -232,15 +232,26 @@ export interface AcessoSeiLido {
 export async function lerAcessosSei(buffer: Buffer | ArrayBuffer): Promise<AcessoSeiLido[] | null> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer as ArrayBuffer);
-  const ws = wb.worksheets.find((w) => w.name.trim().toUpperCase() === "ACESSO SEI");
-  if (!ws) return null;
+  // A aba ACESSO SEI da Planilha Geral, ou uma planilha só com os acessos (qualquer aba com LOGIN e SENHA).
+  const abas = [
+    ...wb.worksheets.filter((w) => w.name.trim().toUpperCase() === "ACESSO SEI"),
+    ...wb.worksheets.filter((w) => w.name.trim().toUpperCase() !== "ACESSO SEI"),
+  ];
+  for (const ws of abas) {
+    const lidos = lerAbaAcessos(ws);
+    if (lidos) return lidos;
+  }
+  return null;
+}
+
+function lerAbaAcessos(ws: ExcelJS.Worksheet): AcessoSeiLido[] | null {
   for (let r = 1; r <= Math.min(ws.rowCount, 10); r++) {
     const col: Record<string, number> = {};
     ws.getRow(r).eachCell((cell, c) => {
       const t = chaveNome(textoDaCelula(cell.value) ?? "");
-      if (t === "SENHA") col.senha = c;
-      else if (t === "LOGIN") col.login = c;
-      else if (t.startsWith("LOGINRESP")) col.nome = c;
+      if (t === "SENHA" || t === "SENHASEI") col.senha = c;
+      else if (t === "LOGIN" || t === "EMAIL" || t === "LOGINSEI" || t === "EMAILSEI") col.login = c;
+      else if (t.startsWith("LOGINRESP") || t === "NOME" || t === "RT") col.nome = c;
       else if (t.startsWith("RESPONSAB")) col.funcao = c;
       else if (t === "EMPRESA") col.empresa = c;
     });

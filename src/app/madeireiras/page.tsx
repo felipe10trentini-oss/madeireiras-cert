@@ -50,6 +50,8 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
   const [erro, setErro] = useState<string | null>(null);
   const [filtro, setFiltro] = useState("");
   const [acessosMsg, setAcessosMsg] = useState<string | null>(null);
+  const [arquivoSei, setArquivoSei] = useState<File | null>(null);
+  const bytesSei = useRef<ArrayBuffer | null>(null);
   const [planilhaLida, setPlanilhaLida] = useState<Awaited<ReturnType<typeof lerPlanilhaMadeireiras>> | null>(null);
 
   const carregar = useCallback(async () => {
@@ -107,20 +109,30 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
     }
   }
 
-  /** Aba ACESSO SEI da Planilha Geral -> logins e senhas do SEI dos RTs (cifrados no servidor). */
-  async function enviarAcessosSei() {
-    if (!arquivo) return;
-    setAcessosMsg("Lendo a aba ACESSO SEI… (pode levar uns 15 segundos)");
+  /**
+   * Logins e senhas do SEI dos RTs (cifrados no servidor): da aba ACESSO SEI da Planilha Geral
+   * ou de uma planilha só com os acessos (campo próprio, mais leve).
+   */
+  async function enviarAcessosSei(origem?: ArrayBuffer | null) {
+    const dados = origem ?? (arquivo ? await lerBytes().catch(() => null) : null);
+    if (!dados) {
+      setAcessosMsg("Escolha a planilha com os acessos do SEI.");
+      return;
+    }
+    setAcessosMsg("Lendo os acessos do SEI…");
     try {
-      const acessos = await lerAcessosSei(await lerBytes());
-      if (!acessos) return; // planilha sem a aba (ex.: a de cadastro)
+      const acessos = await lerAcessosSei(dados);
+      if (!acessos) {
+        setAcessosMsg("Não achei as colunas dos acessos (LOGIN RESP. ou NOME, LOGIN e SENHA) nesta planilha.");
+        return;
+      }
       const res = await fetch("/api/madeireiras/sei", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...cabecalhoSenha(senha) },
         body: JSON.stringify({ acessos }),
       });
       const data = await res.json().catch(() => ({}));
-      setAcessosMsg(res.ok ? `Acessos do SEI atualizados: ${data.gravados} (aba ACESSO SEI).` : `Acessos do SEI: ${data.error ?? "falha ao gravar"}.`);
+      setAcessosMsg(res.ok ? `Acessos do SEI atualizados: ${data.gravados}.` : `Acessos do SEI: ${data.error ?? "falha ao gravar"}.`);
     } catch (e) {
       console.error("Acessos do SEI:", e);
       setAcessosMsg(`Não foi possível ler a aba ACESSO SEI (${e instanceof Error ? e.message : "erro"}).`);
@@ -270,6 +282,41 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
           </div>
         </div>
       )}
+
+      <div className="section-title">
+        <h2>Acessos do SEI dos RTs</h2>
+        <p>Planilha só com os acessos (ou a Planilha Geral, aba ACESSO SEI)</p>
+      </div>
+      <div className="card" style={{ marginBottom: 22 }}>
+        <p className="hint" style={{ marginTop: 0 }}>
+          Colunas: <b>LOGIN RESP.</b> (nome do RT), <b>RESPONSABILIDADE</b>, <b>EMPRESA</b>, <b>LOGIN</b> (e-mail do SEI) e{" "}
+          <b>SENHA</b> — as mesmas da aba ACESSO SEI. As senhas ficam criptografadas e aparecem só na emissão, para copiar.
+        </p>
+        <div className="drops" style={{ gridTemplateColumns: "1fr" }}>
+          <FileDrop
+            titulo="Acessos do SEI"
+            dica="Arraste a planilha dos acessos do SEI (.xlsx) aqui ou clique para escolher"
+            arquivo={arquivoSei}
+            onArquivo={(x) => {
+              setArquivoSei(x);
+              bytesSei.current = null;
+              setAcessosMsg(null);
+              x?.arrayBuffer().then((b) => (bytesSei.current = b)).catch(() => undefined);
+            }}
+          />
+        </div>
+        <div className="actions" style={{ marginTop: 10 }}>
+          <button
+            type="button"
+            className="btn primary"
+            disabled={!arquivoSei}
+            onClick={async () => enviarAcessosSei(bytesSei.current ?? (await arquivoSei!.arrayBuffer().catch(() => null)))}
+          >
+            Enviar acessos do SEI
+          </button>
+          {acessosMsg && <span className="hint">{acessosMsg}</span>}
+        </div>
+      </div>
 
       <div className="section-title">
         <h2>Madeireiras cadastradas {lista ? `(${lista.length})` : ""}</h2>
