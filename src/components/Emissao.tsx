@@ -10,9 +10,10 @@ import { validarComunicado } from "@/lib/divergencias";
 import { camposDoModelo, montarHtml, type Campo } from "@/lib/modelos";
 import { chaveDoCiclo, juntarUltimos, verificarSequencia } from "@/lib/sequenciaCiclo";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
-import { soDigitos } from "@/lib/util";
+import { soDigitos, ufDoMapa } from "@/lib/util";
 import { FileDrop } from "./FileDrop";
 import { DrCard } from "./DrCard";
+import { SeiCard } from "./SeiCard";
 import { LinhaRelatorioCard } from "./LinhaRelatorioCard";
 import { PlanilhaControleCard } from "./PlanilhaControleCard";
 import { Steps } from "./Steps";
@@ -396,7 +397,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
                 <option value="">— escolha —</option>
                 {empresas?.filter((e) => !e.config?.inativa || e.cnpj === cnpjEscolhido).map((e) => (
                   <option key={e.cnpj} value={e.cnpj}>
-                    {e.apelido} · {e.regMapa}
+                    {e.apelido} · {ufDoMapa(e.regMapa, e.uf) ?? "?"} · {e.regMapa}
                   </option>
                 ))}
               </select>
@@ -449,6 +450,8 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
               </div>
             </div>
           </div>
+
+          {empresa && <SeiCard senha={senha} empresa={empresa} valores={valores} onToast={setToast} />}
 
           {curva && montado && (curva.sistema === "SV520" || curva.sistema === "Mahild") && (
             <PlanilhaControleCard

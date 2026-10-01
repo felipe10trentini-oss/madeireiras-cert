@@ -4,8 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { FileDrop } from "@/components/FileDrop";
 import { PortaoSenha } from "@/components/PortaoSenha";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
-import { lerPlanilhaMadeireiras } from "@/lib/planilhaMadeireiras";
+import { lerAcessosSei, lerPlanilhaMadeireiras } from "@/lib/planilhaMadeireiras";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
+import { ufDoMapa } from "@/lib/util";
 
 interface Resumo {
   totalNaPlanilha: number;
@@ -44,6 +45,7 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
   const [trabalhando, setTrabalhando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [filtro, setFiltro] = useState("");
+  const [acessosMsg, setAcessosMsg] = useState<string | null>(null);
   const [planilhaLida, setPlanilhaLida] = useState<Awaited<ReturnType<typeof lerPlanilhaMadeireiras>> | null>(null);
 
   const carregar = useCallback(async () => {
@@ -89,12 +91,34 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
       else if (!res.ok) setErro(data.error ?? "Não foi possível processar a planilha.");
       else {
         setResumo(data as Resumo);
-        if (modo === "aplicar") void carregar();
+        if (modo === "aplicar") {
+          void carregar();
+          void enviarAcessosSei();
+        }
       }
     } catch {
       setErro("Não foi possível conectar ao servidor.");
     } finally {
       setTrabalhando(false);
+    }
+  }
+
+  /** Aba ACESSO SEI da Planilha Geral -> logins e senhas do SEI dos RTs (cifrados no servidor). */
+  async function enviarAcessosSei() {
+    if (!arquivo) return;
+    setAcessosMsg(null);
+    try {
+      const acessos = await lerAcessosSei(await arquivo.arrayBuffer());
+      if (!acessos) return; // planilha sem a aba (ex.: a de cadastro)
+      const res = await fetch("/api/madeireiras/sei", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...cabecalhoSenha(senha) },
+        body: JSON.stringify({ acessos }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setAcessosMsg(res.ok ? `Acessos do SEI atualizados: ${data.gravados} (aba ACESSO SEI).` : `Acessos do SEI: ${data.error ?? "falha ao gravar"}.`);
+    } catch {
+      setAcessosMsg("Não foi possível ler a aba ACESSO SEI.");
     }
   }
 
@@ -228,6 +252,14 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
               <span className="hint">Confira a lista acima antes de aplicar.</span>
             </div>
           )}
+          <div className="actions" style={{ marginTop: 10 }}>
+            <button type="button" className="btn" disabled={trabalhando} onClick={() => enviarAcessosSei()}>
+              Atualizar acessos do SEI (aba ACESSO SEI)
+            </button>
+            <span className="hint">
+              {acessosMsg ?? "Logins e senhas do SEI dos RTs: aparecem na emissão para copiar. Ao aplicar as mudanças eles também são atualizados."}
+            </span>
+          </div>
         </div>
       )}
 
@@ -260,7 +292,9 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
             ) : (
               visiveis.map((e) => (
                 <tr key={e.cnpj}>
-                  <td>{e.apelido}</td>
+                  <td>
+                    {e.apelido} <span className="badge">{ufDoMapa(e.regMapa, e.uf) ?? "?"}</span>
+                  </td>
                   <td>
                     <span className={`badge ${e.modalidade === "Credenciada" ? "pago" : "pendente"}`}>{e.modalidade}</span>
                   </td>

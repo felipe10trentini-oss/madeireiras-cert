@@ -32,6 +32,7 @@ interface Painel {
   periodo: { de: string; ate: string };
   resumo: Record<string, Contagem>;
   porEmpresa: [string, number][];
+  ufPorNome: Record<string, string | null>;
   emissoes: Emissao[];
   totalPeriodo: number;
 }
@@ -415,7 +416,9 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
             {painel.porEmpresa.length ? (
               painel.porEmpresa.map(([emp, n]) => (
                 <tr key={emp}>
-                  <td>{emp}</td>
+                  <td>
+                    {emp} {painel.ufPorNome[emp] && <span className="badge">{painel.ufPorNome[emp]}</span>}
+                  </td>
                   <td>{n}</td>
                 </tr>
               ))
@@ -467,7 +470,9 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
               <tr key={e.id}>
                 <td className="mono">{quando(e.created_at)}</td>
                 <td>{nomes[e.operador_login] ?? e.operador_login}</td>
-                <td>{e.empresa_apelido}</td>
+                <td>
+                  {e.empresa_apelido} {painel.ufPorNome[e.empresa_apelido] && <span className="badge">{painel.ufPorNome[e.empresa_apelido]}</span>}
+                </td>
                 <td className="mono">{e.numero_certificado}</td>
                 <td>{e.tipo}</td>
                 <td className="mono">{e.lote}</td>

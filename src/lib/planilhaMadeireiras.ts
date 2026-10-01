@@ -216,3 +216,53 @@ function aplicarProgramacoes(empresas: Madeireira[], programacoes: LinhaPrograma
   // Com a aba de programações disponível, quem não está nela usa comunicado.
   for (const e of empresas) if (!e.documento) e.documento = "comunicado";
 }
+
+export interface AcessoSeiLido {
+  nome: string;
+  funcao: string | null;
+  empresa: string | null;
+  login: string;
+  senha: string;
+}
+
+/**
+ * Aba ACESSO SEI da Planilha Geral: LOGIN RESP. | RESPONSABILIDADE | EMPRESA | LOGIN | SENHA.
+ * A senha vai como está na célula (sem mexer em espaços/maiúsculas). `null` se não houver a aba.
+ */
+export async function lerAcessosSei(buffer: Buffer | ArrayBuffer): Promise<AcessoSeiLido[] | null> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer as ArrayBuffer);
+  const ws = wb.worksheets.find((w) => w.name.trim().toUpperCase() === "ACESSO SEI");
+  if (!ws) return null;
+  for (let r = 1; r <= Math.min(ws.rowCount, 10); r++) {
+    const col: Record<string, number> = {};
+    ws.getRow(r).eachCell((cell, c) => {
+      const t = chaveNome(textoDaCelula(cell.value) ?? "");
+      if (t === "SENHA") col.senha = c;
+      else if (t === "LOGIN") col.login = c;
+      else if (t.startsWith("LOGINRESP")) col.nome = c;
+      else if (t.startsWith("RESPONSAB")) col.funcao = c;
+      else if (t === "EMPRESA") col.empresa = c;
+    });
+    if (!col.senha || !col.login || !col.nome) continue;
+    const lidos: AcessoSeiLido[] = [];
+    for (let i = r + 1; i <= ws.rowCount; i++) {
+      const row = ws.getRow(i);
+      const nome = textoDaCelula(row.getCell(col.nome).value);
+      const login = textoDaCelula(row.getCell(col.login).value);
+      const bruto = row.getCell(col.senha).value;
+      const senha = bruto == null ? "" : typeof bruto === "object" ? (textoDaCelula(bruto) ?? "") : String(bruto);
+      if (!nome || !login || !senha) continue;
+      lidos.push({
+        nome,
+        login,
+        senha,
+        funcao: col.funcao ? textoDaCelula(row.getCell(col.funcao).value) : null,
+        empresa: col.empresa ? textoDaCelula(row.getCell(col.empresa).value) : null,
+      });
+    }
+    return lidos;
+  }
+  return null;
+}
+

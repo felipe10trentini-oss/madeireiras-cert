@@ -92,3 +92,8 @@ export function formatarCnpj(cnpj: string): string {
   if (d.length !== 14) return cnpj;
   return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
 }
+
+/** Estado em que a empresa é homologada no MAPA: "BR–PR0938" / "BR-PR 725" -> "PR" (senão a UF do cadastro). */
+export function ufDoMapa(regMapa: string | null | undefined, uf?: string | null): string | null {
+  return (regMapa ?? "").match(/BR\s*[-–—]?\s*([A-Z]{2})/i)?.[1]?.toUpperCase() ?? (uf ? uf.trim().toUpperCase() : null);
+}

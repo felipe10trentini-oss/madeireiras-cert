@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { ehMaster, respostaNaoAutorizado } from "@/lib/auth";
+import { listarMadeireiras } from "@/lib/madeireirasDb";
 import { listarEmissoes, listarOperadores, type Emissao } from "@/lib/operadores";
+import { ufDoMapa } from "@/lib/util";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,10 +36,13 @@ export async function GET(req: Request) {
     const inicioPeriodo = meiaNoiteSP(de);
     const fimPeriodo = meiaNoiteSP(ate) + DIA_MS; // exclusivo
     const desde = Math.min(inicioAno, inicioPeriodo);
-    const [operadores, emissoes] = await Promise.all([
+    const [operadores, emissoes, empresas] = await Promise.all([
       listarOperadores(),
       listarEmissoes(new Date(desde).toISOString(), new Date(Math.max(fimPeriodo, Date.now() + DIA_MS)).toISOString()),
+      listarMadeireiras(),
     ]);
+    // Estado do MAPA de cada empresa, para mostrar ao lado do nome.
+    const ufPorNome = Object.fromEntries(empresas.map((e) => [e.apelido, ufDoMapa(e.regMapa, e.uf)]));
 
     // Agrupa pelo operador (id), para o histórico acompanhar um login editado.
     const loginDe = new Map(operadores.map((o) => [o.id, o.login]));
@@ -73,6 +78,7 @@ export async function GET(req: Request) {
       periodo: { de, ate },
       resumo: Object.fromEntries(porOperador),
       porEmpresa: [...porEmpresa.entries()].sort((a, b) => b[1] - a[1]),
+      ufPorNome,
       emissoes: doPeriodo.slice(0, 3000),
       totalPeriodo: doPeriodo.length,
     });
