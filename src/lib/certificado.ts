@@ -436,8 +436,8 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
   } else if (inicio) {
     numComunicado = inicio.data.slice(3); // "21/09/2026" -> "09/2026"
   }
-  // Secagem que atravessa o mês (ou o trimestre): pode ir na programação do início ou do término.
-  // Padrão: a do término (é o que a equipe usa — ex.: 30/08 a 03/09 lançado em 09/2026).
+  // Secagem que atravessa o mês (ou o trimestre): vale a programação do mês do INÍCIO da curva
+  // (decisão de 01/10/2026); o aviso lembra que o operador pode trocar se precisar.
   // AQF começa e termina no mesmo dia (vale a data da janela HT): só a secagem atravessa o mês.
   const fimCiclo = tipo === "AQF" ? inicio : (curva.cicloFim ?? fim);
   if (numComunicado && !comunicado?.numero && inicio && fimCiclo && empresa.documento !== "comunicado" && !regra.prestadora) {
@@ -450,14 +450,12 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     const doInicio = numComunicado;
     const doFim = periodo(fimCiclo.data);
     if (doFim !== doInicio) {
-      numComunicado = doFim;
       avisos.push(
-        `O ciclo começou em ${inicio.data} e terminou em ${fimCiclo.data}: pode ser lançado na programação ${doInicio} ou ${doFim}. ` +
-          `Está ${doFim}; para lançar na ${doInicio}, troque no campo do comunicado/programação.`
+        `O ciclo começou em ${inicio.data} e terminou em ${fimCiclo.data}: está na programação do início (${doInicio}). ` +
+          `Se for lançar na ${doFim}, troque no campo do comunicado/programação.`
       );
     }
   }
-
 
   let lote = arq.lote ?? curva.lote ?? curva.ciclo;
   if (lote && regra.loteTresDigitos) lote = loteTres(lote);
