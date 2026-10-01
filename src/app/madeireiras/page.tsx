@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FileDrop } from "@/components/FileDrop";
 import { PortaoSenha } from "@/components/PortaoSenha";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
@@ -41,6 +41,10 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
   const [lista, setLista] = useState<MadeireiraSalva[] | null>(null);
   const [erroLista, setErroLista] = useState<string | null>(null);
   const [arquivo, setArquivo] = useState<File | null>(null);
+  // O arquivo é lido uma vez só: se o OneDrive sincronizar a planilha depois de escolhida, o
+  // navegador não deixa ler de novo (a 2ª leitura falhava na aba ACESSO SEI).
+  const bytes = useRef<ArrayBuffer | null>(null);
+  const lerBytes = async () => (bytes.current ??= await arquivo!.arrayBuffer());
   const [resumo, setResumo] = useState<Resumo | null>(null);
   const [trabalhando, setTrabalhando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -74,7 +78,7 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
       let lida = planilhaLida;
       if (!lida) {
         try {
-          lida = await lerPlanilhaMadeireiras(await arquivo.arrayBuffer());
+          lida = await lerPlanilhaMadeireiras(await lerBytes());
           setPlanilhaLida(lida);
         } catch (e) {
           setErro(e instanceof Error ? e.message : "Não foi possível ler a planilha.");
@@ -106,9 +110,9 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
   /** Aba ACESSO SEI da Planilha Geral -> logins e senhas do SEI dos RTs (cifrados no servidor). */
   async function enviarAcessosSei() {
     if (!arquivo) return;
-    setAcessosMsg(null);
+    setAcessosMsg("Lendo a aba ACESSO SEI… (pode levar uns 15 segundos)");
     try {
-      const acessos = await lerAcessosSei(await arquivo.arrayBuffer());
+      const acessos = await lerAcessosSei(await lerBytes());
       if (!acessos) return; // planilha sem a aba (ex.: a de cadastro)
       const res = await fetch("/api/madeireiras/sei", {
         method: "POST",
@@ -117,8 +121,9 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
       });
       const data = await res.json().catch(() => ({}));
       setAcessosMsg(res.ok ? `Acessos do SEI atualizados: ${data.gravados} (aba ACESSO SEI).` : `Acessos do SEI: ${data.error ?? "falha ao gravar"}.`);
-    } catch {
-      setAcessosMsg("Não foi possível ler a aba ACESSO SEI.");
+    } catch (e) {
+      console.error("Acessos do SEI:", e);
+      setAcessosMsg(`Não foi possível ler a aba ACESSO SEI (${e instanceof Error ? e.message : "erro"}).`);
     }
   }
 
@@ -153,6 +158,9 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
           arquivo={arquivo}
           onArquivo={(x) => {
             setArquivo(x);
+            bytes.current = null;
+            // Já lê ao escolher, antes que o OneDrive mexa no arquivo.
+            x?.arrayBuffer().then((b) => (bytes.current = b)).catch(() => undefined);
             setPlanilhaLida(null);
             setResumo(null);
             setErro(null);
