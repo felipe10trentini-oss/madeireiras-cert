@@ -4,6 +4,14 @@ import { useEffect, useState } from "react";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import type { ValoresCertificado } from "@/lib/modelos";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
+import { ufDoMapa } from "@/lib/util";
+
+const ESTADOS: Record<string, string> = {
+  AC: "Acre", AL: "Alagoas", AP: "Amapá", AM: "Amazonas", BA: "Bahia", CE: "Ceará", DF: "Distrito Federal",
+  ES: "Espírito Santo", GO: "Goiás", MA: "Maranhão", MT: "Mato Grosso", MS: "Mato Grosso do Sul", MG: "Minas Gerais",
+  PA: "Pará", PB: "Paraíba", PR: "Paraná", PE: "Pernambuco", PI: "Piauí", RJ: "Rio de Janeiro", RN: "Rio Grande do Norte",
+  RS: "Rio Grande do Sul", RO: "Rondônia", RR: "Roraima", SC: "Santa Catarina", SP: "São Paulo", SE: "Sergipe", TO: "Tocantins",
+};
 
 interface Acesso {
   nome: string;
@@ -57,6 +65,7 @@ export function SeiCard({ senha, empresa, valores, onToast }: Props) {
     }
   }
 
+  const uf = ufDoMapa(empresa.regMapa, empresa.uf);
   const cnpj = valores?.cnpj || empresa.cnpj;
   const razao = valores?.razao || empresa.razaoSocial;
   const a = dados?.acesso;
@@ -69,9 +78,28 @@ export function SeiCard({ senha, empresa, valores, onToast }: Props) {
 
   return (
     <div className="card sei-card" style={{ marginBottom: 14 }}>
-      <div className="kpi-label">
-        Dados para o SEI · RT: {a?.nome ?? dados?.rt ?? empresa.rt ?? "—"}
-        {a?.certeza === "media" && <span className="kpi-sub"> (confira: achado só pelo primeiro nome)</span>}
+      <div className="kpi-label">Dados para o SEI</div>
+      <div className="sei-topo">
+        <div className="sei-rt">
+          <span className="sei-rotulo">Responsável técnico</span>
+          <span className="sei-rt-nome">{dados?.rt ?? empresa.rt ?? "—"}</span>
+          {a && (
+            <span className={`sei-rt-sub${a.certeza === "media" ? " alerta" : ""}`}>
+              Acesso no SEI: {a.nome}
+              {a.certeza === "media" ? " — confira (achado só pelo primeiro nome)" : ""}
+            </span>
+          )}
+        </div>
+        <div className="sei-uf">
+          <span className="sei-rotulo">Estado no MAPA</span>
+          <span className="sei-uf-linha">
+            <span className="uf-destaque">{uf ?? "?"}</span>
+            <span>
+              <span className="sei-uf-nome">{uf ? (ESTADOS[uf] ?? uf) : "—"}</span>
+              <span className="sei-rt-sub mono">{empresa.regMapa}</span>
+            </span>
+          </span>
+        </div>
       </div>
       <div className="sei-grid">
         {linhas.map((l) => (

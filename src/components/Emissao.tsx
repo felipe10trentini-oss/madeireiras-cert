@@ -392,7 +392,10 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
 
           <div className="grid kpis">
             <div className="card">
-              <div className="kpi-label">Empresa</div>
+              <div className="kpi-label">
+                Empresa{" "}
+                {empresa && <span className="uf-destaque pequeno">{ufDoMapa(empresa.regMapa, empresa.uf) ?? "?"}</span>}
+              </div>
               <select value={cnpjEscolhido} onChange={(e) => trocarEmpresa(e.target.value)} aria-label="Empresa">
                 <option value="">— escolha —</option>
                 {empresas?.filter((e) => !e.config?.inativa || e.cnpj === cnpjEscolhido).map((e) => (
