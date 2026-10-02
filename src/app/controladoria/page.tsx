@@ -25,7 +25,20 @@ interface Emissao {
   created_at: string;
 }
 
-type Contagem = { hoje: number; semana: number; mes: number; ano: number; periodo: number; divergencias: number };
+type Contagem = {
+  hoje: number;
+  semana: number;
+  mes: number;
+  ano: number;
+  periodo: number;
+  divergencias: number;
+  desdobrados: number;
+  consolidados: number;
+};
+
+type Categoria = "mestres" | "documentos";
+
+const NOME_TIPO: Record<string, string> = { DESD: "Desdobrado", CONS: "Consolidado", KD: "KD", HT: "HT", AQF: "AQF" };
 
 interface Painel {
   operadores: Operador[];
@@ -60,7 +73,7 @@ function csv(linhas: Emissao[], nomes: Record<string, string>): string {
   const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const cab = ["Data/hora", "Operador", "Empresa", "Certificado", "Tipo", "Lote", "Ciclo", "Data do tratamento", "Divergências conferidas"];
   const corpo = linhas.map((e) =>
-    [quando(e.created_at), nomes[e.operador_login] ?? e.operador_login, e.empresa_apelido, e.numero_certificado, e.tipo, e.lote, e.ciclo, e.data_tratamento, (e.divergencias ?? []).join(" | ")]
+    [quando(e.created_at), nomes[e.operador_login] ?? e.operador_login, e.empresa_apelido, e.numero_certificado, NOME_TIPO[e.tipo ?? ""] ?? e.tipo, e.lote, e.ciclo, e.data_tratamento, (e.divergencias ?? []).join(" | ")]
       .map(esc)
       .join(";")
   );
@@ -76,6 +89,8 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
   const [editando, setEditando] = useState<{ id: number; nome: string; login: string } | null>(null);
 
   // Filtro do período (padrão: mês atual) e filtros da lista.
+  const [categoria, setCategoria] = useState<Categoria>("mestres");
+  const [tipoDoc, setTipoDoc] = useState("");
   const [tipo, setTipo] = useState<TipoPeriodo>("mes");
   const [dia, setDia] = useState(hoje);
   const [mes, setMes] = useState(hoje.slice(0, 7));
@@ -101,7 +116,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
   const carregar = useCallback(async () => {
     if (!pDe || !pAte) return;
     try {
-      const res = await fetch(`/api/controladoria?de=${pDe}&ate=${pAte}`, { headers: cabecalhoSenha(senha), cache: "no-store" });
+      const res = await fetch(`/api/controladoria?de=${pDe}&ate=${pAte}&categoria=${categoria}`, { headers: cabecalhoSenha(senha), cache: "no-store" });
       if (res.status === 401) return sair();
       const data = await res.json();
       if (!res.ok) setErro(data.error ?? "Falha ao carregar.");
@@ -112,7 +127,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
     } catch {
       setErro("Não foi possível conectar ao servidor.");
     }
-  }, [senha, sair, pDe, pAte]);
+  }, [senha, sair, pDe, pAte, categoria]);
 
   useEffect(() => {
     void carregar();
@@ -171,13 +186,15 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
   if (!painel) return <p className="lead">Carregando…</p>;
 
   const nomes = Object.fromEntries(painel.operadores.map((o) => [o.login, o.nome]));
-  const zero: Contagem = { hoje: 0, semana: 0, mes: 0, ano: 0, periodo: 0, divergencias: 0 };
+  const zero: Contagem = { hoje: 0, semana: 0, mes: 0, ano: 0, periodo: 0, divergencias: 0, desdobrados: 0, consolidados: 0 };
+  const docs = categoria === "documentos";
   const soma = (k: keyof Contagem) => Object.values(painel.resumo).reduce((s, r) => s + r[k], 0);
   const empresasDoPeriodo = painel.porEmpresa.map(([e]) => e).sort((a, b) => a.localeCompare(b, "pt-BR"));
   const linhas = painel.emissoes.filter(
     (e) =>
       (!operador || e.operador_login === operador) &&
       (!empresa || e.empresa_apelido === empresa) &&
+      (!docs || !tipoDoc || e.tipo === tipoDoc) &&
       (!busca || `${e.numero_certificado} ${e.lote} ${e.ciclo}`.toLowerCase().includes(busca.toLowerCase()))
   );
   const anos = Array.from({ length: Number(hoje.slice(0, 4)) - 2025 }, (_, i) => String(2026 + i)).reverse();
@@ -193,6 +210,28 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
 
   return (
     <div className="view">
+      <div className="toolbar" style={{ gap: 8, marginBottom: 14 }}>
+        {(
+          [
+            ["mestres", "Certificados mestres"],
+            ["documentos", "Consolidados / Desdobrados"],
+          ] as const
+        ).map(([c, nome]) => (
+          <button
+            key={c}
+            type="button"
+            className={`btn${categoria === c ? " primary" : ""}`}
+            onClick={() => {
+              setCategoria(c);
+              setTipoDoc("");
+              setEmpresa("");
+            }}
+          >
+            {nome}
+          </button>
+        ))}
+      </div>
+
       <div className="grid kpis cinco" style={{ marginBottom: 18 }}>
         <div className="card">
           <div className="kpi-label">Hoje</div>
@@ -215,7 +254,10 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
         <div className="card destaque">
           <div className="kpi-label">Período selecionado</div>
           <div className="kpi-valor">{painel.totalPeriodo}</div>
-          <div className="kpi-sub">{rotuloPeriodo}</div>
+          <div className="kpi-sub">
+            {rotuloPeriodo}
+            {docs ? ` · ${soma("desdobrados")} desdobrados · ${soma("consolidados")} consolidados` : ""}
+          </div>
         </div>
       </div>
 
@@ -283,6 +325,16 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
             ))}
           </select>
         </div>
+        {docs && (
+          <div className="field">
+            <label htmlFor="f-doc">Tipo</label>
+            <select id="f-doc" value={tipoDoc} onChange={(e) => setTipoDoc(e.target.value)}>
+              <option value="">Desdobrados e consolidados</option>
+              <option value="DESD">Só desdobrados</option>
+              <option value="CONS">Só consolidados</option>
+            </select>
+          </div>
+        )}
       </div>
 
       <div className="section-title">
@@ -301,7 +353,14 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
               <th>Mês</th>
               <th>Ano</th>
               <th>Período</th>
-              <th>Divergências conferidas (período)</th>
+              {docs ? (
+                <>
+                  <th>Desdobrados (período)</th>
+                  <th>Consolidados (período)</th>
+                </>
+              ) : (
+                <th>Divergências conferidas (período)</th>
+              )}
               <th>Situação</th>
               <th />
             </tr>
@@ -336,7 +395,14 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
                   <td>
                     <b>{r.periodo}</b>
                   </td>
-                  <td>{r.divergencias}</td>
+                  {docs ? (
+                    <>
+                      <td>{r.desdobrados}</td>
+                      <td>{r.consolidados}</td>
+                    </>
+                  ) : (
+                    <td>{r.divergencias}</td>
+                  )}
                   <td>{o.ativo ? "Ativo" : "Desativado"}</td>
                   <td style={{ whiteSpace: "nowrap" }}>
                     {ed ? (
@@ -474,7 +540,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
                   {e.empresa_apelido} {painel.ufPorNome[e.empresa_apelido] && <span className="badge">{painel.ufPorNome[e.empresa_apelido]}</span>}
                 </td>
                 <td className="mono">{e.numero_certificado}</td>
-                <td>{e.tipo}</td>
+                <td>{NOME_TIPO[e.tipo ?? ""] ?? e.tipo}</td>
                 <td className="mono">{e.lote}</td>
                 <td className="mono">{e.data_tratamento}</td>
                 <td>{e.divergencias?.length ? e.divergencias.join("; ") : "—"}</td>

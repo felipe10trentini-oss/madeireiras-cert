@@ -31,16 +31,20 @@ export async function GET(req: Request) {
     const valida = (s: string | null) => (s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null);
     const de = valida(url.searchParams.get("de")) ?? `${hoje.slice(0, 7)}-01`;
     const ate = valida(url.searchParams.get("ate")) ?? hoje;
+    // Aba da controladoria: certificados mestres ou consolidados/desdobrados (tipo DESD / CONS).
+    const categoria = url.searchParams.get("categoria") === "documentos" ? "documentos" : "mestres";
+    const ehDocumento = (e: Emissao) => e.tipo === "DESD" || e.tipo === "CONS";
 
     const inicioAno = meiaNoiteSP(`${hoje.slice(0, 4)}-01-01`);
     const inicioPeriodo = meiaNoiteSP(de);
     const fimPeriodo = meiaNoiteSP(ate) + DIA_MS; // exclusivo
     const desde = Math.min(inicioAno, inicioPeriodo);
-    const [operadores, emissoes, empresas] = await Promise.all([
+    const [operadores, todas, empresas] = await Promise.all([
       listarOperadores(),
       listarEmissoes(new Date(desde).toISOString(), new Date(Math.max(fimPeriodo, Date.now() + DIA_MS)).toISOString()),
       listarMadeireiras(),
     ]);
+    const emissoes = todas.filter((e) => (categoria === "documentos" ? ehDocumento(e) : !ehDocumento(e)));
     // Estado do MAPA de cada empresa, para mostrar ao lado do nome.
     const ufPorNome = Object.fromEntries(empresas.map((e) => [e.apelido, ufDoMapa(e.regMapa, e.uf)]));
 
@@ -53,14 +57,23 @@ export async function GET(req: Request) {
     const inicioSemana = inicioHoje - diaSemana * DIA_MS;
     const inicioMes = meiaNoiteSP(`${hoje.slice(0, 7)}-01`);
 
-    type Contagem = { hoje: number; semana: number; mes: number; ano: number; periodo: number; divergencias: number };
+    type Contagem = {
+      hoje: number;
+      semana: number;
+      mes: number;
+      ano: number;
+      periodo: number;
+      divergencias: number;
+      desdobrados: number; // no período
+      consolidados: number; // no período
+    };
     const porOperador = new Map<string, Contagem>();
     const porEmpresa = new Map<string, number>();
     const doPeriodo: Emissao[] = [];
     for (const e of emissoes) {
       const t = Date.parse(e.created_at);
       const k = chave(e);
-      const r = porOperador.get(k) ?? { hoje: 0, semana: 0, mes: 0, ano: 0, periodo: 0, divergencias: 0 };
+      const r = porOperador.get(k) ?? { hoje: 0, semana: 0, mes: 0, ano: 0, periodo: 0, divergencias: 0, desdobrados: 0, consolidados: 0 };
       if (t >= inicioAno) r.ano++;
       if (t >= inicioMes) r.mes++;
       if (t >= inicioSemana) r.semana++;
@@ -68,6 +81,8 @@ export async function GET(req: Request) {
       if (t >= inicioPeriodo && t < fimPeriodo) {
         r.periodo++;
         if (e.divergencias) r.divergencias++;
+        if (e.tipo === "DESD") r.desdobrados++;
+        if (e.tipo === "CONS") r.consolidados++;
         porEmpresa.set(e.empresa_apelido, (porEmpresa.get(e.empresa_apelido) ?? 0) + 1);
         doPeriodo.push({ ...e, operador_login: k });
       }
@@ -76,6 +91,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       operadores,
       periodo: { de, ate },
+      categoria,
       resumo: Object.fromEntries(porOperador),
       porEmpresa: [...porEmpresa.entries()].sort((a, b) => b[1] - a[1]),
       ufPorNome,
