@@ -5,7 +5,8 @@ import { NextResponse } from "next/server";
 // enviado no cabeçalho Authorization: "Bearer <token>". A chave da assinatura é derivada da
 // chave de serviço do Supabase (segredo que só existe no servidor), sem variável nova.
 
-export type Perfil = "operador" | "master";
+/** "operador" = colaborador; engenheiro(a) emite como o colaborador; master = controladoria. */
+export type Perfil = "operador" | "engenheiro" | "master";
 
 export interface Sessao {
   id: number;

@@ -8,7 +8,7 @@ interface Operador {
   id: number;
   login: string;
   nome: string;
-  perfil: "operador" | "master";
+  perfil: "operador" | "engenheiro" | "master";
   ativo: boolean;
 }
 
@@ -71,7 +71,7 @@ const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julh
 
 function csv(linhas: Emissao[], nomes: Record<string, string>): string {
   const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const cab = ["Data/hora", "Operador", "Empresa", "Certificado", "Tipo", "Lote", "Ciclo", "Data do tratamento", "Divergências conferidas"];
+  const cab = ["Data/hora", "Colaborador", "Empresa", "Certificado", "Tipo", "Lote", "Ciclo", "Data do tratamento", "Divergências conferidas"];
   const corpo = linhas.map((e) =>
     [quando(e.created_at), nomes[e.operador_login] ?? e.operador_login, e.empresa_apelido, e.numero_certificado, NOME_TIPO[e.tipo ?? ""] ?? e.tipo, e.lote, e.ciclo, e.data_tratamento, (e.divergencias ?? []).join(" | ")]
       .map(esc)
@@ -156,7 +156,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
 
   async function criar(e: FormEvent) {
     e.preventDefault();
-    if (await enviar("POST", novo, `Operador ${novo.nome} cadastrado.`)) setNovo({ login: "", nome: "", senha: "", perfil: "operador" });
+    if (await enviar("POST", novo, `Colaborador ${novo.nome} cadastrado.`)) setNovo({ login: "", nome: "", senha: "", perfil: "operador" });
   }
 
   async function salvarEdicao(op: Operador) {
@@ -165,7 +165,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
     if (editando.nome.trim() !== op.nome) mudou.nome = editando.nome;
     if (editando.login.trim().toLowerCase() !== op.login) mudou.login = editando.login;
     if (Object.keys(mudou).length === 1) return setEditando(null);
-    if (await enviar("PATCH", mudou, `Operador ${editando.nome} atualizado.`)) setEditando(null);
+    if (await enviar("PATCH", mudou, `Colaborador ${editando.nome} atualizado.`)) setEditando(null);
   }
 
   async function trocarSenha(op: Operador) {
@@ -306,7 +306,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
           </>
         )}
         <div className="field">
-          <label htmlFor="f-op">Operador</label>
+          <label htmlFor="f-op">Colaborador</label>
           <select id="f-op" value={operador} onChange={(e) => setOperador(e.target.value)}>
             <option value="">Todos</option>
             {painel.operadores.map((o) => (
@@ -338,15 +338,15 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
       </div>
 
       <div className="section-title">
-        <h2>Operadores</h2>
-        <p>Certificados copiados por operador (horário de Brasília). “Período” = {rotuloPeriodo}.</p>
+        <h2>Colaboradores</h2>
+        <p>Certificados copiados por colaborador (horário de Brasília). “Período” = {rotuloPeriodo}.</p>
       </div>
       {aviso && <p className="hint" style={{ marginBottom: 8 }}>{aviso}</p>}
       <div className="table-wrap" style={{ marginBottom: 18 }}>
         <table className="dados">
           <thead>
             <tr>
-              <th>Operador</th>
+              <th>Colaborador</th>
               <th>Login</th>
               <th>Hoje</th>
               <th>Semana</th>
@@ -377,7 +377,11 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
                     ) : (
                       <>
                         {o.nome}
-                        {o.perfil === "master" && <span className="kpi-sub"> · controladoria</span>}
+                        {o.perfil === "master" ? (
+                          <span className="kpi-sub"> · controladoria</span>
+                        ) : o.perfil === "engenheiro" ? (
+                          <span className="kpi-sub"> · engenheiro(a)</span>
+                        ) : null}
                       </>
                     )}
                   </td>
@@ -443,7 +447,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
       </div>
 
       <form className="card" onSubmit={criar} style={{ marginBottom: 18 }}>
-        <h3 style={{ margin: "0 0 10px", fontSize: 15 }}>Cadastrar operador</h3>
+        <h3 style={{ margin: "0 0 10px", fontSize: 15 }}>Cadastrar colaborador</h3>
         <div className="form-grid tres">
           <div className="field">
             <label htmlFor="op-nome">Nome</label>
@@ -460,7 +464,8 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
           <div className="field">
             <label htmlFor="op-perfil">Perfil</label>
             <select id="op-perfil" value={novo.perfil} onChange={(e) => setNovo({ ...novo, perfil: e.target.value })}>
-              <option value="operador">Operador (emite certificados)</option>
+              <option value="operador">Colaborador (emite certificados)</option>
+              <option value="engenheiro">Engenheiro(a) (emite certificados)</option>
               <option value="master">Controladoria (master)</option>
             </select>
           </div>
@@ -522,7 +527,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
           <thead>
             <tr>
               <th>Quando</th>
-              <th>Operador</th>
+              <th>Colaborador</th>
               <th>Empresa</th>
               <th>Certificado</th>
               <th>Tipo</th>

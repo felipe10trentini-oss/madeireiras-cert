@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { lerSessao, respostaNaoAutorizado } from "@/lib/auth";
+import { ehMaster, lerSessao, respostaNaoAutorizado } from "@/lib/auth";
 import { acessoDoRt, salvarAcessos, type AcessoSei } from "@/lib/acessoSei";
 import { listarMadeireiras } from "@/lib/madeireirasDb";
 import { rtCompleto } from "@/lib/responsaveis";
@@ -30,7 +30,7 @@ export async function GET(req: Request) {
 
 /** Grava os acessos lidos da aba ACESSO SEI (a planilha é lida no navegador). */
 export async function POST(req: Request) {
-  if (!lerSessao(req)) return respostaNaoAutorizado();
+  if (!ehMaster(req)) return respostaNaoAutorizado("Só com o login da controladoria.");
   const corpo = (await req.json().catch(() => null)) as { acessos?: unknown[] } | null;
   if (!corpo || !Array.isArray(corpo.acessos) || corpo.acessos.length > 500) {
     return NextResponse.json({ error: "Envie a lista de acessos." }, { status: 400 });

@@ -4,7 +4,7 @@ import { alterarOperador, criarOperador } from "@/lib/operadores";
 
 export const runtime = "nodejs";
 
-const perfil = (v: unknown): Perfil => (v === "master" ? "master" : "operador");
+const perfil = (v: unknown): Perfil => (v === "master" ? "master" : v === "engenheiro" ? "engenheiro" : "operador");
 
 /** Cadastra um operador (só a controladoria). */
 export async function POST(req: Request) {

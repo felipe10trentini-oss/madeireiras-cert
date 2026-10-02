@@ -372,7 +372,7 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
 
 export default function PaginaMadeireiras() {
   return (
-    <PortaoSenha titulo="Cadastro de madeireiras">
+    <PortaoSenha titulo="Cadastro de madeireiras" master>
       {(senha, sair) => <Madeireiras senha={senha} sair={sair} />}
     </PortaoSenha>
   );

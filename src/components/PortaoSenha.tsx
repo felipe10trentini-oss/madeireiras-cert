@@ -50,7 +50,7 @@ export function PortaoSenha({ titulo, master, children }: Props) {
       <p className="lead" style={{ marginBottom: 14 }}>
         {master
           ? sessao
-            ? `Você entrou como ${sessao.nome}. A controladoria precisa do login master.`
+            ? `Você entrou como ${sessao.nome}. Esta área é só para o login da controladoria.`
             : "Entre com o login da controladoria."
           : "Entre com o seu login: os certificados ficam registrados no seu nome."}
       </p>

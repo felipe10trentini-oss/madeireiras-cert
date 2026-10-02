@@ -9,7 +9,7 @@ const CHAVE = "sessao-operador";
 export interface SessaoCliente {
   login: string;
   nome: string;
-  perfil: "operador" | "master";
+  perfil: "operador" | "engenheiro" | "master";
   exp: number;
 }
 

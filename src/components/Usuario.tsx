@@ -13,7 +13,7 @@ export function Usuario() {
       </span>
       <span className="usuario-nome" title={sessao.login}>
         {sessao.nome}
-        {sessao.perfil === "master" && <small> · controladoria</small>}
+        {sessao.perfil === "master" ? <small> · controladoria</small> : sessao.perfil === "engenheiro" ? <small> · engenheiro(a)</small> : null}
       </span>
       <button
         type="button"
