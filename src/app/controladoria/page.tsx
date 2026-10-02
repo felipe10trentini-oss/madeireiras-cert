@@ -9,6 +9,7 @@ interface Operador {
   login: string;
   nome: string;
   perfil: "operador" | "engenheiro" | "master";
+  cargo: string | null;
   ativo: boolean;
 }
 
@@ -37,6 +38,8 @@ type Contagem = {
 };
 
 type Categoria = "mestres" | "documentos";
+
+const CARGOS = ["Engenheiro(a)", "Aux. Administrativo"];
 
 const NOME_TIPO: Record<string, string> = { DESD: "Desdobrado", CONS: "Consolidado", KD: "KD", HT: "HT", AQF: "AQF" };
 
@@ -85,8 +88,8 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
   const [painel, setPainel] = useState<Painel | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [novo, setNovo] = useState({ login: "", nome: "", senha: "", perfil: "operador" });
-  const [editando, setEditando] = useState<{ id: number; nome: string; login: string } | null>(null);
+  const [novo, setNovo] = useState({ login: "", nome: "", senha: "", perfil: "operador", cargo: "" });
+  const [editando, setEditando] = useState<{ id: number; nome: string; login: string; cargo: string } | null>(null);
 
   // Filtro do período (padrão: mês atual) e filtros da lista.
   const [categoria, setCategoria] = useState<Categoria>("mestres");
@@ -156,7 +159,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
 
   async function criar(e: FormEvent) {
     e.preventDefault();
-    if (await enviar("POST", novo, `Colaborador ${novo.nome} cadastrado.`)) setNovo({ login: "", nome: "", senha: "", perfil: "operador" });
+    if (await enviar("POST", novo, `Colaborador ${novo.nome} cadastrado.`)) setNovo({ login: "", nome: "", senha: "", perfil: "operador", cargo: "" });
   }
 
   async function salvarEdicao(op: Operador) {
@@ -164,6 +167,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
     const mudou: Record<string, unknown> = { id: op.id };
     if (editando.nome.trim() !== op.nome) mudou.nome = editando.nome;
     if (editando.login.trim().toLowerCase() !== op.login) mudou.login = editando.login;
+    if (editando.cargo !== (op.cargo ?? "")) mudou.cargo = editando.cargo;
     if (Object.keys(mudou).length === 1) return setEditando(null);
     if (await enviar("PATCH", mudou, `Colaborador ${editando.nome} atualizado.`)) setEditando(null);
   }
@@ -348,6 +352,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
             <tr>
               <th>Colaborador</th>
               <th>Login</th>
+              <th>Cargo</th>
               <th>Hoje</th>
               <th>Semana</th>
               <th>Mês</th>
@@ -379,9 +384,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
                         {o.nome}
                         {o.perfil === "master" ? (
                           <span className="kpi-sub"> · controladoria</span>
-                        ) : o.perfil === "engenheiro" ? (
-                          <span className="kpi-sub"> · engenheiro(a)</span>
-                        ) : null}
+ ) : null}
                       </>
                     )}
                   </td>
@@ -390,6 +393,18 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
                       <input aria-label="Login" autoCapitalize="none" value={ed.login} onChange={(e) => setEditando({ ...ed, login: e.target.value })} />
                     ) : (
                       o.login
+                    )}
+                  </td>
+                  <td>
+                    {ed ? (
+                      <select aria-label="Cargo" value={ed.cargo} onChange={(e) => setEditando({ ...ed, cargo: e.target.value })}>
+                        <option value="">—</option>
+                        {CARGOS.map((c) => (
+                          <option key={c}>{c}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      (o.cargo ?? "—")
                     )}
                   </td>
                   <td>{r.hoje}</td>
@@ -421,7 +436,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
                       </>
                     ) : (
                       <>
-                        <button type="button" className="link" onClick={() => setEditando({ id: o.id, nome: o.nome, login: o.login })}>
+                        <button type="button" className="link" onClick={() => setEditando({ id: o.id, nome: o.nome, login: o.login, cargo: o.cargo ?? "" })}>
                           Editar
                         </button>{" "}
                         ·{" "}
@@ -462,10 +477,18 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
             <input id="op-senha" type="password" autoComplete="new-password" value={novo.senha} onChange={(e) => setNovo({ ...novo, senha: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="op-perfil">Perfil</label>
+            <label htmlFor="op-cargo">Cargo</label>
+            <select id="op-cargo" value={novo.cargo} onChange={(e) => setNovo({ ...novo, cargo: e.target.value })}>
+              <option value="">—</option>
+              {CARGOS.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="op-perfil">Acesso</label>
             <select id="op-perfil" value={novo.perfil} onChange={(e) => setNovo({ ...novo, perfil: e.target.value })}>
               <option value="operador">Colaborador (emite certificados)</option>
-              <option value="engenheiro">Engenheiro(a) (emite certificados)</option>
               <option value="master">Controladoria (master)</option>
             </select>
           </div>

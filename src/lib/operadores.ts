@@ -8,9 +8,13 @@ export interface Operador {
   login: string;
   nome: string;
   perfil: Perfil;
+  /** Cargo do colaborador ("Engenheiro(a)", "Aux. Administrativo"); não muda o acesso. */
+  cargo: string | null;
   ativo: boolean;
   created_at: string;
 }
+
+export const CARGOS = ["Engenheiro(a)", "Aux. Administrativo"] as const;
 
 interface OperadorRow extends Operador {
   senha_hash: string;
@@ -36,7 +40,7 @@ const normalizarLogin = (login: string) => login.trim().toLowerCase();
 export async function autenticar(login: string, senha: string): Promise<Operador | null> {
   const { data, error } = await getSupabaseServerClient()
     .from("operadores")
-    .select("id, login, nome, perfil, ativo, created_at, senha_hash")
+    .select("id, login, nome, perfil, cargo, ativo, created_at, senha_hash")
     .eq("login", normalizarLogin(login))
     .maybeSingle<OperadorRow>();
   if (error) throw new Error(`Falha ao consultar operadores: ${error.message}`);
@@ -48,17 +52,17 @@ export async function autenticar(login: string, senha: string): Promise<Operador
 export async function listarOperadores(): Promise<Operador[]> {
   const { data, error } = await getSupabaseServerClient()
     .from("operadores")
-    .select("id, login, nome, perfil, ativo, created_at")
+    .select("id, login, nome, perfil, cargo, ativo, created_at")
     .order("nome")
     .returns<Operador[]>();
   if (error) throw new Error(`Falha ao listar operadores: ${error.message}`);
   return data ?? [];
 }
 
-export async function criarOperador(o: { login: string; nome: string; senha: string; perfil: Perfil }): Promise<void> {
+export async function criarOperador(o: { login: string; nome: string; senha: string; perfil: Perfil; cargo?: string | null }): Promise<void> {
   const { error } = await getSupabaseServerClient()
     .from("operadores")
-    .insert({ login: normalizarLogin(o.login), nome: o.nome.trim(), senha_hash: hashSenha(o.senha), perfil: o.perfil });
+    .insert({ login: normalizarLogin(o.login), nome: o.nome.trim(), senha_hash: hashSenha(o.senha), perfil: o.perfil, cargo: o.cargo ?? null });
   if (error) {
     if (/duplicate|unique/i.test(error.message)) throw new Error("Já existe um operador com esse login.");
     throw new Error(`Falha ao criar operador: ${error.message}`);
@@ -67,7 +71,7 @@ export async function criarOperador(o: { login: string; nome: string; senha: str
 
 export async function alterarOperador(
   id: number,
-  mudar: { nome?: string; login?: string; senha?: string; ativo?: boolean; perfil?: Perfil }
+  mudar: { nome?: string; login?: string; senha?: string; ativo?: boolean; perfil?: Perfil; cargo?: string | null }
 ): Promise<void> {
   const sb = getSupabaseServerClient();
   const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -81,6 +85,7 @@ export async function alterarOperador(
   if (mudar.senha) row.senha_hash = hashSenha(mudar.senha);
   if (typeof mudar.ativo === "boolean") row.ativo = mudar.ativo;
   if (mudar.perfil) row.perfil = mudar.perfil;
+  if (mudar.cargo !== undefined) row.cargo = mudar.cargo;
   const { error } = await sb.from("operadores").update(row).eq("id", id);
   if (error) {
     if (/duplicate|unique/i.test(error.message)) throw new Error("Já existe um operador com esse login.");
