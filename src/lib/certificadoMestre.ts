@@ -39,7 +39,7 @@ function achatar(texto: string): string {
 
 // Onde o valor de um campo termina: no próximo rótulo numerado ("3.7. Número"), na seção seguinte
 // ("4. Local de emissão") ou no rodapé do SEI.
-const FIM = /\s(?:\d{1,2}\.\d{1,2}\.?\s+[A-ZÁÉÍÓÚÂÊÔÇ]|\d\.\s+(?:Local|Dados)|Certificado TFQ|-\s*DECLARO|Obs:)/;
+const FIM = /\s(?:\d{1,2}\.\d{1,2}\.?\s+[A-ZÁÉÍÓÚÂÊÔÇ]|\d\.\s+(?:Local|Dados)|Certificado\s*-?\s*TFQ|-\s*DECLARO|Obs:)/;
 
 function campo(t: string, rotulo: RegExp, desde = 0): string | null {
   const m = rotulo.exec(t.slice(desde));

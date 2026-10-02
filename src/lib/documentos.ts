@@ -100,7 +100,8 @@ export function valoresDesdobrado(
     "3.14": m.horaFim ?? "",
     "3.15": m.temperatura ?? "",
     obs: material === "madeira" ? "Obs: Madeira com umidade inferior a 18%" : "",
-    local: m.local ?? "",
+    // Só "Município - UF", tirado do endereço completo com CEP (1.4): não depende do que veio no mestre.
+    local: cidadeUf(d.endereco) || cidadeUf(m.local) || "",
   };
 }
 

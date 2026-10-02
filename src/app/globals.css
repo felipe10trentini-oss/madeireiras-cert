@@ -70,6 +70,7 @@ a { color: var(--accent-2); }
 
 /* ---------- Header ---------- */
 .topbar {
+  position: relative;
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
   padding-block: 6px 16px; border-bottom: 3px solid var(--accent); margin-bottom: 18px;
 }
@@ -260,4 +261,11 @@ table.dados tbody tr:hover { background: var(--surface-2); }
 .sei-uf-nome { display: block; font-weight: 700; font-size: 15px; color: var(--text); }
 .uf-destaque { display: inline-flex; align-items: center; justify-content: center; min-width: 52px; padding: 6px 10px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: 0.04em; line-height: 1; }
 .uf-destaque.pequeno { min-width: 0; padding: 2px 8px; border-radius: 6px; font-size: 13px; vertical-align: middle; margin-left: 4px; }
+
+/* Operador logado no canto superior direito */
+.usuario-topo { position: absolute; top: 0; right: 0; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+.usuario-icone { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+.usuario-nome { font-weight: 600; color: var(--text); }
+.usuario-nome small { font-weight: 400; color: var(--text-muted); }
+.topbar { padding-top: 34px; }
 
