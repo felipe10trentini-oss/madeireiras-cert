@@ -56,3 +56,6 @@ next-env.d.ts
 # saídas de análise (dados de clientes)
 *.jsonl
 public/_tmp/
+
+# páginas salvas do SEI (têm códigos de sessão do SEI): ficam só no computador
+/tests/modelos-sei/*.html
