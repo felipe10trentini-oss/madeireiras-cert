@@ -161,9 +161,11 @@ export const CAMPOS_MANUAIS: Record<TipoDocumento, { k: string; rotulo: string }
  * Preenche o modelo do SEI: cada valor entra logo depois do rótulo, dentro do mesmo parágrafo
  * ("1.1. Razão social: AGK Madeiras Ltda"). Nada do modelo é alterado além disso.
  */
-export function montarDocumento(tipo: TipoDocumento, v: ValoresDocumento): string {
+export function montarDocumento(tipo: TipoDocumento, valores: ValoresDocumento, bilingue = false): string {
   let h = tipo === "desdobrado" ? MODELO_DESDOBRADO : MODELO_CONSOLIDADO;
+  const v = bilingue ? traduzirValores(valores) : valores;
   const val = (k: string) => (v[k] ?? "").trim();
+  const en = bilingue ? ROTULOS_EN[tipo] : {};
 
   // Números no cabeçalho.
   h = h.replace(/(Certificado de Tratamento (?:Desdobrado|Consolidado):)(<\/p>)/, (_, a, b) => `${a} ${esc(val("numero"))}${b}`);
@@ -177,6 +179,8 @@ export function montarDocumento(tipo: TipoDocumento, v: ValoresDocumento): strin
     // Consolidado: os itens "vide Demonstrativo de Rastreabilidade:" saem sem os dois-pontos finais.
     r = r.replace(/(Rastreabilidade):$/, "$1");
     if (!/:$/.test(r)) r += ":";
+    // Bilíngue: "1.1. Razão social / Corporate name:" (como nos certificados em inglês da ABB).
+    if (en[num]) r = `${r.slice(0, -1)} / ${en[num]}:`;
     const valor = val(num);
     let html = `${p}${num}${r}${valor ? ` ${esc(valor)}` : ""}${fim}`;
     if (num === "3.15" && val("obs")) html += `<p class="Texto_Alinhado_Esquerda">${esc(val("obs"))}</p>`;
@@ -187,5 +191,119 @@ export function montarDocumento(tipo: TipoDocumento, v: ValoresDocumento): strin
 
   // Local de emissão no cabeçalho cinza da seção 4.
   h = h.replace(/(<strong>4\. Local de emiss&atilde;o:<\/strong>)/, (_, a) => `${a}${val("local") ? ` ${esc(val("local"))}` : ""}`);
+  if (bilingue) h = traduzirCabecalhos(tipo, h);
   return h;
+}
+
+// ---------- versão bilíngue (português / inglês) ----------
+// Traduções iguais às dos certificados bilíngues já emitidos (ABB). As declarações do final
+// ("DECLARO…", "O DOCUMENTO DEVE SER PETICIONADO…") ficam só em português.
+
+const COMUNS: Record<string, string> = {
+  "1.1": "Corporate name",
+  "1.4": "Full address",
+  "2.1": "Corporate name",
+  "2.3": "Full address",
+  "3.4": "Product description",
+  "3.5": "Number and description of packages",
+};
+
+const ROTULOS_EN: Record<TipoDocumento, Record<string, string>> = {
+  desdobrado: {
+    ...COMUNS,
+    "1.3": "CREA registration number",
+    "1.5": "Telephone",
+    "1.6": "E-mail",
+    "1.7": "Alphanumeric code of the registration with MAPA",
+    "2.4": "Telephone",
+    "2.5": "E-mail",
+    "3.1": "Number of treatment reports",
+    "3.2": "Full address where the phytosanitary treatment was carried out for quarantine purposes",
+    "3.3": "Destination",
+    "3.6": "Quantity of product treated",
+    "3.7": "Batch number",
+    "3.8": "Treatment cycle number",
+    "3.9": "Distinguishing marks",
+    "3.10": "Treatment modality",
+    "3.11": "Treatment start date",
+    "3.12": "Treatment start time",
+    "3.13": "Treatment end date",
+    "3.14": "Treatment end time",
+    "3.15": "Temperature",
+  },
+  consolidado: {
+    "1.1": "Corporate name",
+    "1.3": "Full address",
+    "1.4": "Telephone",
+    "1.5": "E-mail",
+    "1.6": "Alphanumeric code of the registration with MAPA",
+    "1.7": "CREA registration number",
+    "2.1": "Corporate name",
+    "2.3": "Full address",
+    "2.4": "E-mail",
+    "2.5": "Telephone",
+    "3.1": "Full address where the phytosanitary treatment was carried out for quarantine purposes",
+    "3.2": "Destination",
+    "3.3": "Product description",
+    "3.4": "Number and description of packages",
+    "3.5": "Quantity of product treated",
+    "3.6": "Batch number",
+    "3.7": "Treatment cycle number",
+    "3.8": "Distinguishing marks",
+    "3.9": "Treatment modality",
+    "3.10": "Treatment start dates",
+    "3.11": "Treatment start times",
+    "3.12": "Treatment end dates",
+    "3.13": "Treatment end times",
+    "3.14": "Temperature",
+  },
+};
+
+/** Valores-padrão do certificado com a tradução ao lado; dados da empresa e números ficam como estão. */
+const VALORES_EN: [RegExp, string][] = [
+  [/^vide Demonstrativo de Rastreabilidade$/i, "vide Demonstrativo de Rastreabilidade / See traceability statement"],
+  [/^Madeira serrada de pinus$/i, "Madeira serrada de pinus / Pine sawn wood"],
+  [/^Madeira serrada de eucalipto$/i, "Madeira serrada de eucalipto / Eucalyptus sawn wood"],
+  [/^Madeira serrada de pinus e eucalipto$/i, "Madeira serrada de pinus e eucalipto / Pine and eucalyptus sawn wood"],
+  [/^Madeira reflorestada$/i, "Madeira reflorestada / Reforested wood"],
+  [/^Paletes de madeira$/i, "Paletes de madeira / Wooden pallets"],
+  [/^Fardos$/i, "Fardos / Bundles"],
+];
+
+function traduzirValores(v: ValoresDocumento): ValoresDocumento {
+  const t: ValoresDocumento = { ...v };
+  for (const [k, valor] of Object.entries(v)) {
+    const s = (valor ?? "").trim();
+    const achado = VALORES_EN.find(([re]) => re.test(s));
+    if (achado) t[k] = achado[1];
+  }
+  // "250 unidades" -> "250 unidades / units"; "33 fardos" -> "33 fardos / bundles".
+  for (const k of ["3.5", "3.6"]) {
+    const s = (t[k] ?? "").trim();
+    if (/unidades$/i.test(s)) t[k] = `${s} / units`;
+    else if (/\d\s*fardos$/i.test(s)) t[k] = `${s} / bundles`;
+  }
+  // "56°C / Duração: 32 min" -> "56°C; Duração / Duration: 32 min".
+  if (t["3.15"]) t["3.15"] = t["3.15"].replace(/\s*\/\s*Dura[çc][ãa]o:/i, "; Duração / Duration:");
+  if (/umidade inferior a 18%$/i.test(t.obs ?? "")) t.obs = `${t.obs} / wood with moisture content less than 18%`;
+  return t;
+}
+
+/** Título, números do cabeçalho, seções e local de emissão com o inglês ao lado. */
+function traduzirCabecalhos(tipo: TipoDocumento, h: string): string {
+  const titulo = tipo === "desdobrado" ? "Unfolded Treatment Certificate – Heat Treatment" : "Consolidated Treatment Certificate – Heat Treatment";
+  return h
+    .replace(/(Texto_Centralizado_Maiusculas_Negrito">)([^<]*?)(<\/p>)/, (_, a, b, c) => `${a}${b} / ${esc(titulo)}${c}`)
+    .replace(
+      /(Certificado de Tratamento (Desdobrado|Consolidado)):/,
+      (_, a, t) => `${a} / ${t === "Desdobrado" ? "Unfolded" : "Consolidated"} Treatment Certificate Number:`
+    )
+    .replace(
+      /(Quarenten&aacute;rios Original):/,
+      "$1 / Process number of the Certificate of Phytosanitary Treatment for Quarantine Purposes Original:"
+    )
+    .replace(/(<strong>1\. Dados do Cadastro ou Credenciamento)/, "$1 / Registration Data")
+    .replace(/(<strong>2\. Dados do Comprador da Madeira ou Tomador de Servi&ccedil;o)/, "$1 / Timber Buyer or Service Recipient Data")
+    .replace(/(<strong>3\. Dados do Tratamento Fitossanit&aacute;rio com fins Quarenten&aacute;rios):/, "$1 / Data on Phytosanitary Treatment for Quarantine Purposes")
+    .replace(/(<strong>4\. Local de emiss&atilde;o):/, "$1 / Place of Issue:");
 }

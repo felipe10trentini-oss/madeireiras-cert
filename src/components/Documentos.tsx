@@ -52,6 +52,7 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
   const [quantidade, setQuantidade] = useState("");
   const [ajustes, setAjustes] = useState<Record<string, string>>({});
   const [editando, setEditando] = useState(false);
+  const [bilingue, setBilingue] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -78,7 +79,7 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
         ? valoresConsolidado(lido.dr, empresa, material)
         : null;
   const valores = base ? { ...base, ...ajustes } : null;
-  const html = valores ? montarDocumento(tipo, valores) : "";
+  const html = valores ? montarDocumento(tipo, valores, bilingue) : "";
 
   function novo() {
     setArquivo(null);
@@ -311,6 +312,14 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
 
             <div className="toolbar">
               <div className="spacer" />
+              <button
+                type="button"
+                className={`btn${bilingue ? " primary" : ""}`}
+                onClick={() => setBilingue((b) => !b)}
+                title="Rótulos e textos-padrão em português / inglês (as declarações do final ficam em português)"
+              >
+                {bilingue ? "Português / Inglês ✓" : "Traduzir para inglês"}
+              </button>
               <button type="button" className="btn" onClick={() => setEditando((v) => !v)}>
                 {editando ? "Fechar edição" : "Editar todos os campos"}
               </button>
@@ -336,7 +345,10 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
             )}
 
             <div className="section-title">
-              <h2>Prévia do certificado {tipo}</h2>
+              <h2>
+                Prévia do certificado {tipo}
+                {bilingue ? " · português / inglês" : ""}
+              </h2>
               <p>Modelo do SEI “Certificado TFQ - {tipo === "desdobrado" ? "Desdobrado" : "Consolidado"} - HT”.</p>
             </div>
             <div className="paper-wrap">
