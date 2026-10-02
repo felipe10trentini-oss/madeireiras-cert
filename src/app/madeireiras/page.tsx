@@ -297,6 +297,8 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
             titulo="Acessos do SEI"
             dica="Arraste a planilha dos acessos do SEI (.xlsx) aqui ou clique para escolher"
             arquivo={arquivoSei}
+            accept=".xlsx"
+            aceita={(x) => /\.xlsx$/i.test(x.name)}
             onArquivo={(x) => {
               setArquivoSei(x);
               bytesSei.current = null;
