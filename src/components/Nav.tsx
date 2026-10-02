@@ -6,6 +6,7 @@ import { useSenhaEquipe } from "@/lib/senhaEquipe";
 
 const ABAS = [
   { href: "/", nome: "Certificado" },
+  { href: "/documentos", nome: "Desdobrado / Consolidado" },
   { href: "/madeireiras", nome: "Madeireiras" },
   { href: "/controladoria", nome: "Controladoria" },
 ];
