@@ -5,13 +5,13 @@ import { useSenhaEquipe, type SessaoCliente } from "@/lib/senhaEquipe";
 
 interface Props {
   titulo: string;
-  /** Só o login master (controladoria) entra. */
-  master?: boolean;
+  /** Página restrita: entra o master ou o colaborador com a permissão marcada na controladoria. */
+  pagina?: "controladoria" | "madeireiras";
   children: (senha: string, sair: () => void, sessao: SessaoCliente) => ReactNode;
 }
 
 /** Só mostra o conteúdo depois do login do operador (cada emissão fica registrada no nome dele). */
-export function PortaoSenha({ titulo, master, children }: Props) {
+export function PortaoSenha({ titulo, pagina, children }: Props) {
   const { senha, sessao, pronto, definir } = useSenhaEquipe();
   const [login, setLogin] = useState("");
   const [digitada, setDigitada] = useState("");
@@ -42,16 +42,17 @@ export function PortaoSenha({ titulo, master, children }: Props) {
 
   if (!pronto) return null;
   const sair = () => definir(null);
-  if (senha && sessao && (!master || sessao.perfil === "master")) return <>{children(senha, sair, sessao)}</>;
+  const liberado = !!sessao && (!pagina || sessao.perfil === "master" || !!sessao.acessos?.[pagina]);
+  if (senha && sessao && liberado) return <>{children(senha, sair, sessao)}</>;
 
   return (
     <form className="card view" onSubmit={entrar} style={{ maxWidth: 420, margin: "24px auto" }}>
       <h2 style={{ fontSize: 20, margin: "0 0 6px" }}>{titulo}</h2>
       <p className="lead" style={{ marginBottom: 14 }}>
-        {master
+        {pagina
           ? sessao
-            ? `Você entrou como ${sessao.nome}. Esta área é só para o login da controladoria.`
-            : "Entre com o login da controladoria."
+            ? `Você entrou como ${sessao.nome}, sem permissão para esta página. Peça a liberação na controladoria (Editar > Acessos) e entre de novo, ou use outro login.`
+            : "Entre com um login que tenha permissão para esta página."
           : "Entre com o seu login: os certificados ficam registrados no seu nome."}
       </p>
       <div className="field" style={{ marginBottom: 12 }}>

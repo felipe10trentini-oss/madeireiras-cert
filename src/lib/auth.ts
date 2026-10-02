@@ -13,6 +13,8 @@ export interface Sessao {
   login: string;
   nome: string;
   perfil: Perfil;
+  /** Páginas liberadas para o colaborador (o master acessa tudo). */
+  acessos?: { controladoria: boolean; madeireiras: boolean };
   /** Expira em (ms desde 1970). */
   exp: number;
 }
@@ -52,8 +54,16 @@ export function lerSessao(req: Request): Sessao | null {
 /** Qualquer operador logado (as rotas de emissão e de cadastro). */
 export const senhaEquipeValida = (req: Request) => lerSessao(req) != null;
 
-/** Só o login master (controladoria). */
+/** Só o login master. */
 export const ehMaster = (req: Request) => lerSessao(req)?.perfil === "master";
+
+export type Pagina = "controladoria" | "madeireiras";
+
+/** Pode abrir a página: master, ou colaborador com a permissão marcada na controladoria. */
+export function podeAcessar(req: Request, pagina: Pagina): boolean {
+  const s = lerSessao(req);
+  return !!s && (s.perfil === "master" || !!s.acessos?.[pagina]);
+}
 
 export async function respostaNaoAutorizado(msg = "Sessão expirada ou inválida: entre de novo."): Promise<NextResponse> {
   // Pequena espera para dificultar tentativas em sequência.

@@ -10,6 +10,8 @@ interface Operador {
   nome: string;
   perfil: "operador" | "engenheiro" | "master";
   cargo: string | null;
+  acesso_controladoria: boolean;
+  acesso_madeireiras: boolean;
   ativo: boolean;
 }
 
@@ -88,8 +90,8 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
   const [painel, setPainel] = useState<Painel | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [novo, setNovo] = useState({ login: "", nome: "", senha: "", perfil: "operador", cargo: "" });
-  const [editando, setEditando] = useState<{ id: number; nome: string; login: string; cargo: string } | null>(null);
+  const [novo, setNovo] = useState({ login: "", nome: "", senha: "", perfil: "operador", cargo: "", acessoControladoria: false, acessoMadeireiras: false });
+  const [editando, setEditando] = useState<{ id: number; nome: string; login: string; cargo: string; controladoria: boolean; madeireiras: boolean } | null>(null);
 
   // Filtro do período (padrão: mês atual) e filtros da lista.
   const [categoria, setCategoria] = useState<Categoria>("mestres");
@@ -159,7 +161,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
 
   async function criar(e: FormEvent) {
     e.preventDefault();
-    if (await enviar("POST", novo, `Colaborador ${novo.nome} cadastrado.`)) setNovo({ login: "", nome: "", senha: "", perfil: "operador", cargo: "" });
+    if (await enviar("POST", novo, `Colaborador ${novo.nome} cadastrado.`)) setNovo({ login: "", nome: "", senha: "", perfil: "operador", cargo: "", acessoControladoria: false, acessoMadeireiras: false });
   }
 
   async function salvarEdicao(op: Operador) {
@@ -168,6 +170,8 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
     if (editando.nome.trim() !== op.nome) mudou.nome = editando.nome;
     if (editando.login.trim().toLowerCase() !== op.login) mudou.login = editando.login;
     if (editando.cargo !== (op.cargo ?? "")) mudou.cargo = editando.cargo;
+    if (editando.controladoria !== op.acesso_controladoria) mudou.acessoControladoria = editando.controladoria;
+    if (editando.madeireiras !== op.acesso_madeireiras) mudou.acessoMadeireiras = editando.madeireiras;
     if (Object.keys(mudou).length === 1) return setEditando(null);
     if (await enviar("PATCH", mudou, `Colaborador ${editando.nome} atualizado.`)) setEditando(null);
   }
@@ -353,6 +357,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
               <th>Colaborador</th>
               <th>Login</th>
               <th>Cargo</th>
+              <th>Acessos</th>
               <th>Hoje</th>
               <th>Semana</th>
               <th>Mês</th>
@@ -407,6 +412,24 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
                       (o.cargo ?? "—")
                     )}
                   </td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {o.perfil === "master" ? (
+                      <span className="kpi-sub">tudo (master)</span>
+                    ) : ed ? (
+                      <span className="acessos-edit">
+                        <label>
+                          <input type="checkbox" checked={ed.controladoria} onChange={(e) => setEditando({ ...ed, controladoria: e.target.checked })} />{" "}
+                          Controladoria
+                        </label>
+                        <label>
+                          <input type="checkbox" checked={ed.madeireiras} onChange={(e) => setEditando({ ...ed, madeireiras: e.target.checked })} />{" "}
+                          Madeireiras
+                        </label>
+                      </span>
+                    ) : (
+                      [o.acesso_controladoria && "Controladoria", o.acesso_madeireiras && "Madeireiras"].filter(Boolean).join(", ") || "Só emissão"
+                    )}
+                  </td>
                   <td>{r.hoje}</td>
                   <td>{r.semana}</td>
                   <td>{r.mes}</td>
@@ -436,7 +459,16 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
                       </>
                     ) : (
                       <>
-                        <button type="button" className="link" onClick={() => setEditando({ id: o.id, nome: o.nome, login: o.login, cargo: o.cargo ?? "" })}>
+                        <button type="button" className="link" onClick={() =>
+                            setEditando({
+                              id: o.id,
+                              nome: o.nome,
+                              login: o.login,
+                              cargo: o.cargo ?? "",
+                              controladoria: o.acesso_controladoria,
+                              madeireiras: o.acesso_madeireiras,
+                            })
+                          }>
                           Editar
                         </button>{" "}
                         ·{" "}
@@ -484,6 +516,19 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
                 <option key={c}>{c}</option>
               ))}
             </select>
+          </div>
+          <div className="field">
+            <span className="rotulo-campo">Páginas liberadas</span>
+            <span className="acessos-edit">
+              <label>
+                <input type="checkbox" checked={novo.acessoControladoria} onChange={(e) => setNovo({ ...novo, acessoControladoria: e.target.checked })} />{" "}
+                Controladoria
+              </label>
+              <label>
+                <input type="checkbox" checked={novo.acessoMadeireiras} onChange={(e) => setNovo({ ...novo, acessoMadeireiras: e.target.checked })} />{" "}
+                Madeireiras
+              </label>
+            </span>
           </div>
           <div className="field">
             <label htmlFor="op-perfil">Acesso</label>
@@ -583,7 +628,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
 
 export default function Page() {
   return (
-    <PortaoSenha titulo="Controladoria" master>
+    <PortaoSenha titulo="Controladoria" pagina="controladoria">
       {(senha, sair) => <Controladoria senha={senha} sair={sair} />}
     </PortaoSenha>
   );

@@ -10,6 +10,7 @@ export interface SessaoCliente {
   login: string;
   nome: string;
   perfil: "operador" | "engenheiro" | "master";
+  acessos?: { controladoria: boolean; madeireiras: boolean };
   exp: number;
 }
 

@@ -11,7 +11,13 @@ export async function POST(req: Request) {
   try {
     const op = await autenticar(corpo.login, corpo.senha);
     if (!op) return respostaNaoAutorizado("Login ou senha incorretos.");
-    const { token, sessao } = assinarSessao({ id: op.id, login: op.login, nome: op.nome, perfil: op.perfil });
+    const { token, sessao } = assinarSessao({
+      id: op.id,
+      login: op.login,
+      nome: op.nome,
+      perfil: op.perfil,
+      acessos: { controladoria: op.acesso_controladoria, madeireiras: op.acesso_madeireiras },
+    });
     return NextResponse.json({ token, sessao });
   } catch (err) {
     console.error(err);

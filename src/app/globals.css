@@ -268,4 +268,8 @@ table.dados tbody tr:hover { background: var(--surface-2); }
 .usuario-nome { font-weight: 600; color: var(--text); }
 .usuario-nome small { font-weight: 400; color: var(--text-muted); }
 .topbar { padding-top: 34px; }
+.acessos-edit { display: inline-flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.acessos-edit label { display: inline-flex; gap: 4px; align-items: center; font-weight: 500; text-transform: none; letter-spacing: 0; cursor: pointer; }
+.acessos-edit input { width: auto; min-width: 0; }
+.rotulo-campo { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px; }
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ehMaster, respostaNaoAutorizado } from "@/lib/auth";
+import { podeAcessar, respostaNaoAutorizado } from "@/lib/auth";
 import { listarMadeireiras } from "@/lib/madeireirasDb";
 import { listarEmissoes, listarOperadores, type Emissao } from "@/lib/operadores";
 import { ufDoMapa } from "@/lib/util";
@@ -24,7 +24,7 @@ const DIA_MS = 86400_000;
  * escolhido no filtro: ?de=AAAA-MM-DD&ate=AAAA-MM-DD (inclusive).
  */
 export async function GET(req: Request) {
-  if (!ehMaster(req)) return respostaNaoAutorizado("Acesso só com o login da controladoria.");
+  if (!podeAcessar(req, "controladoria")) return respostaNaoAutorizado("Sem permissão para a controladoria.");
   try {
     const url = new URL(req.url);
     const hoje = diaSP(Date.now());

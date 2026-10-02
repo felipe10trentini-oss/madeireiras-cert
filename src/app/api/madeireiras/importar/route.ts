@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ehMaster, respostaNaoAutorizado } from "@/lib/auth";
+import { podeAcessar, respostaNaoAutorizado } from "@/lib/auth";
 import { lerDocumento, lerTratamentos, type ConfigEmpresa, type Madeireira } from "@/lib/madeireiras";
 import { sincronizarMadeireiras } from "@/lib/madeireirasDb";
 import { soDigitos } from "@/lib/util";
@@ -38,7 +38,7 @@ function limparConfig(c: Record<string, unknown>): ConfigEmpresa {
  * navegador; aqui chegam só as empresas já extraídas, que são validadas de novo.
  */
 export async function POST(req: Request) {
-  if (!ehMaster(req)) return respostaNaoAutorizado("Só com o login da controladoria.");
+  if (!podeAcessar(req, "madeireiras")) return respostaNaoAutorizado("Sem permissão para a aba Madeireiras.");
 
   const corpo = (await req.json().catch(() => null)) as {
     empresas?: unknown[];
