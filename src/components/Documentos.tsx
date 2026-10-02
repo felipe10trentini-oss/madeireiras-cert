@@ -48,8 +48,8 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
   const [lido, setLido] = useState<Lido | null>(null);
   const [cnpj, setCnpj] = useState("");
   const [material, setMaterial] = useState<Material>("palete");
-  const [sequencia, setSequencia] = useState(1);
-  const [usados, setUsados] = useState<number[]>([]);
+  const [sequencia, setSequencia] = useState("");
+  const [quantidade, setQuantidade] = useState("");
   const [ajustes, setAjustes] = useState<Record<string, string>>({});
   const [editando, setEditando] = useState(false);
   const [carregando, setCarregando] = useState(false);
@@ -73,7 +73,7 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
   const empresa = empresas?.find((e) => soDigitos(e.cnpj) === soDigitos(cnpj)) ?? null;
   const base =
     lido?.tipo === "mestre"
-      ? valoresDesdobrado(lido.mestre, empresa, material, sequencia)
+      ? valoresDesdobrado(lido.mestre, empresa, material, sequencia, quantidade)
       : lido?.tipo === "dr"
         ? valoresConsolidado(lido.dr, empresa, material)
         : null;
@@ -106,17 +106,11 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
       const doc = l.tipo === "mestre" ? l.mestre.cnpj : l.dr.cnpj;
       const achada = empresas?.find((x) => soDigitos(x.cnpj) === soDigitos(doc ?? ""));
       setCnpj(achada?.cnpj ?? "");
-      setMaterial(l.tipo === "mestre" ? materialDoMestre(l.mestre) : materialDaDR(l.dr));
+      setMaterial(l.tipo === "mestre" ? materialDoMestre(l.mestre) : materialDaDR(l.dr, achada));
       setAjustes({});
+      setSequencia("");
+      setQuantidade("");
       setLido(l);
-      if (l.tipo === "mestre" && l.mestre.numero) {
-        const s = await fetch(
-          `/api/documentos/sequencia?mestre=${encodeURIComponent(l.mestre.numero)}&cnpj=${encodeURIComponent(doc ?? "")}`,
-          { headers: cabecalhoSenha(senha), cache: "no-store" }
-        ).then((r) => r.json()).catch(() => null);
-        setSequencia(s?.proxima ?? 1);
-        setUsados(s?.usados ?? []);
-      }
     } catch {
       setErro("Não foi possível conectar ao servidor.");
     } finally {
@@ -157,11 +151,17 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
         dataTratamento: tipo === "desdobrado" ? valores["3.11"] : null,
         divergencias: [],
       }),
-    }).then(() => tipo === "desdobrado" && setUsados((u) => [...new Set([...u, sequencia])]));
+    });
   }
 
   const manuais = CAMPOS_MANUAIS[tipo];
-  const faltando = valores ? manuais.filter((c) => !valores[c.k] || ["m³", "unidades", "NFe"].includes(valores[c.k].trim())) : [];
+  const faltando = valores
+    ? [
+        ...(tipo === "desdobrado" && !sequencia ? [{ k: "numero", rotulo: "Nº do desdobramento" }] : []),
+        ...(tipo === "desdobrado" && !quantidade.trim() ? [{ k: "3.6", rotulo: "3.6." }] : []),
+        ...manuais.filter((c) => !valores[c.k] || ["m³", "unidades", "NFe"].includes(valores[c.k].trim())),
+      ]
+    : [];
 
   return (
     <div className="view">
@@ -258,11 +258,12 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span className="mono">{lido.tipo === "mestre" ? lido.mestre.numero : ""}-</span>
                     <input
-                      type="number"
-                      min={1}
+                      type="text"
+                      inputMode="numeric"
                       value={sequencia}
-                      onChange={(e) => setSequencia(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                      style={{ width: 80 }}
+                      onChange={(e) => setSequencia(e.target.value.replace(/\D/g, ""))}
+                      placeholder="1, 2, 3…"
+                      style={{ width: 90 }}
                       aria-label="Nº do desdobramento"
                     />
                   </div>
@@ -271,9 +272,7 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
                 )}
                 <div className="kpi-sub">
                   {tipo === "desdobrado"
-                    ? usados.length
-                      ? `já emitidos pelo site: -${usados.join(", -")}`
-                      : "1º desdobramento pelo site — confira se já houve outros"
+                    ? "digite qual desdobramento é (1, 2, 3…)"
                     : lido.tipo === "dr"
                       ? `${lido.dr.linhas.length} tratamento(s) na DR`
                       : ""}
@@ -286,6 +285,18 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
             <div className="card" style={{ marginBottom: 14 }}>
               <div className="kpi-label">Preencher</div>
               <div className="form-grid">
+                {tipo === "desdobrado" && (
+                  <div className="field">
+                    <label htmlFor="m-qtd">3.6. Quantidade de produto tratado ({material === "palete" ? "unidades" : "m³"})</label>
+                    <input
+                      id="m-qtd"
+                      inputMode="decimal"
+                      value={quantidade}
+                      onChange={(e) => setQuantidade(e.target.value)}
+                      placeholder={material === "palete" ? "ex.: 250" : "ex.: 50,252"}
+                    />
+                  </div>
+                )}
                 {manuais.map((c) => (
                   <div className="field" key={c.k}>
                     <label htmlFor={`m-${c.k}`}>{c.rotulo}</label>
@@ -293,7 +304,9 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
                   </div>
                 ))}
               </div>
-              {faltando.length > 0 && <p className="hint">Falta completar: {faltando.map((c) => c.rotulo.split(" ")[0]).join(", ")}</p>}
+              {faltando.length > 0 && (
+                <p className="hint">Falta completar: {faltando.map((c) => (c.k === "numero" ? c.rotulo : c.rotulo.split(" ")[0])).join(", ")}</p>
+              )}
             </div>
 
             <div className="toolbar">

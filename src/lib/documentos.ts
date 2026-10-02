@@ -3,7 +3,6 @@
 //    2.1, 2.2 e 3.6 ficam para o operador; 3.9 = NFe; madeira serrada leva a observação de umidade.
 //  - Consolidado: a partir do PDF da DR. Nº vem da DR ("2026/389-C"); 3.5 só a unidade; 3.6 os lotes.
 import type { CertificadoMestre, DemonstrativoRastreabilidade } from "./certificadoMestre";
-import { localDoEndereco } from "./certificado";
 import type { Madeireira } from "./madeireiras";
 import { MODELO_CONSOLIDADO, MODELO_DESDOBRADO } from "./modelosDocumentos";
 
@@ -21,9 +20,20 @@ export function materialDoMestre(m: CertificadoMestre): Material {
   return /palet|pallet|caixa|kit|skid|suporte|embalag|tampa|engradado/i.test(t) && !/m³|m3/i.test(m.quantidade ?? "") ? "palete" : "madeira";
 }
 
-/** Material do consolidado pela DR: secagem KD = madeira serrada; HT de 32 min sem umidade = paletes. */
-export function materialDaDR(dr: DemonstrativoRastreabilidade): Material {
+/**
+ * Material do consolidado: empresas que secam (KD ou KD/HT) = madeira serrada de pinus (o operador
+ * troca se for outra madeira); empresas só HT = paletes. Sem empresa, pela DR (KD = madeira).
+ */
+export function materialDaDR(dr: DemonstrativoRastreabilidade, empresa?: Madeireira | null): Material {
+  if (empresa) return empresa.tratamentos.includes("KD") ? "madeira" : "palete";
   return dr.linhas.some((l) => l.tipo === "KD") ? "madeira" : "palete";
+}
+
+/** Só "Cidade - UF" do endereço (sem rua, número, CEP): "… CEP 83.480-000 Tunas do Paraná - PR" -> "Tunas do Paraná - PR". */
+export function cidadeUf(endereco: string | null | undefined): string {
+  const t = (endereco ?? "").replace(/CEP:?\s*[\d.]+-?\d*/gi, " ").replace(/\s+/g, " ").trim();
+  const m = t.match(/([A-Za-zÀ-ÿ' .]+?)\s*[-–/]\s*([A-Z]{2})\.?\s*$/);
+  return m ? `${m[1].trim()} - ${m[2]}` : "";
 }
 
 /** "tratamento térmico por calor: secagem em estufa: KD" -> "KD"; ar quente forçado / HT -> "HT". */
@@ -49,10 +59,18 @@ function dadosEmpresa(e: Madeireira | null, m: Partial<CertificadoMestre>) {
   };
 }
 
-export function valoresDesdobrado(m: CertificadoMestre, empresa: Madeireira | null, material: Material, sequencia: number): ValoresDocumento {
+/** Sequência ("1", "2"…) e quantidade são digitadas pelo operador; aparecem no certificado na hora. */
+export function valoresDesdobrado(
+  m: CertificadoMestre,
+  empresa: Madeireira | null,
+  material: Material,
+  sequencia: string,
+  quantidade: string
+): ValoresDocumento {
+  const unidade = material === "palete" ? "unidades" : "m³";
   const d = dadosEmpresa(empresa, m);
   return {
-    numero: m.numero ? `${m.numero}-${sequencia}` : "",
+    numero: m.numero ? (sequencia.trim() ? `${m.numero}-${sequencia.trim()}` : m.numero) : "",
     processo: m.processo ?? "",
     "1.1": d.razao,
     "1.2": d.cnpj,
@@ -71,7 +89,7 @@ export function valoresDesdobrado(m: CertificadoMestre, empresa: Madeireira | nu
     "3.3": "Nihil",
     "3.4": material === "palete" ? (m.produto ?? "Madeira reflorestada") : semBitola(m.produto) || "Madeira serrada de pinus",
     "3.5": material === "palete" ? (m.volumes ?? "Paletes de madeira") : "Fardos",
-    "3.6": material === "palete" ? "" : "m³",
+    "3.6": quantidade.trim() ? `${quantidade.trim()} ${unidade}` : unidade,
     "3.7": m.lote ?? "",
     "3.8": m.ciclo ?? "",
     "3.9": "NFe",
@@ -88,8 +106,8 @@ export function valoresDesdobrado(m: CertificadoMestre, empresa: Madeireira | nu
 
 export function valoresConsolidado(dr: DemonstrativoRastreabilidade, empresa: Madeireira | null, material: Material): ValoresDocumento {
   const d = dadosEmpresa(empresa, { razao: dr.empresa, cnpj: dr.cnpj, crea: dr.crea, telefone: dr.telefone, endereco: dr.endereco, email: dr.email, regMapa: dr.regMapa });
-  // "… CEP 83.480-000 Tunas do Paraná - PR" -> "Tunas do Paraná - PR" (sem a sobra do CEP).
-  const local = localDoEndereco(d.endereco).replace(/^\d+\s+/, "");
+  const local = cidadeUf(d.endereco);
+  const vide = "vide Demonstrativo de Rastreabilidade";
   return {
     numero: dr.numero ?? "",
     "1.1": d.razao,
@@ -110,8 +128,15 @@ export function valoresConsolidado(dr: DemonstrativoRastreabilidade, empresa: Ma
     "3.4": material === "palete" ? "Paletes de madeira" : "Fardos",
     "3.5": material === "palete" ? "unidades" : "m³",
     "3.6": dr.linhas.map((l) => l.lote).join("; "),
+    "3.7": vide,
     "3.8": "NFe",
-    local: local.trim(),
+    "3.9": vide,
+    "3.10": vide,
+    "3.11": vide,
+    "3.12": vide,
+    "3.13": vide,
+    "3.14": vide,
+    local,
   };
 }
 
@@ -120,7 +145,6 @@ export const CAMPOS_MANUAIS: Record<TipoDocumento, { k: string; rotulo: string }
   desdobrado: [
     { k: "2.1", rotulo: "2.1. Razão social (comprador/tomador)" },
     { k: "2.2", rotulo: "2.2. CNPJ (comprador/tomador)" },
-    { k: "3.6", rotulo: "3.6. Quantidade de produto tratado" },
     { k: "3.9", rotulo: "3.9. Marcas distintivas (NFe)" },
   ],
   consolidado: [
@@ -148,7 +172,8 @@ export function montarDocumento(tipo: TipoDocumento, v: ValoresDocumento): strin
   // Campos numerados: "<p class=…>3.6. Quantidade…:</p>" -> "…: valor</p>".
   h = h.replace(/(<p class="Texto_Alinhado_Esquerda">)(\d\.\d{1,2})(\.?(?:&nbsp;|\s)[^<]*?)((?:&nbsp;|\s)*)(<\/p>)/g, (todo, p, num, rotulo, _esp, fim) => {
     if (!(num in v)) return todo;
-    let r = rotulo.replace(/(?:&nbsp;|\s)+$/, "");
+    // Rótulo sem o texto que o modelo já traz depois dele ("…: vide Demonstrativo de Rastreabilidade:").
+    let r = rotulo.replace(/(?:&nbsp;|\s)+$/, "").replace(/:(?:&nbsp;|\s)*vide(?:&nbsp;|\s)+Demonstrativo de(?:&nbsp;|\s)*Rastreabilidade:?$/, ":");
     // Consolidado: os itens "vide Demonstrativo de Rastreabilidade:" saem sem os dois-pontos finais.
     r = r.replace(/(Rastreabilidade):$/, "$1");
     if (!/:$/.test(r)) r += ":";

@@ -145,14 +145,15 @@ export function lerDR(texto: string): DemonstrativoRastreabilidade | null {
     duracao: m[12],
   }));
   return {
-    numero: t.match(/Certificado de Tratamento Consolidado:\s*(\d{4}\/\d{1,4}-C)/i)?.[1] ?? null,
-    empresa: t.match(/Empresa:\s*(.+?)\s+Cnpj:/i)?.[1] ?? null,
+    // Também a DR bilíngue: "Consolidado / Consolidated Treatment Certificate Number:", "Endereço / Address:".
+    numero: t.match(/Certificado de Tratamento Consolidado(?:\s*\/[^:]*)?:\s*(\d{4}\/\d{1,4}-C)/i)?.[1] ?? null,
+    empresa: t.match(/Empresa(?:\s*\/\s*Corporate name)?:\s*(.+?)\s+Cnpj:/i)?.[1] ?? null,
     cnpj: t.match(/Cnpj:\s*(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/i)?.[1] ?? null,
-    crea: t.match(/CREA:\s*(.+?)\s+Telefone:/i)?.[1] ?? null,
-    telefone: t.match(/Telefone:\s*(.+?)\s+Endere[çc]o:/i)?.[1] ?? null,
-    endereco: t.match(/Endere[çc]o:\s*(.+?)\s+E-mail:/i)?.[1] ?? null,
+    crea: t.match(/CREA:\s*(.+?)\s+Telefone/i)?.[1] ?? null,
+    telefone: t.match(/Telefone(?:\s*\/\s*Telephone)?:\s*(.+?)\s+Endere[çc]o/i)?.[1] ?? null,
+    endereco: t.match(/Endere[çc]o(?:\s*\/\s*Address)?:\s*(.+?)\s+E-mail:/i)?.[1] ?? null,
     email: t.match(/E-mail:\s*(\S+)/i)?.[1] ?? null,
-    regMapa: t.match(/Registro MAPA:\s*(\S+)/i)?.[1] ?? null,
+    regMapa: t.match(/Registro MAPA(?:\s*\/\s*MAPA Registration)?:\s*(\S+)/i)?.[1] ?? null,
     linhas,
   };
 }
