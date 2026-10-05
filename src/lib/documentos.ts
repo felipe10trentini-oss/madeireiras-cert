@@ -59,16 +59,21 @@ function dadosEmpresa(e: Madeireira | null, m: Partial<CertificadoMestre>) {
   };
 }
 
-/** Sequência ("1", "2"…) e quantidade são digitadas pelo operador; aparecem no certificado na hora. */
+/**
+ * Sequência ("1", "2"…), quantidade (3.6) e nº de fardos/volumes (3.5) são digitados pelo operador;
+ * aparecem no certificado na hora.
+ */
 export function valoresDesdobrado(
   m: CertificadoMestre,
   empresa: Madeireira | null,
   material: Material,
   sequencia: string,
-  quantidade: string
+  quantidade: string,
+  volumes = ""
 ): ValoresDocumento {
   const unidade = material === "palete" ? "unidades" : "m³";
   const d = dadosEmpresa(empresa, m);
+  const descVolumes = material === "palete" ? (m.volumes ?? "Paletes de madeira") : "Fardos";
   return {
     numero: m.numero ? (sequencia.trim() ? `${m.numero}-${sequencia.trim()}` : m.numero) : "",
     processo: m.processo ?? "",
@@ -88,7 +93,7 @@ export function valoresDesdobrado(
     "3.2": m.enderecoTrat ?? d.endereco,
     "3.3": "Nihil",
     "3.4": material === "palete" ? (m.produto ?? "Madeira reflorestada") : semBitola(m.produto) || "Madeira serrada de pinus",
-    "3.5": material === "palete" ? (m.volumes ?? "Paletes de madeira") : "Fardos",
+    "3.5": volumes.trim() ? `${volumes.trim()} ${descVolumes}` : descVolumes,
     "3.6": quantidade.trim() ? `${quantidade.trim()} ${unidade}` : unidade,
     "3.7": m.lote ?? "",
     "3.8": m.ciclo ?? "",

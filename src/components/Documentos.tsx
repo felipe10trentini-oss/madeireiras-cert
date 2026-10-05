@@ -50,6 +50,7 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
   const [material, setMaterial] = useState<Material>("palete");
   const [sequencia, setSequencia] = useState("");
   const [quantidade, setQuantidade] = useState("");
+  const [volumes, setVolumes] = useState("");
   const [ajustes, setAjustes] = useState<Record<string, string>>({});
   const [editando, setEditando] = useState(false);
   const [bilingue, setBilingue] = useState(false);
@@ -74,7 +75,7 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
   const empresa = empresas?.find((e) => soDigitos(e.cnpj) === soDigitos(cnpj)) ?? null;
   const base =
     lido?.tipo === "mestre"
-      ? valoresDesdobrado(lido.mestre, empresa, material, sequencia, quantidade)
+      ? valoresDesdobrado(lido.mestre, empresa, material, sequencia, quantidade, volumes)
       : lido?.tipo === "dr"
         ? valoresConsolidado(lido.dr, empresa, material)
         : null;
@@ -111,6 +112,7 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
       setAjustes({});
       setSequencia("");
       setQuantidade("");
+      setVolumes("");
       setLido(l);
     } catch {
       setErro("Não foi possível conectar ao servidor.");
@@ -159,6 +161,7 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
   const faltando = valores
     ? [
         ...(tipo === "desdobrado" && !sequencia ? [{ k: "numero", rotulo: "Nº do desdobramento" }] : []),
+        ...(tipo === "desdobrado" && !volumes.trim() ? [{ k: "3.5", rotulo: "3.5." }] : []),
         ...(tipo === "desdobrado" && !quantidade.trim() ? [{ k: "3.6", rotulo: "3.6." }] : []),
         ...manuais.filter((c) => !valores[c.k] || ["m³", "unidades", "NFe"].includes(valores[c.k].trim())),
       ]
@@ -188,7 +191,7 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
             {tipo === "desdobrado" ? (
               <>
                 Envie o <b>certificado mestre</b> (PDF do SEI). O site identifica a empresa e preenche o desdobrado; o nº é o do
-                mestre com “-1”, “-2”… e o processo original vem do rodapé do mestre. Ficam para você: 2.1, 2.2, 3.6 e a NFe (3.9).
+                mestre com “-1”, “-2”… e o processo original vem do rodapé do mestre. Ficam para você: a sequência, 2.1, 2.2, 3.5 (fardos/volumes), 3.6 e a NFe (3.9).
               </>
             ) : (
               <>
@@ -255,25 +258,12 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
               </div>
               <div className="card">
                 <div className="kpi-label">Nº do {tipo === "desdobrado" ? "desdobrado" : "consolidado"}</div>
-                {tipo === "desdobrado" ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span className="mono">{lido.tipo === "mestre" ? lido.mestre.numero : ""}-</span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={sequencia}
-                      onChange={(e) => setSequencia(e.target.value.replace(/\D/g, ""))}
-                      placeholder="1, 2, 3…"
-                      style={{ width: 90 }}
-                      aria-label="Nº do desdobramento"
-                    />
-                  </div>
-                ) : (
-                  <div className="kpi-value text mono">{valores.numero || "—"}</div>
-                )}
+                <div className="kpi-value text mono">{valores.numero || "—"}</div>
                 <div className="kpi-sub">
                   {tipo === "desdobrado"
-                    ? "digite qual desdobramento é (1, 2, 3…)"
+                    ? sequencia
+                      ? "sequência digitada em “Preencher”"
+                      : "falta a sequência (em “Preencher”)"
                     : lido.tipo === "dr"
                       ? `${lido.dr.linhas.length} tratamento(s) na DR`
                       : ""}
@@ -286,6 +276,30 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
             <div className="card" style={{ marginBottom: 14 }}>
               <div className="kpi-label">Preencher</div>
               <div className="form-grid">
+                {tipo === "desdobrado" && (
+                  <div className="field">
+                    <label htmlFor="m-seq">Sequência do desdobrado (nº {lido.tipo === "mestre" ? lido.mestre.numero : ""}-?)</label>
+                    <input
+                      id="m-seq"
+                      inputMode="numeric"
+                      value={sequencia}
+                      onChange={(e) => setSequencia(e.target.value.replace(/\D/g, ""))}
+                      placeholder="1, 2, 3…"
+                    />
+                  </div>
+                )}
+                {tipo === "desdobrado" && (
+                  <div className="field">
+                    <label htmlFor="m-vol">3.5. Quantidade de {material === "palete" ? "volumes" : "fardos"}</label>
+                    <input
+                      id="m-vol"
+                      inputMode="numeric"
+                      value={volumes}
+                      onChange={(e) => setVolumes(e.target.value)}
+                      placeholder="ex.: 12"
+                    />
+                  </div>
+                )}
                 {tipo === "desdobrado" && (
                   <div className="field">
                     <label htmlFor="m-qtd">3.6. Quantidade de produto tratado ({material === "palete" ? "unidades" : "m³"})</label>

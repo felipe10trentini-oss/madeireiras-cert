@@ -128,25 +128,42 @@ export function lerDR(texto: string): DemonstrativoRastreabilidade | null {
   const t = achatar(texto);
   if (!/DEMONSTRATIVO DE RASTREABILIDADE/i.test(t)) return null;
   // "21034.032577/2026-19 UR061006PR190826 623/2026 6-1006 19/08/2026 22h24m 21/08/202 00h58m KD 18% 71 26h34m"
+  // Linha: processo, depois 1 a 4 colunas de identificação (ciclo, nº do mestre, lote… — a
+  // Pinustan não tem a do mestre, porque o nº do certificado é o próprio lote), datas/horários,
+  // KD|HT|AQF, umidade e temperatura (a Explotec inverte a ordem) e duração. O processo pode vir
+  // "Nihil" (Artemobili).
   const re =
-    /(\d{5}\.\d{6}\/\d{4}-\d{2})\s+(\S+)\s+(\d{1,4}\/\d{4}(?:-\w+)?)\s+(\S+)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d{2}h\d{2}m)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d{2}h\d{2}m)\s+(KD|HT)\s+(\S+)\s+(\d+(?:[.,]\d+)?)\s+(\d+h\d+m(?:in)?|\d+)/gi;
-  const linhas: LinhaDR[] = [...t.matchAll(re)].map((m) => ({
-    processo: m[1],
-    ciclo: m[2],
-    certificado: m[3],
-    lote: m[4],
-    dataInicio: m[5],
-    horaInicio: m[6],
-    dataFim: m[7],
-    horaFim: m[8],
-    tipo: m[9].toUpperCase(),
-    umidade: m[10],
-    temperatura: m[11],
-    duracao: m[12],
-  }));
+    /(\d{5}\.\d{6}\/\d{4}-\d{2}|Nihil)((?:\s+(?!\d{1,2}\/\d{1,2}\/\d{2,4}\s)\S+){1,4})\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d{2}h\d{2}m)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(\d{2}h\d{2}m)\s+(KD|HT|AQF)\s+(\S+)\s+(\S+)\s+(\d+h\d+m(?:in)?|\d+)/gi;
+  const linhas: LinhaDR[] = [...t.matchAll(re)].map((m) => {
+    const tempPrimeiro = /^\d+(?:[.,]\d+)?$/.test(m[8]) && !/^\d+(?:[.,]\d+)?$/.test(m[9]);
+    const [umidade, temperatura] = tempPrimeiro ? [m[9], m[8]] : [m[8], m[9]];
+    const ids = m[2].trim().split(/\s+/).filter((x) => x !== "-");
+    const certificado = ids.find((x) => /^\d{1,4}\/\d{4}(?:-\w+)?$/.test(x)) ?? null;
+    const ciclo = ids.find((x) => /^UR\w+$/i.test(x)) ?? ids[0];
+    const lote = [...ids].reverse().find((x) => x !== certificado && x !== ciclo) ?? ids[ids.length - 1];
+    return {
+      processo: m[1],
+      ciclo,
+      certificado: certificado ?? lote,
+      lote,
+      dataInicio: m[3],
+      horaInicio: m[4],
+      dataFim: m[5],
+      horaFim: m[6],
+      tipo: m[7].toUpperCase(),
+      umidade,
+      temperatura,
+      duracao: m[10],
+    };
+  });
   return {
     // Também a DR bilíngue: "Consolidado / Consolidated Treatment Certificate Number:", "Endereço / Address:".
-    numero: t.match(/Certificado de Tratamento Consolidado(?:\s*\/[^:]*)?:\s*(\d{4}\/\d{1,4}-C)/i)?.[1] ?? null,
+    // Há DRs com o rótulo digitado errado ("Consoliddo", "Desdobrado"): vale o "AAAA/NNN-C".
+    numero:
+      t.match(/Certificado de Tratamento Consolidado(?:\s*\/[^:]*)?:\s*(\d{4}\/\d{1,4}-C)/i)?.[1] ??
+      t.match(/Certificate Number:\s*(\d{4}\/\d{1,4}-C)\b/i)?.[1] ??
+      t.match(/Certificado de Tratamento[^:]{0,40}:\s*(\d{4}\/\d{1,4}-C)\b/i)?.[1] ??
+      null,
     empresa: t.match(/Empresa(?:\s*\/\s*Corporate name)?:\s*(.+?)\s+Cnpj:/i)?.[1] ?? null,
     cnpj: t.match(/Cnpj:\s*(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/i)?.[1] ?? null,
     crea: t.match(/CREA:\s*(.+?)\s+Telefone/i)?.[1] ?? null,

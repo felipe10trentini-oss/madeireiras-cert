@@ -15,7 +15,13 @@ export async function POST(req: Request) {
     const { text } = await extractPdf(Buffer.from(await arq.arrayBuffer()));
     const dr = lerDR(text);
     if (dr) {
-      if (!dr.linhas.length) return NextResponse.json({ error: "Li a DR, mas não achei as linhas dos tratamentos." }, { status: 422 });
+      if (!dr.linhas.length) {
+        // Controle dos desdobramentos (Salamoni): também se chama DR, mas não é a do consolidado.
+        const msg = /processo do desdobrado/i.test(text)
+          ? "Este PDF é o demonstrativo dos desdobrados, não a DR do consolidado. Envie a DR do consolidado ou o certificado mestre."
+          : "Li a DR, mas não achei as linhas dos tratamentos.";
+        return NextResponse.json({ error: msg }, { status: 422 });
+      }
       return NextResponse.json({ tipo: "dr", dr, nomeArquivo: arq.name });
     }
     const mestre = lerCertificadoMestre(text);
