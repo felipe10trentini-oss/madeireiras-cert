@@ -18,11 +18,26 @@ import { identificarEmpresa, lerNomeArquivo } from "../src/lib/madeireiras";
 import { camposDoModelo, textoModalidade } from "../src/lib/modelos";
 import { lerPlanilhaMadeireiras } from "../src/lib/planilhaMadeireiras";
 import { COLUNAS_CREDENCIADA, montarLinhaRelatorio } from "../src/lib/relatorio";
+import {
+  cidadeDoEndereco,
+  linhaMannMovel,
+  PROCESSO_COMUNICADO_MANN,
+  placaDaUnidade,
+  VOLUME_CAMARA_MANN,
+} from "../src/lib/relatorioMannMovel";
 
 async function texto(arquivo: string): Promise<string> {
+  return (await lerPdf(arquivo)).texto;
+}
+
+/** Texto do PDF e data de criação (dd/mm/aaaa), a data do comunicado. */
+async function lerPdf(arquivo: string): Promise<{ texto: string; criadoEm: string | null }> {
   const p = new PDFParse({ data: fs.readFileSync(arquivo) });
   try {
-    return (await p.getText()).text;
+    const texto = (await p.getText()).text;
+    const bruto = String(((await p.getInfo()).info as Record<string, unknown> | undefined)?.CreationDate ?? "");
+    const m = bruto.match(/D:(\d{4})(\d{2})(\d{2})/);
+    return { texto, criadoEm: m ? `${m[3]}/${m[2]}/${m[1]}` : null };
   } finally {
     await p.destroy();
   }
@@ -72,7 +87,8 @@ async function main() {
       console.log(`   empresa NÃO identificada (${curva.sistema}; cnpj ${curva.cnpj}; reg ${curva.regMapa}; nome ${nomeEmp})`);
       continue;
     }
-    const comunicado = lerComunicado(await texto(path.join(dir, arqCom)));
+    const pdfCom = await lerPdf(path.join(dir, arqCom));
+    const comunicado = lerComunicado(pdfCom.texto);
     const r = montarCertificado({ curva, empresa: ident.empresa, comunicado, nomeArquivo: nomeCurva }, "AQF");
     console.log(`   ${curva.sistema} · ${ident.empresa.apelido} (por ${ident.por}) · ${r.modelo.nome}`);
 
@@ -98,7 +114,9 @@ async function main() {
     for (const a of r.avisos) console.log(`   ! ${a}`);
 
     // 2) Conferência comunicado x curva
-    const dv = validarComunicado({ curva, comunicado, valores: r.valores, tipo: "AQF" });
+    const dv = validarComunicado({
+      curva, comunicado, valores: r.valores, tipo: "AQF", prestadora: true, nomeArquivo: nomeCurva, dataComunicado: pdfCom.criadoEm,
+    });
     for (const x of dv) {
       divergs.set(`${x.nivel}: ${x.campo}`, (divergs.get(`${x.nivel}: ${x.campo}`) ?? 0) + 1);
       console.log(`   ⚑ [${x.nivel}] ${x.campo}: comunicado ${x.comunicado} | curva ${x.curva.replace(/\s+/g, " ")} | ${x.detalhe}`);
@@ -110,9 +128,20 @@ async function main() {
       console.log("   (sem linha real do relatório)");
       continue;
     }
-    const linha = montarLinhaRelatorio({ empresa: ident.empresa, valores: r.valores, tipo: "AQF", camara: null, padrao: {} });
+    const base = montarLinhaRelatorio({ empresa: ident.empresa, valores: r.valores, tipo: "AQF", camara: null, padrao: {} });
+    const linha = linhaMannMovel(base, {
+      valores: r.valores,
+      comunicado,
+      processo: PROCESSO_COMUNICADO_MANN,
+      dataDocumento: pdfCom.criadoEm ?? "",
+      placa: placaDaUnidade(comunicado.unidadeVolante),
+      local: cidadeDoEndereco(r.valores.enderecoTrat),
+      volumeCamara: VOLUME_CAMARA_MANN,
+    });
     COLUNAS_CREDENCIADA.forEach((col, i) => {
       if (/^(processoCertificado|dataEmissao)$/.test(col.key)) return;
+      // Até o certificado 1479 o processo do comunicado era outro (ver PROCESSO_COMUNICADO_MANN).
+      if (col.key === "processo" && parseInt(num, 10) <= 1479) return;
       totLinha++;
       const gerado = String(linha[col.key] ?? "").trim();
       const esperado = String(real[i] ?? "").trim();

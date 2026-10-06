@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { TipoTratamento } from "@/lib/certificado";
+import type { Comunicado } from "@/lib/comunicado";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import type { ValoresCertificado } from "@/lib/modelos";
 import {
@@ -10,6 +11,14 @@ import {
   montarLinhaRelatorio,
   type PadraoRelatorio,
 } from "@/lib/relatorio";
+import {
+  cidadeDoEndereco,
+  ehMannMovel,
+  linhaMannMovel,
+  placaDaUnidade,
+  PROCESSO_COMUNICADO_MANN,
+  VOLUME_CAMARA_MANN,
+} from "@/lib/relatorioMannMovel";
 import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 
@@ -19,6 +28,7 @@ interface Props {
   valores: ValoresCertificado;
   tipo: TipoTratamento;
   camara: string | null;
+  comunicado: Comunicado | null;
   dataComunicado: string | null;
   onToast: (msg: string) => void;
   onPadraoSalvo: (padrao: PadraoRelatorio) => void;
@@ -29,11 +39,17 @@ interface Props {
  * RT e volume da câmara não estão na curva: são digitados uma vez e ficam
  * salvos na empresa (gravados ao copiar a linha).
  */
-export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, dataComunicado, onToast, onPadraoSalvo }: Props) {
+export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, comunicado, dataComunicado, onToast, onPadraoSalvo }: Props) {
   const salvo = empresa.relatorio ?? {};
   // Padrão das linhas já lançadas na planilha de relatório da empresa (objetivo, formatos, processo, RT...).
   const estilo = empresa.estilo ?? null;
-  const [processo, setProcesso] = useState(salvo.processo || estilo?.processo || "");
+  // MANN MÓVEL: planilha própria (placa, local, total de peças em "Número de volumes"). Ver relatorioMannMovel.ts.
+  const mann = ehMannMovel(empresa);
+  const [placa, setPlaca] = useState(placaDaUnidade(comunicado?.unidadeVolante));
+  const [local, setLocal] = useState(cidadeDoEndereco(valores.enderecoTrat));
+  const [processo, setProcesso] = useState(
+    mann ? salvo.processo || PROCESSO_COMUNICADO_MANN : salvo.processo || estilo?.processo || ""
+  );
   // Com comunicado enviado, a data é a de criação do PDF; na programação, a data salva do mês.
   const usaComunicado = dataComunicado != null || empresa.documento === "comunicado";
   const [dataDocumento, setDataDocumento] = useState(
@@ -42,7 +58,9 @@ export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, data
   // Nome completo do RT (o da assinatura no SEI), não o apelido da Planilha Geral.
   const [rt, setRt] = useState(rtCompleto(empresa.rt) || salvo.rt || estilo?.rt || "");
   const [volumeCamara, setVolumeCamara] = useState(
-    (camara && (salvo.volumesCamara?.[camara] || estilo?.volumesCamara?.[String(parseInt(camara, 10))])) || ""
+    mann
+      ? VOLUME_CAMARA_MANN
+      : (camara && (salvo.volumesCamara?.[camara] || estilo?.volumesCamara?.[String(parseInt(camara, 10))])) || ""
   );
   const [ajustes, setAjustes] = useState<Record<string, string>>({});
 
@@ -53,7 +71,13 @@ export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, data
     rt,
     volumesCamara: camara ? { [camara]: volumeCamara } : {},
   };
-  const linha = { ...montarLinhaRelatorio({ empresa, valores, tipo, camara, padrao, estilo }), ...ajustes };
+  const base = montarLinhaRelatorio({ empresa, valores, tipo, camara, padrao, estilo });
+  const linha = {
+    ...(mann
+      ? linhaMannMovel(base, { valores, comunicado, processo, dataDocumento, placa, local, volumeCamara })
+      : base),
+    ...ajustes,
+  };
 
   async function copiar() {
     try {
@@ -63,7 +87,7 @@ export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, data
       return;
     }
     // Guarda os dados repetitivos para a próxima emissão desta empresa.
-    const guardar: PadraoRelatorio = { processo, rt, volumesCamara: padrao.volumesCamara };
+    const guardar: PadraoRelatorio = mann ? { processo, rt } : { processo, rt, volumesCamara: padrao.volumesCamara };
     if (!usaComunicado) guardar.dataDocumento = dataDocumento;
     try {
       const res = await fetch("/api/madeireiras/padrao", {
@@ -104,9 +128,22 @@ export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, data
             <input id="rel-rt" type="text" value={rt} onChange={(e) => setRt(e.target.value)} />
           </div>
           <div className="field">
-            <label htmlFor="rel-vol">Volume da câmara {camara ?? ""} (m³)</label>
+            <label htmlFor="rel-vol">Volume da câmara {mann ? "" : (camara ?? "")} (m³)</label>
             <input id="rel-vol" type="text" value={volumeCamara} onChange={(e) => setVolumeCamara(e.target.value)} />
           </div>
+          {mann && (
+            <>
+              <div className="field">
+                <label htmlFor="rel-placa">Placa (unidade de tratamento)</label>
+                <input id="rel-placa" type="text" value={placa} onChange={(e) => setPlaca(e.target.value)} placeholder="ex.: JCV8C11" />
+                {!placa && <span className="hint">Unidade volante do comunicado não reconhecida: digite a placa.</span>}
+              </div>
+              <div className="field">
+                <label htmlFor="rel-local">Local do tratamento (cidade)</label>
+                <input id="rel-local" type="text" value={local} onChange={(e) => setLocal(e.target.value)} />
+              </div>
+            </>
+          )}
           <div className="field">
             <label htmlFor="rel-vols">Número de volumes</label>
             <input id="rel-vols" type="text" value={linha.volumes} onChange={(e) => setAjustes((a) => ({ ...a, volumes: e.target.value }))} />

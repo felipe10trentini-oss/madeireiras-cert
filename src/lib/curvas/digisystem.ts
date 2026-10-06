@@ -151,6 +151,9 @@ export function parseDigisystem(texto: string): Curva {
 
   c.umidadeFinal = numeroBR(texto.match(/UM Final\s*[:;=]\s*([\d,.]+)/i)?.[1]);
   c.descricao = texto.match(/Descri[çc][ãa]o:\s*([^\t\n]+)/i)?.[1].trim() ?? null;
+  const programa = texto.match(/Programa:[^\n]*\n([\s\S]*?)\n\s*Produto\(s\):/i)?.[1];
+  c.descricaoPrograma = programa ? programa.replace(/\s+/g, " ").trim() || null : null;
+  c.concluido = /\(conclu[ií]do\)/i.test(texto);
 
   // Texto livre do produto: descrição, bitola, linhas de "Produto(s):" e volume total.
   const bitola = texto.match(/Bitola da madeira:\s*([^\t\n]+)/i)?.[1] ?? "";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { montarCertificado, sugerirTipo, type TipoTratamento } from "@/lib/certificado";
+import { montarCertificado, REGRAS_EMPRESA, sugerirTipo, type TipoTratamento } from "@/lib/certificado";
 import type { Comunicado } from "@/lib/comunicado";
 import { curvaVazia, type Curva } from "@/lib/curvas/tipos";
 import { identificarEmpresa, lerNomeArquivo } from "@/lib/madeireiras";
@@ -99,9 +99,18 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
   const html = montado && valores ? montarHtml(montado.modelo, valores) : "";
 
   // Trava de divergência: comunicado x curva (dia, horário, material, quantidade).
+  const prestadora = !!(empresa && REGRAS_EMPRESA[soDigitos(empresa.cnpj)]?.prestadora);
   const divergencias =
     montado && valores && curva && extraido?.comunicado
-      ? validarComunicado({ curva, comunicado: extraido.comunicado, valores, tipo })
+      ? validarComunicado({
+          curva,
+          comunicado: extraido.comunicado,
+          valores,
+          tipo,
+          prestadora,
+          nomeArquivo: extraido.nomeArquivo,
+          dataComunicado: extraido.dataComunicado,
+        })
       : [];
   const errosDivergencia = divergencias.filter((d) => d.nivel === "erro");
   const travado = errosDivergencia.length > 0 && !conferiuDivergencias;
@@ -540,6 +549,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
                   valores={valores}
                   tipo={tipo}
                   camara={curva?.camara ?? null}
+                  comunicado={extraido.comunicado}
                   dataComunicado={extraido.dataComunicado}
                   onToast={setToast}
                   onPadraoSalvo={(padrao) =>

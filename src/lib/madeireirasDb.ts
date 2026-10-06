@@ -1,6 +1,7 @@
+import { REGRAS_EMPRESA } from "./certificado";
 import type { EstiloRelatorio } from "./estiloRelatorio";
 import { lerTratamentos, type ConfigEmpresa, type Madeireira } from "./madeireiras";
-import type { PadraoRelatorio } from "./relatorio";
+import type { PadraoRelatorio, Tomador } from "./relatorio";
 import { juntarUltimos } from "./sequenciaCiclo";
 import { getSupabaseServerClient } from "./supabaseServer";
 import { soDigitos } from "./util";
@@ -204,6 +205,81 @@ export async function salvarPadraoRelatorio(cnpj: string, novo: PadraoRelatorio)
   if (error) throw new Error(`Falha ao salvar: ${error.message}`);
   const { estilo: _estilo, ...semEstilo } = mesclado as PadraoRelatorio & { estilo?: unknown };
   return semEstilo;
+}
+
+export interface ResumoTomadores {
+  totalNaPlanilha: number;
+  novos: { razao: string; cnpj: string }[];
+  atualizados: { razao: string; cnpj: string; campos: string[] }[];
+  iguais: number;
+  ignoradas: number;
+  /** Clientes que já estavam salvos e não estão nesta planilha (são mantidos). */
+  ausentesNaPlanilha: number;
+  aplicado: boolean;
+}
+
+const CAMPOS_TOMADOR: (keyof Tomador)[] = ["razao", "cnpj", "endereco", "telefone", "email"];
+
+/**
+ * Cadastra/atualiza (pelo CNPJ) os clientes tomadores de uma prestadora de serviço (Mann móvel, Exata),
+ * guardados em relatorio.tomadores. Com `aplicar` falso só devolve o que mudaria. Nunca apaga cliente.
+ */
+export async function sincronizarTomadores(
+  cnpjPrestadora: string,
+  clientes: Tomador[],
+  ignoradas: number,
+  aplicar: boolean
+): Promise<ResumoTomadores> {
+  const rows = await lerRows();
+  const prestadora = rows.find((r) => soDigitos(r.cnpj) === soDigitos(cnpjPrestadora));
+  if (!prestadora) throw new Error("Empresa não encontrada no cadastro.");
+  if (!REGRAS_EMPRESA[soDigitos(prestadora.cnpj)]?.prestadora) {
+    throw new Error("Só as prestadoras de serviço (Mann móvel, Exata) têm clientes tomadores.");
+  }
+
+  const antigos = prestadora.relatorio?.tomadores ?? {};
+  const resumo: ResumoTomadores = {
+    totalNaPlanilha: 0, novos: [], atualizados: [], iguais: 0, ignoradas, ausentesNaPlanilha: 0, aplicado: aplicar,
+  };
+  const novosMapa: Record<string, Tomador> = {};
+  const vistos = new Set<string>();
+  const norm = (s: string | undefined) => (s ?? "").trim();
+
+  for (const c of clientes) {
+    const chave = soDigitos(c.cnpj);
+    // A própria prestadora aparece na planilha como cliente: não é tomador dela mesma.
+    if (chave === soDigitos(prestadora.cnpj)) {
+      resumo.ignoradas++;
+      continue;
+    }
+    resumo.totalNaPlanilha++;
+    vistos.add(chave);
+    const antigo = antigos[chave];
+    if (!antigo) {
+      resumo.novos.push({ razao: c.razao, cnpj: c.cnpj });
+      novosMapa[chave] = c;
+      continue;
+    }
+    const campos = CAMPOS_TOMADOR.filter((k) => norm(c[k]) !== norm(antigo[k]));
+    if (!campos.length) resumo.iguais++;
+    else {
+      resumo.atualizados.push({ razao: c.razao, cnpj: c.cnpj, campos });
+      novosMapa[chave] = c;
+    }
+  }
+  resumo.ausentesNaPlanilha = Object.keys(antigos).filter((k) => !vistos.has(k)).length;
+
+  if (aplicar && Object.keys(novosMapa).length) {
+    const { error } = await getSupabaseServerClient()
+      .from(TABELA)
+      .update({
+        relatorio: { ...(prestadora.relatorio ?? {}), tomadores: { ...antigos, ...novosMapa } },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", prestadora.id);
+    if (error) throw new Error(`Falha ao salvar os clientes: ${error.message}`);
+  }
+  return resumo;
 }
 
 /** Grava o estilo do relatório de cada empresa (chave: CNPJ só com dígitos) em relatorio.estilo. */

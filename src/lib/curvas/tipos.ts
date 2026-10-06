@@ -59,6 +59,13 @@ export interface Curva {
   fimEstimado: boolean;
   /** Duração que o certificado usa quando a curva fixa uma (Relatório novo: "programado: 360 min"). */
   duracaoFixa?: string | null;
+  /**
+   * CRG08 KDHT (layout NSec): a descrição digitada fica entre "Programa:" e "Produto(s):", não em
+   * "Descrição:". Só serve para conferir com o comunicado; não entra no texto do certificado.
+   */
+  descricaoPrograma?: string | null;
+  /** CRG08: a curva marca o tratamento como "(concluído)". */
+  concluido?: boolean;
 }
 
 export function curvaVazia(sistema: Sistema): Curva {

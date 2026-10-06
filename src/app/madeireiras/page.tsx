@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FormEmpresa, FormRt, ListaRts, type Rt } from "@/components/CadastroMadeireiras";
+import { ClientesPrestadora } from "@/components/ClientesPrestadora";
 import { FileDrop } from "@/components/FileDrop";
 import { PortaoSenha } from "@/components/PortaoSenha";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
@@ -453,6 +454,8 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
           {acessosMsg && <span className="hint">{acessosMsg}</span>}
         </div>
       </div>
+
+      <ClientesPrestadora senha={senha} empresas={lista} onAplicado={carregar} />
       </>
       )}
 
