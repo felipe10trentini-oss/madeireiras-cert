@@ -248,16 +248,20 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
         <button type="button" className={`btn${aba === "cliente" ? " primary" : ""}`} onClick={() => abrir("cliente")}>
           Cadastrar cliente móvel
         </button>
-        <div className="spacer" />
-        <button type="button" className="btn" disabled={!lista} onClick={backupCadastro} title="Baixa a planilha de cadastro com todas as empresas (dá para editar e enviar de volta)">
-          Backup do cadastro (.xlsx)
-        </button>
-        <button type="button" className="btn" onClick={backupRts} title="Baixa a planilha dos acessos do SEI dos RTs, com as senhas: guarde em local seguro">
-          Backup dos RTs (.xlsx)
-        </button>
-        <button type="button" className="btn" disabled={!lista} onClick={backupClientes} title="Baixa a planilha de clientes da Mann móvel (dá para editar e enviar de volta)">
-          Backup dos clientes móvel (.xlsx)
-        </button>
+        {/* Backups juntos à direita; o dos clientes da móvel logo abaixo do backup dos RTs. */}
+        <div className="backups">
+          <button type="button" className="btn" disabled={!lista} onClick={backupCadastro} title="Baixa a planilha de cadastro com todas as empresas (dá para editar e enviar de volta)">
+            Backup do cadastro (.xlsx)
+          </button>
+          <div className="backups-coluna">
+            <button type="button" className="btn" onClick={backupRts} title="Baixa a planilha dos acessos do SEI dos RTs, com as senhas: guarde em local seguro">
+              Backup dos RTs (.xlsx)
+            </button>
+            <button type="button" className="btn" disabled={!lista} onClick={backupClientes} title="Baixa a planilha de clientes da Mann móvel (dá para editar e enviar de volta)">
+              Backup dos clientes móvel (.xlsx)
+            </button>
+          </div>
+        </div>
       </div>
 
       {erroLista && (

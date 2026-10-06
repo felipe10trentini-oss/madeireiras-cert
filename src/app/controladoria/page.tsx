@@ -208,7 +208,9 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
   const nomes = Object.fromEntries(painel.operadores.map((o) => [o.login, o.nome]));
   const zero: Contagem = { hoje: 0, semana: 0, mes: 0, ano: 0, periodo: 0, divergencias: 0, desdobrados: 0, consolidados: 0 };
   const docs = categoria === "documentos";
-  const soma = (k: keyof Contagem) => Object.values(painel.resumo).reduce((s, r) => s + r[k], 0);
+  // Colaborador escolhido no filtro: os quadros mostram só os números dele (dia, semana, mês, ano e período).
+  const doColaborador = operador ? (painel.resumo[operador] ?? zero) : null;
+  const soma = (k: keyof Contagem) => (doColaborador ? doColaborador[k] : Object.values(painel.resumo).reduce((s, r) => s + r[k], 0));
   const empresasDoPeriodo = painel.porEmpresa.map(([e]) => e).sort((a, b) => a.localeCompare(b, "pt-BR"));
   const linhas = painel.emissoes.filter(
     (e) =>
@@ -252,6 +254,14 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
         ))}
       </div>
 
+      {doColaborador && (
+        <p className="hint" style={{ margin: "0 0 8px" }}>
+          Números de <b>{nomes[operador] ?? operador}</b>{" "}
+          <button type="button" className="link" onClick={() => setOperador("")}>
+            ver todos os colaboradores
+          </button>
+        </p>
+      )}
       <div className="grid kpis cinco" style={{ marginBottom: 18 }}>
         <div className="card">
           <div className="kpi-label">Hoje</div>
@@ -273,7 +283,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
         </div>
         <div className="card destaque">
           <div className="kpi-label">Período selecionado</div>
-          <div className="kpi-valor">{painel.totalPeriodo}</div>
+          <div className="kpi-valor">{doColaborador ? doColaborador.periodo : painel.totalPeriodo}</div>
           <div className="kpi-sub">
             {rotuloPeriodo}
             {docs ? ` · ${soma("desdobrados")} desdobrados · ${soma("consolidados")} consolidados` : ""}

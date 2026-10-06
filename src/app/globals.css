@@ -251,6 +251,9 @@ table.dados tbody tr:hover { background: var(--surface-2); }
 .recibo-peticionamento .hint { margin: 0; }
 .abas-cadastro { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .abas-cadastro .spacer { flex: 1; }
+.abas-cadastro { align-items: flex-start; }
+.backups { display: flex; align-items: flex-start; gap: 8px; margin-left: auto; }
+.backups-coluna { display: flex; flex-direction: column; gap: 8px; }
 
 /* Dados para o SEI (emissão) */
 .sei-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 18px; margin-top: 6px; }
