@@ -213,9 +213,12 @@ export function montarLinhaRelatorio(args: {
   } else if (hm && g.duracao === "min") duracao = String(parseInt(hm[1], 10) * 60 + parseInt(hm[2], 10));
   // AQF: em minutos, como no certificado ("Duração: 32 min" -> 32). Secagem HT: minutos no
   // formato "00h75m" (75 min). Secagem KD: o formato da planilha da empresa.
+  // Palletimber: o tratamento HT sai "00h40m" também no relatório, como no certificado.
+  const emHM = !!REGRAS_EMPRESA[soDigitos(empresa.cnpj)]?.duracaoHtEmHM;
   if (tipo !== "KD") {
     const total = minutos ?? (hm ? String(parseInt(hm[1], 10) * 60 + parseInt(hm[2], 10)) : null);
-    if (total) duracao = tipo === "HT" ? `00h${total.padStart(2, "0")}m` : total;
+    if (total && emHM && tipo === "AQF") duracao = `${String(Math.floor(+total / 60)).padStart(2, "0")}h${String(+total % 60).padStart(2, "0")}m`;
+    else if (total) duracao = tipo === "HT" ? `00h${total.padStart(2, "0")}m` : total;
   }
 
   let lote = v.lote ?? "";

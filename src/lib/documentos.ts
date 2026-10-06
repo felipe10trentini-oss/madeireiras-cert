@@ -2,7 +2,7 @@
 //  - Desdobrado: a partir do certificado mestre (PDF do SEI). Nº = nº do mestre + "-1", "-2"…;
 //    2.1, 2.2 e 3.6 ficam para o operador; 3.9 = NFe; madeira serrada leva a observação de umidade.
 //  - Consolidado: a partir do PDF da DR. Nº vem da DR ("2026/389-C"); 3.5 só a unidade; 3.6 os lotes.
-import { regraDe } from "./certificado";
+import { localDoEndereco, regraDe } from "./certificado";
 import type { CertificadoMestre, DemonstrativoRastreabilidade } from "./certificadoMestre";
 import type { Madeireira } from "./madeireiras";
 import { soDigitos } from "./util";
@@ -42,12 +42,8 @@ export function filialEmissora(empresa: Madeireira | null, empresas: Madeireira[
   return empresas.find((x) => soDigitos(regraDe(x).prestadorCnpj ?? "") === soDigitos(empresa.cnpj)) ?? null;
 }
 
-/** Só "Cidade - UF" do endereço (sem rua, número, CEP): "… CEP 83.480-000 Tunas do Paraná - PR" -> "Tunas do Paraná - PR". */
-export function cidadeUf(endereco: string | null | undefined): string {
-  const t = (endereco ?? "").replace(/CEP:?\s*[\d.]+-?\d*/gi, " ").replace(/\s+/g, " ").trim();
-  const m = t.match(/([A-Za-zÀ-ÿ' .]+?)\s*[-–/]\s*([A-Z]{2})\.?\s*$/);
-  return m ? `${m[1].trim()} - ${m[2]}` : "";
-}
+/** Só "Município - UF" do endereço — a mesma regra do certificado mestre. */
+export const cidadeUf = localDoEndereco;
 
 /** "tratamento térmico por calor: secagem em estufa: KD" -> "KD"; ar quente forçado / HT -> "HT". */
 function modalidadeCurta(m: string | null): string {

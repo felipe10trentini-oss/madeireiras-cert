@@ -34,7 +34,8 @@ function colunaDe(cabecalho: string): Col | null {
   if (c.startsWith("CICLO") && !c.includes("LOTE")) return "secagem";
   if (c.startsWith("DATA")) return "data";
   // "PRODUTO" traz a espécie e a bitola: "Pinus 19mm", "17mm"
-  if (c.startsWith("PRODUTO") || c.includes("ESPECIE") || c.includes("MADEIRA")) return "especie";
+  // (Salamoni: "DESCRIÇÃO" = "Mad. Pinus 25 mm")
+  if (c.startsWith("PRODUTO") || c.includes("ESPECIE") || c.includes("MADEIRA") || c.startsWith("DESCRICAO")) return "especie";
   return null;
 }
 
@@ -156,9 +157,11 @@ export async function lerPlanilhaControle(buffer: ArrayBuffer): Promise<LinhaCon
       const d: Partial<Record<Col, string>> = {};
       mapa.forEach((k, col) => (d[k] = texto(row.getCell(col).value)));
       if (!d.fardos && !d.volume) continue;
-      // Bitola: coluna própria ("23 mm", "22") ou dentro do PRODUTO ("Pinus 19mm", "17mm").
+      // Bitola: coluna própria ("23 mm", "22") ou dentro do PRODUTO ("Pinus 19mm", "17mm") ou a
+      // primeira medida da peça (Palletimber: "17,5x127x1,216" -> 17,5 mm; "88X127X1,200" -> 88 mm).
+      const mPeca = d.especie?.match(/(\d+(?:[.,]\d+)?)\s*[xX×*]\s*\d+(?:[.,]\d+)?\s*[xX×*]\s*\d/);
       const bitolaMm =
-        d.bitola?.match(/(\d+(?:[.,]\d+)?)/)?.[1] ?? d.especie?.match(/(\d+(?:[.,]\d+)?)\s*mm/i)?.[1];
+        d.bitola?.match(/(\d+(?:[.,]\d+)?)/)?.[1] ?? d.especie?.match(/(\d+(?:[.,]\d+)?)\s*mm/i)?.[1] ?? mPeca?.[1];
       // Ciclo: "380", "380/1162" (secagem/lote), "4-354" ou "1_773" (estufa-ciclo).
       const mEC = d.secagem?.match(/^\s*(\d+)\s*[-_]\s*(\d+)\s*$/);
       linhas.push({

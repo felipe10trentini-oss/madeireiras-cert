@@ -78,6 +78,8 @@ interface RegraEmpresa {
   cicloTresDigitos?: boolean;
   /** Lote sem hífen: "1-514" -> "1514" (Palletimber). */
   loteSemHifen?: boolean;
+  /** Duração do tratamento HT/AQF em "00h40m" (certificado e relatório) em vez de "40 min" (Palletimber). */
+  duracaoHtEmHM?: boolean;
   /** Bitola quando a curva não traz (Rio Timbó: quase sempre 17 mm; o operador corrige se for outra). */
   bitolaPadraoMm?: number;
   /** Embalagens sempre "… de madeira" na descrição dos volumes (MD: "Paletes de madeira"). */
@@ -104,7 +106,7 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "03636539000120": { loteAnoSemana: true, produto: "Madeira serrada para embalagens", programacaoTrimestral: true }, // MART
   "21495060000283": { kitEhAqf: true }, // Maxi
   "50709371000115": { email: "faturamento2@lgpallets.com.br" }, // LG Logística
-  "20593206000180": { htEhAqf: true, loteSemHifen: true }, // Palletimber
+  "20593206000180": { htEhAqf: true, loteSemHifen: true, duracaoHtEmHM: true }, // Palletimber
   "13804475000182": { bitolaPadraoMm: 17, loteTresDigitos: true }, // Rio Timbó
   "04456108000144": { embalagemDeMadeira: true }, // MD Paletes
   "26341045000113": { cicloTresDigitos: true }, // Induspacking Cotia: ciclo "077" como o lote
@@ -220,10 +222,14 @@ export function modeloPara(empresa: Madeireira, tipo: TipoTratamento): Modelo {
   return MODELOS[`${cad}-${tipo === "AQF" ? "aqf" : "estufa"}`];
 }
 
-/** "... - CEP: 84.570-000 - Mallet – PR" -> "Mallet – PR" */
-export function localDoEndereco(endereco: string | null): string {
-  const m = endereco?.trim().match(/([^\-–;,:]+?)\s*([-–])\s*([A-Z]{2})\.?$/);
-  return m ? `${m[1].trim()} ${m[2]} ${m[3]}` : "";
+/**
+ * Só "Município - UF" do endereço (sem rua, número, CEP, e sempre com hífen simples):
+ * "... - CEP: 84.570-000 - Mallet – PR" -> "Mallet - PR"; "… CEP 83.480-000 Tunas do Paraná - PR" -> "Tunas do Paraná - PR".
+ */
+export function localDoEndereco(endereco: string | null | undefined): string {
+  const t = (endereco ?? "").replace(/CEP:?\s*[\d.]+-?\d*/gi, " ").replace(/\s+/g, " ").trim();
+  const m = t.match(/([A-Za-zÀ-ÿ' .]+?)\s*[-–/]\s*([A-Z]{2})\.?\s*$/);
+  return m ? `${m[1].trim()} - ${m[2]}` : "";
 }
 
 /** "pallets de madeirs", "PALLETS DE MADEIRA" -> "Paletes de madeira". */
@@ -391,7 +397,7 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
       ? curva.duracaoFixa
       : duracaoMin == null
         ? null
-        : usaCiclo
+        : usaCiclo || regra.duracaoHtEmHM
           ? duracaoHM(duracaoMin)
           : `${duracaoMin} min`;
   if (tipo !== "KD" && !curva.htInicio) {
@@ -542,7 +548,8 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     dataFim: fim?.data ?? null,
     horaFim: fim ? horaFmt(fim.hora) : null,
     temperatura,
-    local: localDoEndereco(empresa.endereco),
+    // Município - UF do local do tratamento (3.2); prestadora: o do cliente.
+    local: localDoEndereco(regra.prestadora ? (comunicado?.endereco ?? salvo?.endereco ?? null) : null) || localDoEndereco(empresa.endereco),
   };
   return { modelo, valores, avisos, inicio, duracaoTexto };
 }
