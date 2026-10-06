@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { TipoTratamento } from "@/lib/certificado";
+import { regraDe, type TipoTratamento } from "@/lib/certificado";
 import type { Comunicado } from "@/lib/comunicado";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import type { ValoresCertificado } from "@/lib/modelos";
@@ -21,6 +21,7 @@ import {
 } from "@/lib/relatorioMannMovel";
 import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
+import { ReciboPeticionamento } from "./ReciboPeticionamento";
 
 interface Props {
   senha: string;
@@ -51,6 +52,7 @@ export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, comu
     mann ? salvo.processo || PROCESSO_COMUNICADO_MANN : salvo.processo || estilo?.processo || ""
   );
   // Com comunicado enviado, a data é a de criação do PDF; na programação, a data salva do mês.
+  // Achando o recibo do SEI na pasta do OneDrive, vale a data do peticionamento (ReciboPeticionamento).
   const usaComunicado = dataComunicado != null || empresa.documento === "comunicado";
   const [dataDocumento, setDataDocumento] = useState(
     usaComunicado ? (dataComunicado ?? "") : (salvo.dataDocumento || estilo?.dataDocumento || "")
@@ -123,6 +125,20 @@ export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, comu
             <label htmlFor="rel-data">Data do {empresa.documento === "comunicado" ? "comunicado" : "documento (programação)"}</label>
             <input id="rel-data" type="text" value={dataDocumento} onChange={(e) => setDataDocumento(e.target.value)} placeholder="dd/mm/aaaa" />
           </div>
+          {!mann && (
+            <div className="field full">
+              {/* Data do peticionamento: lida do recibo do SEI na pasta do OneDrive. */}
+              <ReciboPeticionamento
+                senha={senha}
+                empresa={empresa}
+                tipo={usaComunicado ? "comunicado" : "programacao"}
+                data={valores.dataInicio ?? null}
+                numeroComunicado={usaComunicado ? (comunicado?.numero ?? valores.comunicado ?? null) : null}
+                trimestral={!!regraDe(empresa).programacaoTrimestral}
+                onData={setDataDocumento}
+              />
+            </div>
+          )}
           <div className="field">
             <label htmlFor="rel-rt">Responsável técnico</label>
             <input id="rel-rt" type="text" value={rt} onChange={(e) => setRt(e.target.value)} />

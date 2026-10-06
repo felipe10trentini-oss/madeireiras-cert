@@ -247,6 +247,8 @@ table.dados tbody tr:hover { background: var(--surface-2); }
 .grupo-cadastro { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px 14px; margin: 0 0 12px; min-width: 0; }
 .grupo-cadastro legend { font-size: 12px; font-weight: 700; color: var(--text-muted); padding: 0 6px; }
 .grupo-cadastro .field .hint { font-size: 11px; margin: 0; line-height: 1.3; }
+.recibo-peticionamento { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.recibo-peticionamento .hint { margin: 0; }
 .abas-cadastro { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .abas-cadastro .spacer { flex: 1; }
 
