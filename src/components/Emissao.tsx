@@ -299,7 +299,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
         <h4>Cadastro de madeireiras indisponível</h4>
         <ul>
           <li>{erroCadastro}</li>
-          <li>Confira se a tabela foi criada no Supabase e envie a planilha na aba Madeireiras.</li>
+          <li>Confira se a tabela foi criada no Supabase e envie a planilha na aba Cadastros.</li>
         </ul>
       </div>
     );
@@ -320,7 +320,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
             <div className="alert-box">
               <h4>Nenhuma madeireira cadastrada</h4>
               <ul>
-                <li>Envie a planilha Madeireiras.xlsx na aba Madeireiras antes de emitir.</li>
+                <li>Cadastre a empresa na aba Cadastros antes de emitir.</li>
               </ul>
             </div>
           )}

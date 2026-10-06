@@ -122,8 +122,8 @@ export function SeiCard({ senha, empresa, valores, onToast }: Props) {
       {erro && <p className="hint">{erro}</p>}
       {dados && !a && (
         <p className="hint">
-          Não achei o acesso do SEI de {dados.rt ?? "o RT"}. Envie a Planilha Geral na aba Madeireiras e clique em “Atualizar acessos
-          do SEI” (aba ACESSO SEI).
+          Não achei o acesso do SEI de {dados.rt ?? "o RT"}. Cadastre o RT na aba Cadastros (botão “Cadastrar RT”)
+          ou envie lá a planilha dos acessos do SEI.
         </p>
       )}
     </div>

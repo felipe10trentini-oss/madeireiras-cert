@@ -162,7 +162,7 @@ export function montarPlanilhaCadastro(linhas: Record<string, string>[]): ExcelJ
   inst.getRow(1).font = { bold: true };
   inst.addRow({
     c: "Como atualizar o site",
-    a: "Preencha/ajuste a aba CADASTRO e envie o arquivo na aba Madeireiras do site (Ver o que vai mudar → Aplicar). A chave é o CNPJ; nada é apagado.",
+    a: "Preencha/ajuste a aba CADASTRO e envie o arquivo na aba Cadastros do site (Ver o que vai mudar → Aplicar). A chave é o CNPJ; nada é apagado.",
   });
   inst.addRow({});
   for (const c of COLUNAS_CADASTRO) {

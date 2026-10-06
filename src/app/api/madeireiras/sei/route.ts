@@ -30,7 +30,7 @@ export async function GET(req: Request) {
 
 /** Grava os acessos lidos da aba ACESSO SEI (a planilha é lida no navegador). */
 export async function POST(req: Request) {
-  if (!podeAcessar(req, "madeireiras")) return respostaNaoAutorizado("Sem permissão para a aba Madeireiras.");
+  if (!podeAcessar(req, "madeireiras")) return respostaNaoAutorizado("Sem permissão para a aba Cadastros.");
   const corpo = (await req.json().catch(() => null)) as { acessos?: unknown[] } | null;
   if (!corpo || !Array.isArray(corpo.acessos) || corpo.acessos.length > 500) {
     return NextResponse.json({ error: "Envie a lista de acessos." }, { status: 400 });

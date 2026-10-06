@@ -13,7 +13,7 @@ const txt = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice
  * aqui chega só a lista. `modo: "previa"` mostra o que mudaria; `"aplicar"` grava.
  */
 export async function POST(req: Request) {
-  if (!podeAcessar(req, "madeireiras")) return respostaNaoAutorizado("Sem permissão para a aba Madeireiras.");
+  if (!podeAcessar(req, "madeireiras")) return respostaNaoAutorizado("Sem permissão para a aba Cadastros.");
   const corpo = (await req.json().catch(() => null)) as {
     cnpj?: unknown;
     clientes?: unknown[];

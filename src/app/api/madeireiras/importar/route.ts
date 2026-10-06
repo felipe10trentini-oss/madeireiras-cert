@@ -38,7 +38,7 @@ function limparConfig(c: Record<string, unknown>): ConfigEmpresa {
  * navegador; aqui chegam só as empresas já extraídas, que são validadas de novo.
  */
 export async function POST(req: Request) {
-  if (!podeAcessar(req, "madeireiras")) return respostaNaoAutorizado("Sem permissão para a aba Madeireiras.");
+  if (!podeAcessar(req, "madeireiras")) return respostaNaoAutorizado("Sem permissão para a aba Cadastros.");
 
   const corpo = (await req.json().catch(() => null)) as {
     empresas?: unknown[];

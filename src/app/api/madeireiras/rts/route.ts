@@ -9,13 +9,13 @@ const txt = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.
 const semCache = { headers: { "Cache-Control": "no-store" } };
 
 /**
- * RTs cadastrados (acessos do SEI), na aba Madeireiras:
+ * RTs cadastrados (acessos do SEI), na aba Cadastros:
  *   GET               -> lista sem senhas
  *   GET ?senha=<id>   -> a senha de um acesso (botão "mostrar")
  *   GET ?backup=1     -> todos com senha, para a planilha de backup
  */
 export async function GET(req: Request) {
-  if (!podeAcessar(req, "madeireiras")) return respostaNaoAutorizado("Sem permissão para a aba Madeireiras.");
+  if (!podeAcessar(req, "madeireiras")) return respostaNaoAutorizado("Sem permissão para a aba Cadastros.");
   const url = new URL(req.url);
   try {
     const id = Number(url.searchParams.get("senha"));
@@ -30,7 +30,7 @@ export async function GET(req: Request) {
 
 /** Cadastra ou altera um RT (com id = alteração; senha vazia mantém a atual). */
 export async function POST(req: Request) {
-  if (!podeAcessar(req, "madeireiras")) return respostaNaoAutorizado("Sem permissão para a aba Madeireiras.");
+  if (!podeAcessar(req, "madeireiras")) return respostaNaoAutorizado("Sem permissão para a aba Cadastros.");
   const c = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const nome = txt(c?.nome, 120);
   const login = txt(c?.login, 200);
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  if (!podeAcessar(req, "madeireiras")) return respostaNaoAutorizado("Sem permissão para a aba Madeireiras.");
+  if (!podeAcessar(req, "madeireiras")) return respostaNaoAutorizado("Sem permissão para a aba Cadastros.");
   const id = Number(new URL(req.url).searchParams.get("id"));
   if (!id) return NextResponse.json({ error: "Informe o RT." }, { status: 400 });
   try {

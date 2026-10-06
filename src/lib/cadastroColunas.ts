@@ -1,6 +1,6 @@
 // Planilha "Cadastro Madeireiras.xlsx" (aba CADASTRO): dados da empresa + configurações que
 // ajustam o certificado, o relatório e a DR. A mesma definição gera a planilha
-// (scripts/gerarPlanilhaCadastro.ts) e lê o arquivo na aba Madeireiras do site.
+// (scripts/gerarPlanilhaCadastro.ts) e lê o arquivo na aba Cadastros do site.
 import type { ConfigEmpresa, Madeireira } from "./madeireiras";
 import { lerTratamentos } from "./madeireiras";
 import { rtCompleto } from "./responsaveis";

@@ -425,11 +425,11 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
                         </label>
                         <label>
                           <input type="checkbox" checked={ed.madeireiras} onChange={(e) => setEditando({ ...ed, madeireiras: e.target.checked })} />{" "}
-                          Madeireiras
+                          Cadastros
                         </label>
                       </span>
                     ) : (
-                      [o.acesso_controladoria && "Controladoria", o.acesso_madeireiras && "Madeireiras"].filter(Boolean).join(", ") || "Só emissão"
+                      [o.acesso_controladoria && "Controladoria", o.acesso_madeireiras && "Cadastros"].filter(Boolean).join(", ") || "Só emissão"
                     )}
                   </td>
                   <td>{r.hoje}</td>
@@ -529,7 +529,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
               </label>
               <label>
                 <input type="checkbox" checked={novo.acessoMadeireiras} onChange={(e) => setNovo({ ...novo, acessoMadeireiras: e.target.checked })} />{" "}
-                Madeireiras
+                Cadastros
               </label>
             </span>
           </div>

@@ -1,6 +1,6 @@
 "use client";
 
-// Cadastro feito no próprio site (aba Madeireiras), alternativa ao upload das planilhas:
+// Cadastro feito no próprio site (aba Cadastros), alternativa ao upload das planilhas:
 // formulário da empresa (as mesmas colunas da planilha de cadastro) e dos RTs (acessos do SEI).
 import { useState, type FormEvent } from "react";
 import { COLUNAS_CADASTRO, empresaDaLinha, type ColunaCadastro } from "@/lib/cadastroColunas";

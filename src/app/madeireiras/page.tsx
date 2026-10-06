@@ -545,7 +545,7 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
 
 export default function PaginaMadeireiras() {
   return (
-    <PortaoSenha titulo="Cadastro de madeireiras" pagina="madeireiras">
+    <PortaoSenha titulo="Cadastros" pagina="madeireiras">
       {(senha, sair) => <Madeireiras senha={senha} sair={sair} />}
     </PortaoSenha>
   );
