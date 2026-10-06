@@ -105,8 +105,16 @@ export function parseSV580(texto: string): Curva {
   }
   c.htDuracaoMin = tempoMinimo ? parseInt(tempoMinimo, 10) : c.htInicio && c.htFim ? minutosEntre(c.htInicio, c.htFim) : null;
 
-  c.produtos = lerProdutos(texto);
+  // O PDF pode ter mais de um relatório do mesmo ciclo (Pinustan, Inexport: a carga não coube
+  // numa tabela só) — cada um com a sua tabela de produtos e o seu "Total (m³)": soma todos os do
+  // mesmo ciclo (os certificados retificados da Pinustan 445/446 confirmam a soma).
+  const relatorios = texto.split(/(?=Relat[óo]rio de Tratamento Fitossanit[áa]rio)/).filter((s) => /Total \(m³\)/.test(s));
+  const doCiclo = relatorios.filter((s) => !c.ciclo || (s.match(/Ciclo:\s*(\S+)/)?.[1] ?? c.ciclo) === c.ciclo);
+  const partes = doCiclo.length ? doCiclo : [texto];
+  c.produtos = partes.flatMap(lerProdutos);
   c.textoProduto = c.produtos.map((p) => p.descricao).join(" ");
-  c.totalM3 = numeroBR(texto.match(/Total \(m³\)\s*([\d,]+)/)?.[1]);
+  const totais = partes.map((s) => numeroBR(s.match(/Total \(m³\)\s*([\d,]+)/)?.[1])).filter((n): n is number => n != null);
+  c.totalM3 = totais.length ? Math.round(totais.reduce((a, b) => a + b, 0) * 1000) / 1000 : null;
+  if (doCiclo.length > 1) c.relatoriosSomados = doCiclo.length;
   return c;
 }

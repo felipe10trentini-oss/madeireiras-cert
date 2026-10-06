@@ -57,6 +57,8 @@ export interface Curva {
   textoProduto: string;
   /** O fim do ciclo não veio na curva (impressa antes do fim) e foi estimado. */
   fimEstimado: boolean;
+  /** SV580 com mais de um relatório do mesmo ciclo no PDF: produtos e m³ somados. */
+  relatoriosSomados?: number;
   /** Duração que o certificado usa quando a curva fixa uma (Relatório novo: "programado: 360 min"). */
   duracaoFixa?: string | null;
   /**

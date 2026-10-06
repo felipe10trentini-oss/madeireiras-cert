@@ -97,7 +97,7 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "39271111000178": { unidadeVolumes: "Tábuas", suportesEmPecas: true }, // ABB Wood
   "73931933000176": { unidadeVolumes: "tábuas", loteTresDigitos: true, relatorioSemTomador: true }, // Decorbras
   "06941489000182": { loteTresDigitos: true }, // CL
-  "49890808000180": { loteTresDigitos: true }, // Serraria Céu Azul
+  "49890808000180": { loteTresDigitos: true, unidadeVolumes: "fardos" }, // Serraria Céu Azul (fardos e bitola: curva + comunicado)
   "03298956000100": { numeroEhLote: true }, // Pinustan
   "02927182000176": { loteEhNumero: true }, // JJ Thomazi
   "24046686000110": { prestadora: true }, // Exata (prestadora de serviço, como a Mann móvel)
@@ -301,10 +301,10 @@ function montarProduto(e: EntradaCertificado, tipo: TipoTratamento, avisos: stri
     };
   }
 
-  // Kits de paletes (Maxi): "Kit paletes de madeira" / soma das unidades.
+  // Kits de paletes (Maxi): 3.5 "Paletes de madeira" / soma das unidades.
   if (comM3.length && regra.kitEhAqf && comM3.some((p) => /\bKIT\b/.test(up(p.descricao)))) {
     const unidades = comM3.reduce((s, p) => s + p.quantidade, 0);
-    return { produto: "Madeira reflorestada", volumes: "Kit paletes de madeira", quantidade: `${unidades} unidades` };
+    return { produto: "Madeira reflorestada", volumes: "Paletes de madeira", quantidade: `${unidades} unidades` };
   }
 
   // 2) Skids/suportes.
@@ -322,12 +322,20 @@ function montarProduto(e: EntradaCertificado, tipo: TipoTratamento, avisos: stri
     // Contagem de fardos: citada no texto ("5 fardos", "48 GRADES") ou na coluna de
     // quantidade, somando todas as linhas (21 + 5 + 1 = 27 fardos), quando é contagem de
     // verdade: volume unitário de fardo (até 5 m³). "1" com dezenas de m³ não é contagem -> "Nihil".
-    const citados = fardos(texto);
+    // Céu Azul: o nº de fardos vai solto na linha de baixo do produto ("Madeira serrada de pinus" /
+    // "64"); sem ele na curva, vale o do comunicado ("64 fardos - 85,000 m³").
+    const soltos = comM3.length === 1 ? comM3[0].descricao.match(/[a-zà-ú]\s+(\d{1,3})\s*$/i)?.[1] : undefined;
+    const citados = fardos(texto) ?? (soltos ? parseInt(soltos, 10) : null) ?? fardos(`${comunicado?.quantidade ?? ""} ${comunicado?.volumes ?? ""}`);
     const ehContagem = comM3.every((p) => p.quantidade >= 1 && (p.m3 ?? 0) / p.quantidade <= 5);
     const pecas = comM3.reduce((s, p) => s + p.quantidade, 0);
     const volumes = citados != null ? `${citados} ${unidade}` : ehContagem ? `${pecas} ${unidade}` : "Nihil";
     const total = curva.totalM3 ?? comM3.reduce((s, p) => s + (p.m3 ?? 0), 0);
-    return { produto: descricaoSerrada(texto), volumes, quantidade: `${m3BR(total)} m³` };
+    // Bitola: a da curva; sem ela, a do comunicado ("Madeira serrada de pinus 16 mm").
+    let produto = descricaoSerrada(texto);
+    if (!/\d\s*mm/i.test(produto) && comunicado?.produto && /\d\s*mm/i.test(comunicado.produto)) {
+      produto = descricaoSerrada(`${texto.replace(/\s+\d{1,3}\s*$/, "")} ${comunicado.produto}`);
+    }
+    return { produto, volumes, quantidade: `${m3BR(total)} m³` };
   }
 
   // 4) Digisystem sem tabela: paletes contados em peças/unidades.
@@ -407,6 +415,9 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     avisos.push("A curva foi impressa antes do fim da secagem: o término foi estimado (início + tempo total). Confira.");
   }
   if (!inicio || !fim) avisos.push("Não foi possível ler início/término na curva — preencha as datas.");
+  if (curva.relatoriosSomados) {
+    avisos.push(`A curva tem ${curva.relatoriosSomados} relatórios do mesmo ciclo (mais de uma página de produtos): bitolas e m³ foram somados. Confira.`);
+  }
 
   const temperatura =
     curva.temperatura != null && duracaoTexto ? `${tempBR(curva.temperatura)}°C / Duração: ${duracaoTexto}` : null;

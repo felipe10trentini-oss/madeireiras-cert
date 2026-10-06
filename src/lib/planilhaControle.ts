@@ -5,7 +5,7 @@
 // É lida no navegador; a linha do tratamento é achada pela estufa + nº da secagem da curva.
 import ExcelJS from "exceljs";
 import type { Curva } from "./curvas/tipos";
-import { descricaoSerrada } from "./produtoTexto";
+import { descricaoSerrada, espessuras } from "./produtoTexto";
 import { chaveNome, m3BR, pad2 } from "./util";
 
 export interface LinhaControle {
@@ -159,9 +159,11 @@ export async function lerPlanilhaControle(buffer: ArrayBuffer): Promise<LinhaCon
       if (!d.fardos && !d.volume) continue;
       // Bitola: coluna própria ("23 mm", "22") ou dentro do PRODUTO ("Pinus 19mm", "17mm") ou a
       // primeira medida da peça (Palletimber: "17,5x127x1,216" -> 17,5 mm; "88X127X1,200" -> 88 mm).
+      // Várias bitolas no PRODUTO (Selva Norte: "15 mm e 16 mm") -> "15 mm 16 mm" (o certificado lista todas).
       const mPeca = d.especie?.match(/(\d+(?:[.,]\d+)?)\s*[xX×*]\s*\d+(?:[.,]\d+)?\s*[xX×*]\s*\d/);
+      const doProduto = [...new Set(d.especie ? espessuras(d.especie) : [])].map((n) => String(n).replace(".", ","));
       const bitolaMm =
-        d.bitola?.match(/(\d+(?:[.,]\d+)?)/)?.[1] ?? d.especie?.match(/(\d+(?:[.,]\d+)?)\s*mm/i)?.[1] ?? mPeca?.[1];
+        d.bitola?.match(/(\d+(?:[.,]\d+)?)/)?.[1] ?? (doProduto.length ? doProduto.join(" mm ") : undefined) ?? mPeca?.[1];
       // Ciclo: "380", "380/1162" (secagem/lote), "4-354" ou "1_773" (estufa-ciclo).
       const mEC = d.secagem?.match(/^\s*(\d+)\s*[-_]\s*(\d+)\s*$/);
       linhas.push({
