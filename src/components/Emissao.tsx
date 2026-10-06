@@ -6,7 +6,7 @@ import type { Comunicado } from "@/lib/comunicado";
 import { curvaVazia, type Curva } from "@/lib/curvas/tipos";
 import { identificarEmpresa, lerNomeArquivo } from "@/lib/madeireiras";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
-import { validarComunicado } from "@/lib/divergencias";
+import { avisosDuplicidade, validarComunicado, type EmissaoAnteriorResumo } from "@/lib/divergencias";
 import { camposDoModelo, montarHtml, type Campo } from "@/lib/modelos";
 import { chaveDoCiclo, juntarUltimos, verificarSequencia } from "@/lib/sequenciaCiclo";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
@@ -100,7 +100,28 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
 
   // Trava de divergência: comunicado x curva (dia, horário, material, quantidade).
   const prestadora = !!(empresa && REGRAS_EMPRESA[soDigitos(empresa.cnpj)]?.prestadora);
-  const divergencias =
+  const numeroCertificado = valores?.numero ?? null;
+  const numeroComunicado = extraido?.comunicado?.numero ?? null;
+
+  // Prestadora: certificado/comunicado já emitido? (histórico de emissões; só informa se a consulta falhar)
+  const cnpjConsulta = prestadora && empresa ? empresa.cnpj : null;
+  const chaveConsulta = cnpjConsulta && numeroCertificado ? `${cnpjConsulta}|${numeroCertificado}|${numeroComunicado ?? ""}` : null;
+  const [consulta, setConsulta] = useState<{ chave: string; anteriores: EmissaoAnteriorResumo[] } | null>(null);
+  useEffect(() => {
+    if (!cnpjConsulta || !numeroCertificado || !chaveConsulta) return;
+    const ctrl = new AbortController();
+    const p = new URLSearchParams({ cnpj: cnpjConsulta, numero: numeroCertificado });
+    if (numeroComunicado) p.set("comunicado", numeroComunicado);
+    fetch(`/api/emissoes?${p}`, { headers: cabecalhoSenha(senha), cache: "no-store", signal: ctrl.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => data && setConsulta({ chave: chaveConsulta, anteriores: data.anteriores ?? [] }))
+      .catch(() => undefined);
+    return () => ctrl.abort();
+  }, [senha, cnpjConsulta, numeroCertificado, numeroComunicado, chaveConsulta]);
+  // Só vale o resultado da consulta atual (trocou de certificado/empresa: some até responder).
+  const anteriores = consulta && consulta.chave === chaveConsulta ? consulta.anteriores : [];
+
+  const divergenciasComunicado =
     montado && valores && curva && extraido?.comunicado
       ? validarComunicado({
           curva,
@@ -112,6 +133,10 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
           dataComunicado: extraido.dataComunicado,
         })
       : [];
+  const divergencias = [
+    ...divergenciasComunicado,
+    ...(cnpjConsulta ? avisosDuplicidade(anteriores, numeroCertificado, numeroComunicado) : []),
+  ];
   const errosDivergencia = divergencias.filter((d) => d.nivel === "erro");
   const travado = errosDivergencia.length > 0 && !conferiuDivergencias;
 
@@ -232,6 +257,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
           lote: valores.lote,
           ciclo: valores.ciclo,
           dataTratamento: valores.dataInicio,
+          comunicado: prestadora ? numeroComunicado : null,
           divergencias: conferiuDivergencias ? errosDivergencia.map((d) => `${d.campo}: ${d.detalhe}`) : [],
         }),
       });
@@ -335,16 +361,18 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
             <div id="divergencias" className={`alert-box${errosDivergencia.length ? " critical" : ""}`} role="alert">
               <h4>
                 {errosDivergencia.length
-                  ? "Divergências entre o comunicado e a curva — confira antes de copiar"
-                  : "Confira no comunicado"}
+                  ? "Divergências encontradas — confira antes de copiar"
+                  : "Confira antes de copiar"}
               </h4>
               <ul className="diverg">
                 {divergencias.map((d, i) => (
                   <li key={i}>
                     <b>{d.campo}:</b> {d.detalhe}
-                    <span className="diverg-lados mono">
-                      Comunicado: {d.comunicado} · Curva: {d.curva}
-                    </span>
+                    {(d.comunicado || d.curva) && (
+                      <span className="diverg-lados mono">
+                        {d.rotulos?.[0] ?? "Comunicado"}: {d.comunicado} · {d.rotulos?.[1] ?? "Curva"}: {d.curva}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>

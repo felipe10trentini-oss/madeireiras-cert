@@ -119,9 +119,44 @@ export async function alterarOperador(
   }
 }
 
-export async function registrarEmissao(e: Omit<Emissao, "id" | "created_at"> & { operador_id: number }): Promise<void> {
-  const { error } = await getSupabaseServerClient().from("emissoes").insert(e);
+export async function registrarEmissao(
+  e: Omit<Emissao, "id" | "created_at"> & { operador_id: number; comunicado?: string | null }
+): Promise<void> {
+  const sb = getSupabaseServerClient();
+  let { error } = await sb.from("emissoes").insert(e);
+  // Antes da migração 005 a coluna "comunicado" não existe: registra sem ela.
+  if (error && e.comunicado !== undefined && /comunicado/i.test(error.message)) {
+    const { comunicado: _semColuna, ...resto } = e;
+    void _semColuna;
+    ({ error } = await sb.from("emissoes").insert(resto));
+  }
   if (error) throw new Error(`Falha ao registrar emissão: ${error.message}`);
+}
+
+export interface EmissaoAnterior {
+  operador_login: string;
+  numero_certificado: string | null;
+  comunicado: string | null;
+  created_at: string;
+}
+
+/**
+ * Emissões já registradas da mesma empresa com o mesmo nº de certificado ou o mesmo comunicado
+ * (aviso de duplicidade). Sem a migração 005 devolve [] — o aviso é conveniência, não trava a emissão.
+ */
+export async function buscarEmissoesAnteriores(cnpj: string, numero: string | null, comunicado: string | null): Promise<EmissaoAnterior[]> {
+  const filtros = [numero && `numero_certificado.eq.${numero}`, comunicado && `comunicado.eq.${comunicado}`].filter(Boolean);
+  if (!filtros.length) return [];
+  const { data, error } = await getSupabaseServerClient()
+    .from("emissoes")
+    .select("operador_login, numero_certificado, comunicado, created_at")
+    .eq("empresa_cnpj", cnpj)
+    .or(filtros.join(","))
+    .order("created_at", { ascending: false })
+    .limit(20)
+    .returns<EmissaoAnterior[]>();
+  if (error) return [];
+  return data ?? [];
 }
 
 /** Emissões desde uma data (ISO), mais recentes primeiro. */

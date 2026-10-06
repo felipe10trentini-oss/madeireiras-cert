@@ -15,6 +15,69 @@ export interface Divergencia {
   comunicado: string;
   curva: string;
   detalhe: string;
+  /** Nomes dos dois lados quando não são "Comunicado" e "Curva" (ex.: duplicidade). */
+  rotulos?: [string, string];
+}
+
+/** Emissão já registrada (histórico) com o mesmo certificado ou comunicado. */
+export interface EmissaoAnteriorResumo {
+  operador_login: string;
+  numero_certificado: string | null;
+  comunicado: string | null;
+  created_at: string;
+}
+
+const diaBR = (iso: string) => new Date(iso).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+
+/**
+ * Prestadora: avisa certificado ou comunicado repetido no histórico de emissões.
+ * - mesmo nº de certificado com OUTRO comunicado -> erro (número reaproveitado);
+ * - mesmo comunicado em OUTRO certificado -> erro (comunicado já atendido);
+ * - mesmo certificado e mesmo comunicado -> atenção (reemissão).
+ */
+export function avisosDuplicidade(anteriores: EmissaoAnteriorResumo[], numero: string | null | undefined, comunicado: string | null | undefined): Divergencia[] {
+  const avisos: Divergencia[] = [];
+  const rotulos: [string, string] = ["Já emitido", "Agora"];
+  const vistos = new Set<string>();
+  for (const a of anteriores) {
+    const mesmoNumero = !!numero && a.numero_certificado === numero;
+    const mesmoComunicado = !!comunicado && a.comunicado === comunicado;
+    const quem = `${a.operador_login} em ${diaBR(a.created_at)}`;
+    let aviso: Divergencia | null = null;
+    if (mesmoNumero && mesmoComunicado) {
+      aviso = {
+        nivel: "atencao",
+        campo: "Certificado já emitido",
+        comunicado: "",
+        curva: "",
+        detalhe: `O certificado ${numero} (comunicado ${comunicado}) já foi copiado por ${quem}. Confirme se é uma reemissão.`,
+        rotulos,
+      };
+    } else if (mesmoNumero && a.comunicado && comunicado && a.comunicado !== comunicado) {
+      aviso = {
+        nivel: "erro",
+        campo: "Número de certificado repetido",
+        comunicado: `${numero} · comunicado ${a.comunicado}`,
+        curva: `${numero} · comunicado ${comunicado}`,
+        detalhe: `O certificado ${numero} já foi emitido para outro comunicado (${a.comunicado}) por ${quem}. Confira o número no nome do arquivo da curva.`,
+        rotulos,
+      };
+    } else if (mesmoComunicado && a.numero_certificado && numero && a.numero_certificado !== numero) {
+      aviso = {
+        nivel: "erro",
+        campo: "Comunicado já atendido",
+        comunicado: `${comunicado} · certificado ${a.numero_certificado}`,
+        curva: `${comunicado} · certificado ${numero}`,
+        detalhe: `O comunicado ${comunicado} já gerou o certificado ${a.numero_certificado} (${quem}). Confira se não é o mesmo serviço.`,
+        rotulos,
+      };
+    }
+    if (aviso && !vistos.has(aviso.campo + aviso.detalhe)) {
+      vistos.add(aviso.campo + aviso.detalhe);
+      avisos.push(aviso);
+    }
+  }
+  return avisos;
 }
 
 /** Tolerância do horário: começar mais de 2 h antes ou depois do agendado é divergência. */
