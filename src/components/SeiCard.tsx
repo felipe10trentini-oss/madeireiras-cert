@@ -37,11 +37,10 @@ export function SeiCard({ senha, empresa, valores, onToast }: Props) {
   const [erro, setErro] = useState<string | null>(null);
   const [mostrar, setMostrar] = useState(false);
 
+  // Ao trocar de empresa o componente é recriado (key={empresa.cnpj} no pai): começa sem dados,
+  // sem erro e com a senha oculta.
   useEffect(() => {
     let vivo = true;
-    setDados(null);
-    setErro(null);
-    setMostrar(false);
     fetch(`/api/madeireiras/sei?cnpj=${encodeURIComponent(empresa.cnpj)}`, { headers: cabecalhoSenha(senha), cache: "no-store" })
       .then(async (res) => {
         const d = await res.json().catch(() => ({}));

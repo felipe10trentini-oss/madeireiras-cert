@@ -93,6 +93,7 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
   }, [senha]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial dos dados da página
     void carregar();
     void carregarRts();
   }, [carregar, carregarRts]);

@@ -137,6 +137,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
   }, [senha, sair, pDe, pAte, categoria]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial dos dados da página
     void carregar();
   }, [carregar]);
 

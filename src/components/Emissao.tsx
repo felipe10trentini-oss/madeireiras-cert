@@ -491,7 +491,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
             </div>
           </div>
 
-          {empresa && <SeiCard senha={senha} empresa={empresa} valores={valores} onToast={setToast} />}
+          {empresa && <SeiCard key={empresa.cnpj} senha={senha} empresa={empresa} valores={valores} onToast={setToast} />}
 
           {curva && montado && (curva.sistema === "SV520" || curva.sistema === "Mahild") && (
             <PlanilhaControleCard

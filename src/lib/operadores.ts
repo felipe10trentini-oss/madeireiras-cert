@@ -47,7 +47,9 @@ export async function autenticar(login: string, senha: string): Promise<Operador
     .maybeSingle<OperadorRow>();
   if (error) throw new Error(`Falha ao consultar operadores: ${error.message}`);
   if (!data || !data.ativo || !conferirSenha(senha, data.senha_hash)) return null;
-  const { senha_hash: _h, ...op } = data;
+  // Nunca devolve o hash da senha.
+  const op: Omit<OperadorRow, "senha_hash"> & { senha_hash?: string } = { ...data };
+  delete op.senha_hash;
   return op;
 }
 

@@ -203,7 +203,9 @@ export async function salvarPadraoRelatorio(cnpj: string, novo: PadraoRelatorio)
     .update({ relatorio: mesclado, updated_at: new Date().toISOString() })
     .eq("id", atual.id);
   if (error) throw new Error(`Falha ao salvar: ${error.message}`);
-  const { estilo: _estilo, ...semEstilo } = mesclado as PadraoRelatorio & { estilo?: unknown };
+  // Devolve sem o estilo (ele é entregue à parte, em `estilo`).
+  const semEstilo: PadraoRelatorio & { estilo?: unknown } = { ...mesclado };
+  delete semEstilo.estilo;
   return semEstilo;
 }
 

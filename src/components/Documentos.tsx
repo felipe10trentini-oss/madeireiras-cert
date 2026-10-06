@@ -273,7 +273,7 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
               </div>
             </div>
 
-            {empresa && <SeiCard senha={senha} empresa={empresa} valores={{ cnpj: valores["1.2"], razao: valores["1.1"] }} onToast={setToast} />}
+            {empresa && <SeiCard key={empresa.cnpj} senha={senha} empresa={empresa} valores={{ cnpj: valores["1.2"], razao: valores["1.1"] }} onToast={setToast} />}
 
             <div className="card" style={{ marginBottom: 14 }}>
               <div className="kpi-label">Preencher</div>
