@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { CertificadoMestre, DemonstrativoRastreabilidade } from "@/lib/certificadoMestre";
 import {
   CAMPOS_MANUAIS,
+  filialEmissora,
   materialDaDR,
   materialDoMestre,
   montarDocumento,
@@ -73,11 +74,12 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
   }, [toast]);
 
   const empresa = empresas?.find((e) => soDigitos(e.cnpj) === soDigitos(cnpj)) ?? null;
+  const filial = filialEmissora(empresa, empresas ?? []);
   const base =
     lido?.tipo === "mestre"
-      ? valoresDesdobrado(lido.mestre, empresa, material, sequencia, quantidade, volumes)
+      ? valoresDesdobrado(lido.mestre, empresa, material, sequencia, quantidade, volumes, filial)
       : lido?.tipo === "dr"
-        ? valoresConsolidado(lido.dr, empresa, material)
+        ? valoresConsolidado(lido.dr, empresa, material, filial)
         : null;
   const valores = base ? { ...base, ...ajustes } : null;
   const html = valores ? montarDocumento(tipo, valores, bilingue) : "";

@@ -170,7 +170,7 @@ function cicloDoCertificado(curva: Curva, empresa: Madeireira, regra: RegraEmpre
 }
 
 /** Regras do código + as da planilha de cadastro (colunas de configuração), que valem por cima. */
-const regraDe = (e: Madeireira): RegraEmpresa => ({ ...(REGRAS_EMPRESA[soDigitos(e.cnpj)] ?? {}), ...(e.config ?? {}) });
+export const regraDe = (e: Madeireira): RegraEmpresa => ({ ...(REGRAS_EMPRESA[soDigitos(e.cnpj)] ?? {}), ...(e.config ?? {}) });
 
 const up = (s: string | null | undefined) => semAcento(s ?? "").toUpperCase();
 

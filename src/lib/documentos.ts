@@ -2,8 +2,10 @@
 //  - Desdobrado: a partir do certificado mestre (PDF do SEI). Nº = nº do mestre + "-1", "-2"…;
 //    2.1, 2.2 e 3.6 ficam para o operador; 3.9 = NFe; madeira serrada leva a observação de umidade.
 //  - Consolidado: a partir do PDF da DR. Nº vem da DR ("2026/389-C"); 3.5 só a unidade; 3.6 os lotes.
+import { regraDe } from "./certificado";
 import type { CertificadoMestre, DemonstrativoRastreabilidade } from "./certificadoMestre";
 import type { Madeireira } from "./madeireiras";
+import { soDigitos } from "./util";
 import { MODELO_CONSOLIDADO, MODELO_DESDOBRADO } from "./modelosDocumentos";
 
 export type TipoDocumento = "desdobrado" | "consolidado";
@@ -27,6 +29,23 @@ export function materialDoMestre(m: CertificadoMestre): Material {
 export function materialDaDR(dr: DemonstrativoRastreabilidade, empresa?: Madeireira | null): Material {
   if (empresa) return empresa.tratamentos.includes("KD") ? "madeira" : "palete";
   return dr.linhas.some((l) => l.tipo === "KD") ? "madeira" : "palete";
+}
+
+/**
+ * Filial que emite em nome da matriz (Inexport Capivari): no desdobrado/consolidado, o endereço do
+ * tratamento (3.1 do consolidado) e o local de emissão são os da filial. Vale com a empresa do PDF
+ * sendo a matriz ou a própria filial.
+ */
+export function filialEmissora(empresa: Madeireira | null, empresas: Madeireira[]): Madeireira | null {
+  if (!empresa) return null;
+  if (regraDe(empresa).prestadorCnpj) return empresa;
+  return empresas.find((x) => soDigitos(regraDe(x).prestadorCnpj ?? "") === soDigitos(empresa.cnpj)) ?? null;
+}
+
+/** Tratamento AQF (ar quente forçado) no mestre: não leva a observação de umidade. */
+function ehAqf(m: CertificadoMestre, empresa: Madeireira | null): boolean {
+  if (/AQF|ar quente for[çc]ado/i.test(m.modalidade ?? "")) return true;
+  return !!empresa && !empresa.tratamentos.includes("KD");
 }
 
 /** Só "Cidade - UF" do endereço (sem rua, número, CEP): "… CEP 83.480-000 Tunas do Paraná - PR" -> "Tunas do Paraná - PR". */
@@ -69,7 +88,8 @@ export function valoresDesdobrado(
   material: Material,
   sequencia: string,
   quantidade: string,
-  volumes = ""
+  volumes = "",
+  filial: Madeireira | null = null
 ): ValoresDocumento {
   const unidade = material === "palete" ? "unidades" : "m³";
   const d = dadosEmpresa(empresa, m);
@@ -104,15 +124,23 @@ export function valoresDesdobrado(
     "3.13": m.dataFim ?? "",
     "3.14": m.horaFim ?? "",
     "3.15": m.temperatura ?? "",
-    obs: material === "madeira" ? "Obs: Madeira com umidade inferior a 18%" : "",
+    obs: material === "madeira" && !ehAqf(m, empresa) ? "Obs: Madeira com umidade inferior a 18%" : "",
     // Só "Município - UF", tirado do endereço completo com CEP (1.4): não depende do que veio no mestre.
-    local: cidadeUf(d.endereco) || cidadeUf(m.local) || "",
+    // Inexport: o da filial de Capivari do Sul.
+    local: cidadeUf(filial?.endereco) || cidadeUf(d.endereco) || cidadeUf(m.local) || "",
   };
 }
 
-export function valoresConsolidado(dr: DemonstrativoRastreabilidade, empresa: Madeireira | null, material: Material): ValoresDocumento {
+export function valoresConsolidado(
+  dr: DemonstrativoRastreabilidade,
+  empresa: Madeireira | null,
+  material: Material,
+  filial: Madeireira | null = null
+): ValoresDocumento {
   const d = dadosEmpresa(empresa, { razao: dr.empresa, cnpj: dr.cnpj, crea: dr.crea, telefone: dr.telefone, endereco: dr.endereco, email: dr.email, regMapa: dr.regMapa });
-  const local = cidadeUf(d.endereco);
+  // Inexport: tratamento e emissão na filial de Capivari do Sul.
+  const enderecoTrat = filial?.endereco ?? d.endereco;
+  const local = cidadeUf(enderecoTrat);
   const vide = "vide Demonstrativo de Rastreabilidade";
   return {
     numero: dr.numero ?? "",
@@ -128,7 +156,7 @@ export function valoresConsolidado(dr: DemonstrativoRastreabilidade, empresa: Ma
     "2.3": "Nihil",
     "2.4": "Nihil",
     "2.5": "Nihil",
-    "3.1": d.endereco,
+    "3.1": enderecoTrat,
     "3.2": "Nihil",
     "3.3": material === "palete" ? "Madeira reflorestada" : "Madeira serrada de pinus",
     "3.4": material === "palete" ? "Paletes de madeira" : "Fardos",
