@@ -42,12 +42,6 @@ export function filialEmissora(empresa: Madeireira | null, empresas: Madeireira[
   return empresas.find((x) => soDigitos(regraDe(x).prestadorCnpj ?? "") === soDigitos(empresa.cnpj)) ?? null;
 }
 
-/** Tratamento AQF (ar quente forçado) no mestre: não leva a observação de umidade. */
-function ehAqf(m: CertificadoMestre, empresa: Madeireira | null): boolean {
-  if (/AQF|ar quente for[çc]ado/i.test(m.modalidade ?? "")) return true;
-  return !!empresa && !empresa.tratamentos.includes("KD");
-}
-
 /** Só "Cidade - UF" do endereço (sem rua, número, CEP): "… CEP 83.480-000 Tunas do Paraná - PR" -> "Tunas do Paraná - PR". */
 export function cidadeUf(endereco: string | null | undefined): string {
   const t = (endereco ?? "").replace(/CEP:?\s*[\d.]+-?\d*/gi, " ").replace(/\s+/g, " ").trim();
@@ -124,7 +118,8 @@ export function valoresDesdobrado(
     "3.13": m.dataFim ?? "",
     "3.14": m.horaFim ?? "",
     "3.15": m.temperatura ?? "",
-    obs: material === "madeira" && !ehAqf(m, empresa) ? "Obs: Madeira com umidade inferior a 18%" : "",
+    // Só secagem KD (umidade < 18%): AQF e secagem HT (umidade ≥ 18%) não levam a observação.
+    obs: material === "madeira" && modalidadeCurta(m.modalidade) === "KD" ? "Obs: Madeira com umidade inferior a 18%" : "",
     // Só "Município - UF", tirado do endereço completo com CEP (1.4): não depende do que veio no mestre.
     // Inexport: o da filial de Capivari do Sul.
     local: cidadeUf(filial?.endereco) || cidadeUf(d.endereco) || cidadeUf(m.local) || "",
