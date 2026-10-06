@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { podeAcessar, respostaNaoAutorizado, senhaFraca, type Perfil } from "@/lib/auth";
+import { ehMaster, senhaFraca, type Perfil } from "@/lib/auth";
 import { alterarOperador, CARGOS, criarOperador } from "@/lib/operadores";
 
 /** Cargo da lista (ou vazio = sem cargo). `undefined` = não mexer. */
@@ -8,11 +8,14 @@ const cargo = (v: unknown): string | null | undefined =>
 
 export const runtime = "nodejs";
 
+const SO_MASTER = () =>
+  NextResponse.json({ error: "Só o login da controladoria (controladoriamann) cadastra e edita colaboradores." }, { status: 403 });
+
 const perfil = (v: unknown): Perfil => (v === "master" ? "master" : v === "engenheiro" ? "engenheiro" : "operador");
 
-/** Cadastra um operador (só a controladoria). */
+/** Cadastra um colaborador (só o login master, controladoriamann). */
 export async function POST(req: Request) {
-  if (!podeAcessar(req, "controladoria")) return respostaNaoAutorizado("Sem permissão para a controladoria.");
+  if (!ehMaster(req)) return SO_MASTER();
   const c = (await req.json().catch(() => null)) as { login?: string; nome?: string; senha?: string; perfil?: string; cargo?: string; acessoControladoria?: boolean; acessoMadeireiras?: boolean } | null;
   const login = c?.login?.trim() ?? "";
   if (!/^[A-Za-z0-9._-]{3,40}$/.test(login)) {
@@ -29,9 +32,9 @@ export async function POST(req: Request) {
   }
 }
 
-/** Troca senha, nome, perfil ou ativa/desativa um operador. */
+/** Troca senha, nome, perfil ou ativa/desativa um colaborador (só o master). */
 export async function PATCH(req: Request) {
-  if (!podeAcessar(req, "controladoria")) return respostaNaoAutorizado("Sem permissão para a controladoria.");
+  if (!ehMaster(req)) return SO_MASTER();
   const c = (await req.json().catch(() => null)) as { id?: number; nome?: string; login?: string; senha?: string; ativo?: boolean; perfil?: string; cargo?: string; acessoControladoria?: boolean; acessoMadeireiras?: boolean } | null;
   if (!c?.id) return NextResponse.json({ error: "Informe o operador." }, { status: 400 });
   if (c.login !== undefined && !/^[A-Za-z0-9._-]{3,40}$/.test(c.login.trim())) {

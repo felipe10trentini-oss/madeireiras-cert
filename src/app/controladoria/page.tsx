@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { PortaoSenha } from "@/components/PortaoSenha";
-import { cabecalhoSenha } from "@/lib/senhaEquipe";
+import { cabecalhoSenha, useSenhaEquipe } from "@/lib/senhaEquipe";
 
 interface Operador {
   id: number;
@@ -87,6 +87,8 @@ function csv(linhas: Emissao[], nomes: Record<string, string>): string {
 
 function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
   const hoje = hojeSP();
+  // Cadastrar e editar colaboradores: só o login master (controladoriamann). Os demais só consultam.
+  const master = useSenhaEquipe().sessao?.perfil === "master";
   const [painel, setPainel] = useState<Painel | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -447,7 +449,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
                   )}
                   <td>{o.ativo ? "Ativo" : "Desativado"}</td>
                   <td style={{ whiteSpace: "nowrap" }}>
-                    {ed ? (
+                    {!master ? null : ed ? (
                       <>
                         <button type="button" className="link" onClick={() => salvarEdicao(o)}>
                           Salvar
@@ -493,6 +495,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
         </table>
       </div>
 
+      {master ? (
       <form className="card" onSubmit={criar} style={{ marginBottom: 18 }}>
         <h3 style={{ margin: "0 0 10px", fontSize: 15 }}>Cadastrar colaborador</h3>
         <div className="form-grid tres">
@@ -544,6 +547,9 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
           </button>
         </div>
       </form>
+      ) : (
+        <p className="hint" style={{ marginBottom: 18 }}>Só o login da controladoria (controladoriamann) cadastra e edita colaboradores.</p>
+      )}
 
       <div className="section-title">
         <h2>Emissões por empresa</h2>
