@@ -282,3 +282,9 @@ table.dados tbody tr:hover { background: var(--surface-2); }
 .acessos-edit input { width: auto; min-width: 0; }
 .rotulo-campo { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px; }
 
+
+/* Controladoria: período em botões e "Ver mais" das listas */
+.periodo-botoes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.periodo-botoes input[type="date"] { width: auto; }
+.ver-mais { margin: 8px 0 18px; align-items: center; gap: 10px; }
+.ver-mais .hint { margin: 0; }

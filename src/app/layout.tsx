@@ -22,7 +22,7 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Certificados Madeireiras · MANN",
+  title: "Emissão de certificados · MANN",
   description:
     "Certificados TFQ das madeireiras (consultoria): curva de tratamento → modelo do SEI/MAPA.",
 };

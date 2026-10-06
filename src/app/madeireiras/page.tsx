@@ -1,18 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FormClienteMovel, prestadorasDe } from "@/components/CadastroClienteMovel";
 import { FormEmpresa, FormRt, ListaRts, type Rt } from "@/components/CadastroMadeireiras";
 import { ClientesPrestadora } from "@/components/ClientesPrestadora";
 import { FileDrop } from "@/components/FileDrop";
 import { PortaoSenha } from "@/components/PortaoSenha";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
-import { baixarPlanilha, linhaDaEmpresa, montarPlanilhaCadastro, montarPlanilhaRts } from "@/lib/planilhaCadastro";
+import { baixarPlanilha, linhaDaEmpresa, montarPlanilhaCadastro, montarPlanilhaClientes, montarPlanilhaRts } from "@/lib/planilhaCadastro";
 import { lerAcessosSei, lerPlanilhaMadeireiras } from "@/lib/planilhaMadeireiras";
 import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { soDigitos, ufDoMapa } from "@/lib/util";
 
-type Aba = "planilha" | "empresa" | "rt";
+type Aba = "planilha" | "empresa" | "rt" | "cliente";
 
 /** "2026-10-06" para o nome dos arquivos de backup. */
 const hojeIso = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
@@ -117,6 +118,17 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
       await baixarPlanilha(montarPlanilhaCadastro(ordenadas.map((e) => linhaDaEmpresa(e))), `Cadastro Madeireiras ${hojeIso()}.xlsx`);
     } catch {
       setToast("Não foi possível gerar o backup do cadastro.");
+    }
+  }
+
+  /** Backup da planilha de clientes da Mann móvel (o mesmo formato do upload). */
+  async function backupClientes() {
+    const p = prestadorasDe(lista)[0];
+    if (!p) return setToast("Nenhuma prestadora (Mann móvel) no cadastro.");
+    try {
+      await baixarPlanilha(montarPlanilhaClientes(Object.values(p.relatorio?.tomadores ?? {})), `Clientes ${p.apelido} ${hojeIso()}.xlsx`);
+    } catch {
+      setToast("Não foi possível gerar o backup dos clientes.");
     }
   }
 
@@ -233,12 +245,18 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
         >
           Cadastrar RT
         </button>
+        <button type="button" className={`btn${aba === "cliente" ? " primary" : ""}`} onClick={() => abrir("cliente")}>
+          Cadastrar cliente móvel
+        </button>
         <div className="spacer" />
         <button type="button" className="btn" disabled={!lista} onClick={backupCadastro} title="Baixa a planilha de cadastro com todas as empresas (dá para editar e enviar de volta)">
           Backup do cadastro (.xlsx)
         </button>
         <button type="button" className="btn" onClick={backupRts} title="Baixa a planilha dos acessos do SEI dos RTs, com as senhas: guarde em local seguro">
           Backup dos RTs (.xlsx)
+        </button>
+        <button type="button" className="btn" disabled={!lista} onClick={backupClientes} title="Baixa a planilha de clientes da Mann móvel (dá para editar e enviar de volta)">
+          Backup dos clientes móvel (.xlsx)
         </button>
       </div>
 
@@ -285,6 +303,18 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
             setEditRt(null);
             setAba("planilha");
           }}
+        />
+      )}
+
+      {aba === "cliente" && (
+        <FormClienteMovel
+          senha={senha}
+          empresas={lista}
+          onSalvo={(msg) => {
+            setToast(msg);
+            void carregar();
+          }}
+          onCancelar={() => setAba("planilha")}
         />
       )}
 

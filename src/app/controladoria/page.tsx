@@ -72,6 +72,13 @@ const ultimoDiaDoMes = (aaaaMm: string) => {
 
 const dataBR = (iso: string) => iso.split("-").reverse().join("/");
 
+/** "2026-10-06" + n dias. */
+const somarDias = (iso: string, n: number) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 86400_000).toISOString().slice(0, 10);
+
+// Listas longas da página: mostram poucas linhas e crescem no "Ver mais".
+const PRIMEIRAS_EMPRESAS = 8;
+const PRIMEIRAS_EMISSOES = 15;
+
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
 function csv(linhas: Emissao[], nomes: Record<string, string>): string {
@@ -107,6 +114,8 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
   const [operador, setOperador] = useState("");
   const [empresa, setEmpresa] = useState("");
   const [busca, setBusca] = useState("");
+  const [verEmpresas, setVerEmpresas] = useState(PRIMEIRAS_EMPRESAS);
+  const [verEmissoes, setVerEmissoes] = useState(PRIMEIRAS_EMISSOES);
 
   const intervalo: [string, string] =
     tipo === "dia" ? [dia, dia] : tipo === "mes" ? [`${mes}-01`, ultimoDiaDoMes(mes)] : tipo === "ano" ? [`${ano}-01-01`, `${ano}-12-31`] : [de, ate];
@@ -274,18 +283,39 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
 
       <div className="card filtros" style={{ marginBottom: 18 }}>
         <div className="field">
-          <label htmlFor="f-tipo">Ver por</label>
-          <select id="f-tipo" value={tipo} onChange={(e) => setTipo(e.target.value as TipoPeriodo)}>
-            <option value="dia">Dia</option>
-            <option value="mes">Mês</option>
-            <option value="ano">Ano</option>
-            <option value="intervalo">Intervalo de datas</option>
-          </select>
+          <span className="rotulo-campo">Ver por</span>
+          <div className="periodo-botoes" role="group" aria-label="Ver por">
+            {(
+              [
+                ["dia", "Dia"],
+                ["mes", "Mês"],
+                ["ano", "Ano"],
+                ["intervalo", "Intervalo"],
+              ] as const
+            ).map(([t, nome]) => (
+              <button key={t} type="button" className={`btn btn-sm${tipo === t ? " primary" : ""}`} aria-pressed={tipo === t} onClick={() => setTipo(t)}>
+                {nome}
+              </button>
+            ))}
+          </div>
         </div>
         {tipo === "dia" && (
           <div className="field">
             <label htmlFor="f-dia">Dia</label>
-            <input id="f-dia" type="date" value={dia} max={hoje} onChange={(e) => e.target.value && setDia(e.target.value)} />
+            <div className="periodo-botoes">
+              <button type="button" className="btn btn-sm" aria-label="Dia anterior" onClick={() => setDia(somarDias(dia, -1))}>
+                ◀
+              </button>
+              <input id="f-dia" type="date" value={dia} max={hoje} onChange={(e) => e.target.value && setDia(e.target.value)} />
+              <button type="button" className="btn btn-sm" aria-label="Dia seguinte" disabled={dia >= hoje} onClick={() => setDia(somarDias(dia, 1))}>
+                ▶
+              </button>
+              {dia !== hoje && (
+                <button type="button" className="btn btn-sm" onClick={() => setDia(hoje)}>
+                  Hoje
+                </button>
+              )}
+            </div>
           </div>
         )}
         {tipo === "mes" && (
@@ -560,7 +590,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
         <table className="dados">
           <tbody>
             {painel.porEmpresa.length ? (
-              painel.porEmpresa.map(([emp, n]) => (
+              painel.porEmpresa.slice(0, verEmpresas).map(([emp, n]) => (
                 <tr key={emp}>
                   <td>
                     {emp} {painel.ufPorNome[emp] && <span className="badge">{painel.ufPorNome[emp]}</span>}
@@ -576,6 +606,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
           </tbody>
         </table>
       </div>
+      <VerMais total={painel.porEmpresa.length} mostrando={verEmpresas} passo={PRIMEIRAS_EMPRESAS} onMudar={setVerEmpresas} nome="empresas" />
 
       <div className="section-title">
         <h2>Emissões do período</h2>
@@ -612,7 +643,7 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
             </tr>
           </thead>
           <tbody>
-            {linhas.map((e) => (
+            {linhas.slice(0, verEmissoes).map((e) => (
               <tr key={e.id}>
                 <td className="mono">{quando(e.created_at)}</td>
                 <td>{nomes[e.operador_login] ?? e.operador_login}</td>
@@ -629,6 +660,48 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
           </tbody>
         </table>
       </div>
+      <VerMais total={linhas.length} mostrando={verEmissoes} passo={20} onMudar={setVerEmissoes} nome="emissões" inicial={PRIMEIRAS_EMISSOES} />
+    </div>
+  );
+}
+
+/** "Ver mais" de uma lista: mostra mais `passo` linhas; "Ver menos" volta ao início. */
+function VerMais({
+  total,
+  mostrando,
+  passo,
+  onMudar,
+  nome,
+  inicial = passo,
+}: {
+  total: number;
+  mostrando: number;
+  passo: number;
+  onMudar: (n: number) => void;
+  nome: string;
+  inicial?: number;
+}) {
+  if (total <= inicial) return <div style={{ marginBottom: 18 }} />;
+  return (
+    <div className="actions ver-mais">
+      <span className="hint">
+        Mostrando {Math.min(mostrando, total)} de {total} {nome}
+      </span>
+      {mostrando < total && (
+        <>
+          <button type="button" className="btn btn-sm" onClick={() => onMudar(mostrando + passo)}>
+            Ver mais
+          </button>
+          <button type="button" className="link" onClick={() => onMudar(total)}>
+            ver todas
+          </button>
+        </>
+      )}
+      {mostrando > inicial && (
+        <button type="button" className="link" onClick={() => onMudar(inicial)}>
+          ver menos
+        </button>
+      )}
     </div>
   );
 }

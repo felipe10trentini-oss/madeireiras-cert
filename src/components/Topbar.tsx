@@ -12,7 +12,7 @@ export function Topbar() {
       </div>
       <div className="brand">
         <div className="brand-text">
-          <h1>Certificados Madeireiras</h1>
+          <h1>Emissão de certificados</h1>
           <span>Consultoria · cadastradas e credenciadas · preenchimento automático do SEI</span>
         </div>
       </div>

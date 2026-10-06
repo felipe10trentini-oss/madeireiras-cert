@@ -197,6 +197,26 @@ export function montarPlanilhaRts(rts: RtAcesso[]): ExcelJS.Workbook {
   return wb;
 }
 
+/**
+ * Backup dos clientes (tomadores) da Mann móvel: aba DADOS com as colunas que o upload reconhece
+ * (lerPlanilhaClientes). O endereço vai em "Endereço escritório", o que o certificado usa.
+ */
+export function montarPlanilhaClientes(clientes: { razao: string; cnpj: string; endereco: string; telefone: string; email: string }[]): ExcelJS.Workbook {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Certificados Madeireiras";
+  const ws = wb.addWorksheet("DADOS", { views: [{ state: "frozen", ySplit: 1 }] });
+  ws.columns = [
+    { header: "Nome", key: "razao", width: 45 },
+    { header: "CNPJ", key: "cnpj", width: 22 },
+    { header: "Endereço escritório", key: "endereco", width: 60 },
+    { header: "Telefone", key: "telefone", width: 24 },
+    { header: "E-mail", key: "email", width: 34 },
+  ];
+  ws.getRow(1).font = { bold: true };
+  for (const c of [...clientes].sort((a, b) => a.razao.localeCompare(b.razao, "pt-BR"))) ws.addRow(c);
+  return wb;
+}
+
 /** Baixa a planilha no navegador ("Cadastro Madeireiras 2026-10-06.xlsx"). */
 export async function baixarPlanilha(wb: ExcelJS.Workbook, nome: string): Promise<void> {
   const buf = await wb.xlsx.writeBuffer();
