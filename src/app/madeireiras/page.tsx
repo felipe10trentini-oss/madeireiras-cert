@@ -1,12 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FormEmpresa, FormRt, ListaRts, type Rt } from "@/components/CadastroMadeireiras";
 import { FileDrop } from "@/components/FileDrop";
 import { PortaoSenha } from "@/components/PortaoSenha";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
+import { baixarPlanilha, linhaDaEmpresa, montarPlanilhaCadastro, montarPlanilhaRts } from "@/lib/planilhaCadastro";
 import { lerAcessosSei, lerPlanilhaMadeireiras } from "@/lib/planilhaMadeireiras";
+import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
-import { ufDoMapa } from "@/lib/util";
+import { soDigitos, ufDoMapa } from "@/lib/util";
+
+type Aba = "planilha" | "empresa" | "rt";
+
+/** "2026-10-06" para o nome dos arquivos de backup. */
+const hojeIso = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 
 interface Resumo {
   totalNaPlanilha: number;
@@ -53,6 +61,12 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
   const [arquivoSei, setArquivoSei] = useState<File | null>(null);
   const bytesSei = useRef<ArrayBuffer | null>(null);
   const [planilhaLida, setPlanilhaLida] = useState<Awaited<ReturnType<typeof lerPlanilhaMadeireiras>> | null>(null);
+  // Cadastro pelo site: aba aberta, empresa/RT em edição, lista dos RTs.
+  const [aba, setAba] = useState<Aba>("planilha");
+  const [editEmpresa, setEditEmpresa] = useState<Record<string, string> | null>(null);
+  const [editRt, setEditRt] = useState<Rt | null>(null);
+  const [rts, setRts] = useState<Rt[] | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -67,9 +81,54 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
     }
   }, [senha]);
 
+  const carregarRts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/madeireiras/rts", { headers: cabecalhoSenha(senha), cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      setRts(res.ok ? data.rts : []);
+    } catch {
+      setRts([]);
+    }
+  }, [senha]);
+
   useEffect(() => {
     void carregar();
-  }, [carregar]);
+    void carregarRts();
+  }, [carregar, carregarRts]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  function abrir(a: Aba) {
+    setAba(a);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  /** Backup da planilha de cadastro (o mesmo formato do upload: dá para editar e reenviar). */
+  async function backupCadastro() {
+    if (!lista) return;
+    try {
+      const ordenadas = [...lista].sort((a, b) => a.apelido.localeCompare(b.apelido, "pt-BR"));
+      await baixarPlanilha(montarPlanilhaCadastro(ordenadas.map((e) => linhaDaEmpresa(e))), `Cadastro Madeireiras ${hojeIso()}.xlsx`);
+    } catch {
+      setToast("Não foi possível gerar o backup do cadastro.");
+    }
+  }
+
+  /** Backup dos acessos do SEI dos RTs (aba ACESSO SEI, com as senhas: guardar em local seguro). */
+  async function backupRts() {
+    try {
+      const res = await fetch("/api/madeireiras/rts?backup=1", { headers: cabecalhoSenha(senha), cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return setToast(data.error ?? "Não foi possível gerar o backup dos RTs.");
+      await baixarPlanilha(montarPlanilhaRts(data.rts), `Acessos SEI ${hojeIso()}.xlsx`);
+    } catch {
+      setToast("Não foi possível gerar o backup dos RTs.");
+    }
+  }
 
   async function enviar(modo: "previa" | "aplicar") {
     if (!arquivo) return;
@@ -133,6 +192,7 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
       });
       const data = await res.json().catch(() => ({}));
       setAcessosMsg(res.ok ? `Acessos do SEI atualizados: ${data.gravados}.` : `Acessos do SEI: ${data.error ?? "falha ao gravar"}.`);
+      if (res.ok) void carregarRts();
     } catch (e) {
       console.error("Acessos do SEI:", e);
       setAcessosMsg(`Não foi possível ler a aba ACESSO SEI (${e instanceof Error ? e.message : "erro"}).`);
@@ -147,12 +207,38 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
 
   return (
     <div className="view">
-      <p className="lead">
-        Envie a planilha <b>Cadastro Madeireiras</b> (aba <b>CADASTRO</b>): dados das empresas e as configurações de
-        cada uma (programação/comunicado, formato do lote e do ciclo, tomador fixo, DR…). Também aceita a{" "}
-        <b>Planilha Geral</b> antiga (abas DADOS CADASTRAIS e PROGRAMAÇÕES). A comparação é pelo <b>CNPJ</b>: cadastra as
-        novas e atualiza as que mudaram. Nenhuma empresa é apagada — para tirar uma da lista, marque <b>Ativa: Não</b>.
-      </p>
+      <div className="abas-cadastro">
+        <button type="button" className={`btn${aba === "planilha" ? " primary" : ""}`} onClick={() => abrir("planilha")}>
+          Atualizar por planilha
+        </button>
+        <button
+          type="button"
+          className={`btn${aba === "empresa" ? " primary" : ""}`}
+          onClick={() => {
+            setEditEmpresa(null);
+            abrir("empresa");
+          }}
+        >
+          Cadastrar empresa
+        </button>
+        <button
+          type="button"
+          className={`btn${aba === "rt" ? " primary" : ""}`}
+          onClick={() => {
+            setEditRt(null);
+            abrir("rt");
+          }}
+        >
+          Cadastrar RT
+        </button>
+        <div className="spacer" />
+        <button type="button" className="btn" disabled={!lista} onClick={backupCadastro} title="Baixa a planilha de cadastro com todas as empresas (dá para editar e enviar de volta)">
+          Backup do cadastro (.xlsx)
+        </button>
+        <button type="button" className="btn" onClick={backupRts} title="Baixa a planilha dos acessos do SEI dos RTs, com as senhas: guarde em local seguro">
+          Backup dos RTs (.xlsx)
+        </button>
+      </div>
 
       {erroLista && (
         <div className="alert-box critical" role="alert">
@@ -162,6 +248,53 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
           </ul>
         </div>
       )}
+
+      {aba === "empresa" && (
+        <FormEmpresa
+          key={editEmpresa?.CNPJ ?? "nova"}
+          senha={senha}
+          inicial={editEmpresa}
+          cnpjsExistentes={(lista ?? []).map((e) => soDigitos(e.cnpj))}
+          rts={[...new Set((rts ?? []).filter((r) => !/legal/i.test(r.funcao ?? "")).map((r) => rtCompleto(r.nome) ?? r.nome))]}
+          onSalvo={(msg) => {
+            setToast(msg);
+            setEditEmpresa(null);
+            setAba("planilha");
+            void carregar();
+          }}
+          onCancelar={() => {
+            setEditEmpresa(null);
+            setAba("planilha");
+          }}
+        />
+      )}
+
+      {aba === "rt" && (
+        <FormRt
+          key={editRt?.id ?? "novo"}
+          senha={senha}
+          inicial={editRt}
+          onSalvo={(msg) => {
+            setToast(msg);
+            setEditRt(null);
+            void carregarRts();
+          }}
+          onCancelar={() => {
+            setEditRt(null);
+            setAba("planilha");
+          }}
+        />
+      )}
+
+      {aba === "planilha" && (
+      <>
+      <p className="lead">
+        Envie a planilha <b>Cadastro Madeireiras</b> (aba <b>CADASTRO</b>): dados das empresas e as configurações de
+        cada uma (programação/comunicado, formato do lote e do ciclo, tomador fixo, DR…). Também aceita a{" "}
+        <b>Planilha Geral</b> antiga (abas DADOS CADASTRAIS e PROGRAMAÇÕES). A comparação é pelo <b>CNPJ</b>: cadastra as
+        novas e atualiza as que mudaram. Nenhuma empresa é apagada — para tirar uma da lista, marque <b>Ativa: Não</b>.
+        Para ter a versão mais recente no computador, use <b>Backup do cadastro</b>: o arquivo pode ser editado e enviado aqui.
+      </p>
 
       <div className="drops" style={{ gridTemplateColumns: "1fr" }}>
         <FileDrop
@@ -290,7 +423,8 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
       <div className="card" style={{ marginBottom: 22 }}>
         <p className="hint" style={{ marginTop: 0 }}>
           Colunas: <b>LOGIN RESP.</b> (nome do RT), <b>RESPONSABILIDADE</b>, <b>EMPRESA</b>, <b>LOGIN</b> (e-mail do SEI) e{" "}
-          <b>SENHA</b> — as mesmas da aba ACESSO SEI. As senhas ficam criptografadas e aparecem só na emissão, para copiar.
+          <b>SENHA</b> — as mesmas da aba ACESSO SEI. As senhas ficam criptografadas. A planilha <b>substitui a lista toda</b>{" "}
+          dos RTs: para alterar um só, use <b>Cadastrar RT</b> (ou baixe o backup, edite e envie).
         </p>
         <div className="drops" style={{ gridTemplateColumns: "1fr" }}>
           <FileDrop
@@ -319,6 +453,8 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
           {acessosMsg && <span className="hint">{acessosMsg}</span>}
         </div>
       </div>
+      </>
+      )}
 
       <div className="section-title">
         <h2>Madeireiras cadastradas {lista ? `(${lista.length})` : ""}</h2>
@@ -337,12 +473,13 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
               <th>Registro MAPA</th>
               <th>CNPJ</th>
               <th>RT</th>
+              <th />
             </tr>
           </thead>
           <tbody>
             {visiveis.length === 0 ? (
               <tr>
-                <td colSpan={7} className="empty-row">
+                <td colSpan={8} className="empty-row">
                   {lista ? "Nenhuma empresa." : "Carregando…"}
                 </td>
               </tr>
@@ -360,12 +497,45 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
                   <td className="mono">{e.regMapa}</td>
                   <td className="mono">{e.cnpj}</td>
                   <td>{e.rt}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => {
+                        setEditEmpresa(linhaDaEmpresa(e));
+                        abrir("empresa");
+                      }}
+                    >
+                      Editar
+                    </button>
+                  </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
       </div>
+
+      <div className="section-title" style={{ marginTop: 26 }}>
+        <h2>RTs cadastrados {rts ? `(${rts.length})` : ""}</h2>
+        <p>Acessos do SEI — a senha fica oculta: clique em mostrar</p>
+      </div>
+      <ListaRts
+        senha={senha}
+        rts={rts}
+        onEditar={(r) => {
+          setEditRt(r);
+          abrir("rt");
+        }}
+        onExcluido={() => void carregarRts()}
+        onToast={setToast}
+      />
+
+      {toast && (
+        <div id="toast-host" role="status">
+          <div className="toast">{toast}</div>
+        </div>
+      )}
     </div>
   );
 }

@@ -35,6 +35,67 @@ export async function salvarAcessos(lista: AcessoSei[]): Promise<number> {
   return rows.length;
 }
 
+export interface AcessoListado {
+  id: number;
+  nome: string;
+  funcao: string | null;
+  empresa: string | null;
+  login: string;
+}
+
+/** Lista para a aba Madeireiras (sem as senhas). */
+export async function listarAcessos(): Promise<AcessoListado[]> {
+  const { data, error } = await getSupabaseServerClient()
+    .from(TABELA)
+    .select("id, nome, funcao, empresa, login")
+    .order("nome")
+    .returns<AcessoListado[]>();
+  if (error) throw new Error(`Falha ao ler acessos do SEI: ${error.message}`);
+  return data ?? [];
+}
+
+/** Senha de um acesso (botão "mostrar"). */
+export async function senhaDoAcesso(id: number): Promise<string | null> {
+  const { data, error } = await getSupabaseServerClient()
+    .from(TABELA)
+    .select("senha_cifrada")
+    .eq("id", id)
+    .maybeSingle<{ senha_cifrada: string }>();
+  if (error) throw new Error(`Falha ao ler o acesso: ${error.message}`);
+  return data ? decifrar(data.senha_cifrada) : null;
+}
+
+/** Todos os acessos com as senhas (backup em planilha). */
+export async function acessosComSenha(): Promise<AcessoSei[]> {
+  const { data, error } = await getSupabaseServerClient()
+    .from(TABELA)
+    .select("nome, funcao, empresa, login, senha_cifrada")
+    .order("nome")
+    .returns<{ nome: string; funcao: string | null; empresa: string | null; login: string; senha_cifrada: string }[]>();
+  if (error) throw new Error(`Falha ao ler acessos do SEI: ${error.message}`);
+  return (data ?? []).map(({ senha_cifrada, ...a }) => ({ ...a, senha: decifrar(senha_cifrada) }));
+}
+
+/** Cadastra (sem id) ou altera um acesso; senha vazia na alteração = mantém a atual. */
+export async function salvarAcesso(a: Omit<AcessoSei, "senha"> & { id?: number; senha?: string | null }): Promise<void> {
+  const sb = getSupabaseServerClient();
+  const row: Record<string, unknown> = { nome: a.nome, funcao: a.funcao, empresa: a.empresa, login: a.login, updated_at: new Date().toISOString() };
+  if (a.senha) row.senha_cifrada = cifrar(a.senha);
+  if (a.id) {
+    const { error } = await sb.from(TABELA).update(row).eq("id", a.id);
+    if (error) throw new Error(`Falha ao alterar o acesso: ${error.message}`);
+  } else {
+    if (!a.senha) throw new Error("Informe a senha do SEI.");
+    const { error } = await sb.from(TABELA).insert(row);
+    if (error) throw new Error(`Falha ao cadastrar o acesso: ${error.message}`);
+  }
+}
+
+export async function excluirAcesso(id: number): Promise<void> {
+  const { error } = await getSupabaseServerClient().from(TABELA).delete().eq("id", id);
+  if (error) throw new Error(`Falha ao excluir o acesso: ${error.message}`);
+}
+
 /** Mesmo nome, com tolerância a erro de digitação (1 letra; 2 em nomes longos). */
 function parecido(a: string, b: string | undefined): boolean {
   if (!b) return false;

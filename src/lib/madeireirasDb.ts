@@ -107,6 +107,18 @@ export interface ResumoImportacao {
   aplicado: boolean;
 }
 
+/** JSON com as chaves em ordem (o jsonb do Postgres reordena as chaves ao gravar). */
+function jsonEstavel(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(jsonEstavel).join(",")}]`;
+  if (v && typeof v === "object") {
+    return `{${Object.keys(v)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${jsonEstavel((v as Record<string, unknown>)[k])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(v);
+}
+
 /** Compara pelo CNPJ e, se `aplicar`, insere as novas e atualiza as alteradas. Nunca apaga. */
 export async function sincronizarMadeireiras(
   empresas: Madeireira[],
@@ -137,7 +149,7 @@ export async function sincronizarMadeireiras(
     }
     const campos: string[] = (Object.keys(row) as (keyof typeof row)[]).filter((k) =>
       k === "config"
-        ? JSON.stringify(row.config ?? {}) !== JSON.stringify(atual.config ?? {})
+        ? jsonEstavel(row.config ?? {}) !== jsonEstavel(atual.config ?? {})
         : (row[k] ?? "").toString().trim() !== (atual[k] ?? "").toString().trim()
     );
     // O processo da programação (aba PROGRAMAÇÕES) vai para os dados do relatório.

@@ -33,7 +33,7 @@ export interface EntradaCertificado {
  * Padrões próprios de algumas empresas, observados nos certificados emitidos
  * (setembro/2026). Chave: CNPJ só com dígitos.
  */
-interface RegraEmpresa {
+export interface RegraEmpresa {
   /** Unidade dos volumes quando a curva traz a contagem ("Tábuas" em vez de "Fardos"). */
   unidadeVolumes?: string;
   /** Lote com o ciclo em 3 dígitos: "4-43" -> "4-043". */
