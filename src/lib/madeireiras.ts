@@ -154,7 +154,15 @@ export function lerNomeArquivo(nomeArquivo: string): {
   }
   const partes = base.split(/\s+/);
   const numero = /^\d{1,6}$/.test(partes[0] ?? "") ? partes.shift()! : null;
-  const lote = partes.length > 1 && /^\d+(-\d+)?$/.test(partes[partes.length - 1]) ? partes.pop()! : null;
+  let lote = partes.length > 1 && /^\d+(-\d+)?$/.test(partes[partes.length - 1]) ? partes.pop()! : null;
+  // Lote antes do nome do cliente (Madeval: "211 MADEVAL 8-127 ELISANGELA"): o "8-127" do meio.
+  if (!lote) {
+    const i = partes.findIndex((p, k) => k > 0 && /^\d+-\d+$/.test(p));
+    if (i > 0) {
+      lote = partes[i];
+      partes.splice(i);
+    }
+  }
   const nome = partes.join(" ").trim() || null;
   return { numero, nome, lote, loteInformado };
 }

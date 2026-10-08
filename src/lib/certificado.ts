@@ -80,6 +80,14 @@ export interface RegraEmpresa {
   loteSemHifen?: boolean;
   /** Duração do tratamento HT/AQF em "00h40m" (certificado e relatório) em vez de "40 min" (Palletimber). */
   duracaoHtEmHM?: boolean;
+  /** Relatório: duração do AQF em "00h32m" (Madeval, AGK, MD); o certificado segue em minutos. */
+  relatorioAqfHM?: boolean;
+  /** Certificado: "32min" sem espaço (AGK, MD). */
+  minSemEspaco?: boolean;
+  /** Caixas da curva são "kit caixas" (TLP). */
+  caixasEmKit?: boolean;
+  /** "Madeira de Pinus com 7000 Pcs" = 7000 ripas; produto "Madeira reflorestada de pinus" (Madeico). */
+  madeiraEmRipas?: boolean;
   /** Bitola quando a curva não traz (Rio Timbó: quase sempre 17 mm; o operador corrige se for outra). */
   bitolaPadraoMm?: number;
   /** Embalagens sempre "… de madeira" na descrição dos volumes (MD: "Paletes de madeira"). */
@@ -108,11 +116,14 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "50709371000115": { email: "faturamento2@lgpallets.com.br" }, // LG Logística
   "20593206000180": { htEhAqf: true, loteSemHifen: true, duracaoHtEmHM: true }, // Palletimber
   "13804475000182": { bitolaPadraoMm: 17, loteTresDigitos: true }, // Rio Timbó
-  "04456108000144": { embalagemDeMadeira: true }, // MD Paletes
+  "04456108000144": { embalagemDeMadeira: true, relatorioAqfHM: true, minSemEspaco: true }, // MD Paletes (paletes e tampas item a item)
   "26341045000113": { cicloTresDigitos: true }, // Induspacking Cotia: ciclo "077" como o lote
   "05199829000260": { prestadorCnpj: "05199829000189" }, // Inexport Capivari: prestador é a matriz (Palmares)
   "06249793000163": { tomadorFixo: { razao: "Madeireira São Gabriel Ltda", cnpj: "40.950.343/0001-31" } }, // Reis
-  "83951012000129": { ajusteFimMin: -1 }, // Madeico
+  "83951012000129": { ajusteFimMin: -1, madeiraEmRipas: true }, // Madeico
+  "15705169000114": { relatorioAqfHM: true, minSemEspaco: true }, // AGK
+  "12579164000102": { relatorioAqfHM: true }, // Madeval
+  "52249461000104": { caixasEmKit: true }, // TLP
 };
 
 /** Páscoa (algoritmo de Meeus) — base dos feriados móveis. */
@@ -270,6 +281,39 @@ interface Produto {
   quantidade: string | null;
 }
 
+// Material de cada item da curva, pela palavra principal antes do "com" ("PALLET DE MADEIRA" -> paletes).
+const MATERIAIS: [RegExp, string][] = [
+  [/^PAL+ET/, "paletes"],
+  [/^CAIXA/, "caixas"],
+  [/^TAMPA/, "tampas"],
+  [/^ENGRADADO/, "engradados"],
+  [/^CAVALETE/, "cavaletes"],
+  [/^RIPA/, "ripas"],
+  [/^CAIBRO/, "caibros"],
+];
+const GENERICAS = new Set(["DE", "DA", "DO", "E", "MADEIRA", "KIT", "COM"]);
+
+/**
+ * Itens "<material> com <N> peças/Pcs/unidades" do texto da curva, somados por material, na ordem
+ * em que aparecem. A DMC2051 repete a linha depois de "Bitola da madeira:" — só vale a 1ª parte.
+ */
+function itensDaCurva(texto: string, regra: RegraEmpresa): { nome: string; n: number }[] {
+  const parte = texto.split(/Bitola da madeira:/i)[0];
+  const soma = new Map<string, number>();
+  for (const m of parte.matchAll(/([A-Za-zÀ-ú][A-Za-zÀ-ú ]*?)\s+com\s+(\d[\d.]*)\s*(?:pe[çc]as|p[çc]s|unidades|und)\b/gi)) {
+    const palavras = semAcento(m[1]).toUpperCase().split(/\s+/).filter(Boolean).reverse();
+    const chave = palavras.find((p) => !GENERICAS.has(p));
+    if (!chave || SUPORTES.test(chave)) continue;
+    let nome = MATERIAIS.find(([re]) => re.test(chave))?.[1] ?? null;
+    // Madeico: "Madeira de Pinus/Eucalipto com 7000 Pcs" são ripas.
+    if (!nome && /PINUS|EUCALIPTO/.test(chave)) nome = regra.madeiraEmRipas ? "ripas" : null;
+    if (!nome) nome = chave.toLowerCase();
+    if (nome === "caixas" && regra.caixasEmKit) nome = "kit caixas";
+    soma.set(nome, (soma.get(nome) ?? 0) + parseInt(m[2].replace(/\./g, ""), 10));
+  }
+  return [...soma].map(([nome, n]) => ({ nome, n }));
+}
+
 function montarProduto(e: EntradaCertificado, tipo: TipoTratamento, avisos: string[]): Produto {
   const { curva, empresa, comunicado } = e;
   const regra = regraDe(empresa);
@@ -336,6 +380,26 @@ function montarProduto(e: EntradaCertificado, tipo: TipoTratamento, avisos: stri
       produto = descricaoSerrada(`${texto.replace(/\s+\d{1,3}\s*$/, "")} ${comunicado.produto}`);
     }
     return { produto, volumes, quantidade: `${m3BR(total)} m³` };
+  }
+
+  // 3b) Embalagens item a item na curva ("CAIXAS com 62 peças - …", "Palete com 475 peças",
+  //     "Madeira de Pinus com 7000 Pcs"): cada material com a sua quantidade (TLP, MD, Madeico, Madeval).
+  if (!comM3.length && curva.totalM3 == null) {
+    const itens = itensDaCurva(texto, regra);
+    if (itens.length) {
+      const nomes = itens.map((i) => i.nome);
+      const lista = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} e ${xs[xs.length - 1]}` : xs[0]);
+      const volumes = `${lista(nomes)} de madeira`;
+      const especies = ["pinus", "eucalipto"].filter((s) => new RegExp(s, "i").test(curva.descricao ?? ""));
+      const total = itens.reduce((s, i) => s + i.n, 0);
+      const pecas = curva.produtos.reduce((s, p) => s + p.quantidade, 0);
+      if (pecas && pecas !== total) avisos.push(`A soma dos materiais (${total}) não bate com o total de peças da curva (${pecas}): confira a quantidade.`);
+      return {
+        produto: regra.madeiraEmRipas && especies.length ? `Madeira reflorestada de ${lista(especies)}` : "Madeira reflorestada",
+        volumes: volumes.charAt(0).toUpperCase() + volumes.slice(1),
+        quantidade: lista(itens.map((i) => `${i.n} ${i.nome}`)),
+      };
+    }
   }
 
   // 4) Digisystem sem tabela: paletes contados em peças/unidades.
@@ -407,7 +471,7 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
         ? null
         : usaCiclo || regra.duracaoHtEmHM
           ? duracaoHM(duracaoMin)
-          : `${duracaoMin} min`;
+          : `${duracaoMin}${regra.minSemEspaco ? "" : " "}min`;
   if (tipo !== "KD" && !curva.htInicio) {
     avisos.push("A curva não marca o período do tratamento térmico: as datas usadas são as do ciclo inteiro.");
   }

@@ -171,8 +171,10 @@ export function montarLinhaRelatorio(args: {
     const nosso = (v.produto ?? "").replace(/\s+\d+(?:,\d+)?\s*mm.*$/i, "");
     if (g.produto && !g.produtoComMm && /madeira|mad\./i.test(g.produto) && /madeira/i.test(nosso)) {
       // Texto da empresa ("MADEIRA SERRADA", "Madeira de Pinus"), trocando a espécie se for outra.
+      // A espécie é sempre a do certificado (Madeval tem curvas de pinus e de eucalipto).
       const euc = /eucalipto/i.test(nosso) && !/pinus/i.test(nosso);
-      produto = euc ? g.produto.replace(/pinus/i, (p) => (p === p.toUpperCase() ? "EUCALIPTO" : "eucalipto")) : g.produto;
+      const troca = (de: RegExp, para: string) => g.produto!.replace(de, (p) => (p === p.toUpperCase() ? para.toUpperCase() : para));
+      produto = euc ? troca(/pinus/i, "eucalipto") : /pinus/i.test(nosso) ? troca(/eucalipto/i, "pinus") : g.produto;
     } else produto = caixa(g.produtoComMm ? (v.produto ?? "") : nosso);
     if (mV && (g.preencheVolumes ?? true)) volumes = mV[1];
     unidadeVolumes = mV || g.unidadeVolumes ? (g.unidadeVolumes ?? caixa(up(mV?.[2] ?? ""))) : "";
@@ -214,7 +216,9 @@ export function montarLinhaRelatorio(args: {
   // AQF: em minutos, como no certificado ("Duração: 32 min" -> 32). Secagem HT: minutos no
   // formato "00h75m" (75 min). Secagem KD: o formato da planilha da empresa.
   // Palletimber: o tratamento HT sai "00h40m" também no relatório, como no certificado.
-  const emHM = !!REGRAS_EMPRESA[soDigitos(empresa.cnpj)]?.duracaoHtEmHM;
+  // e Madeval/AGK/MD: o AQF sai "00h32m" no relatório (regra relatorioAqfHM).
+  const regraEmp = REGRAS_EMPRESA[soDigitos(empresa.cnpj)];
+  const emHM = !!(regraEmp?.duracaoHtEmHM || regraEmp?.relatorioAqfHM);
   if (tipo !== "KD") {
     const total = minutos ?? (hm ? String(parseInt(hm[1], 10) * 60 + parseInt(hm[2], 10)) : null);
     if (total && emHM && tipo === "AQF") duracao = `${String(Math.floor(+total / 60)).padStart(2, "0")}h${String(+total % 60).padStart(2, "0")}m`;
