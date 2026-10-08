@@ -61,11 +61,19 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
   const [toast, setToast] = useState<string | null>(null);
   const docRef = useRef<HTMLDivElement>(null);
   const registrados = useRef(new Set<string>());
+  // Compradores frequentes cadastrados na aba Cadastros (sem a tabela no banco, a lista padrão).
+  const [compradores, setCompradores] = useState<string[]>(COMPRADORES_FREQUENTES);
 
   useEffect(() => {
     fetch("/api/madeireiras", { headers: cabecalhoSenha(senha), cache: "no-store" })
       .then(async (r) => (r.status === 401 ? sair() : setEmpresas((await r.json()).empresas ?? [])))
       .catch(() => setErro("Não foi possível carregar o cadastro."));
+    fetch("/api/madeireiras/compradores", { headers: cabecalhoSenha(senha), cache: "no-store" })
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && Array.isArray(d.compradores)) setCompradores(d.compradores.map((c: { razao: string }) => c.razao));
+      })
+      .catch(() => undefined);
   }, [senha, sair]);
 
   useEffect(() => {
@@ -319,11 +327,11 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
                     <label htmlFor="m-comprador">Comprador frequente (preenche o 2.1)</label>
                     <select
                       id="m-comprador"
-                      value={COMPRADORES_FREQUENTES.includes(valores["2.1"] ?? "") ? valores["2.1"] : ""}
+                      value={compradores.includes(valores["2.1"] ?? "") ? valores["2.1"] : ""}
                       onChange={(e) => setAjustes((a) => ({ ...a, "2.1": e.target.value }))}
                     >
                       <option value="">— nenhum (digitar no 2.1) —</option>
-                      {COMPRADORES_FREQUENTES.map((c) => (
+                      {compradores.map((c) => (
                         <option key={c}>{c}</option>
                       ))}
                     </select>

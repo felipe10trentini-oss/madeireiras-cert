@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FormClienteMovel, prestadorasDe } from "@/components/CadastroClienteMovel";
+import { CompradoresFrequentes } from "@/components/CompradoresFrequentes";
 import { FormEmpresa, FormRt, ListaRts, type Rt } from "@/components/CadastroMadeireiras";
 import { ClientesPrestadora } from "@/components/ClientesPrestadora";
 import { FileDrop } from "@/components/FileDrop";
@@ -13,7 +14,7 @@ import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { soDigitos, ufDoMapa } from "@/lib/util";
 
-type Aba = "planilha" | "empresa" | "rt" | "cliente";
+type Aba = "planilha" | "empresa" | "rt" | "cliente" | "comprador";
 
 /** "2026-10-06" para o nome dos arquivos de backup. */
 const hojeIso = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
@@ -248,6 +249,9 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
         <button type="button" className={`btn${aba === "cliente" ? " primary" : ""}`} onClick={() => abrir("cliente")}>
           Cadastrar cliente móvel
         </button>
+        <button type="button" className={`btn${aba === "comprador" ? " primary" : ""}`} onClick={() => abrir("comprador")}>
+          Cadastrar comprador
+        </button>
         {/* Backups juntos à direita; o dos clientes da móvel logo abaixo do backup dos RTs. */}
         <div className="backups">
           <button type="button" className="btn" disabled={!lista} onClick={backupCadastro} title="Baixa a planilha de cadastro com todas as empresas (dá para editar e enviar de volta)">
@@ -309,6 +313,8 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
           }}
         />
       )}
+
+      {aba === "comprador" && <CompradoresFrequentes senha={senha} onToast={setToast} onFechar={() => setAba("planilha")} />}
 
       {aba === "cliente" && (
         <FormClienteMovel
