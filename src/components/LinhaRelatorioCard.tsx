@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { regraDe, type TipoTratamento } from "@/lib/certificado";
+import type { TipoTratamento } from "@/lib/certificado";
 import type { Comunicado } from "@/lib/comunicado";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import type { ValoresCertificado } from "@/lib/modelos";
@@ -21,7 +21,6 @@ import {
 } from "@/lib/relatorioMannMovel";
 import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
-import { ReciboPeticionamento } from "./ReciboPeticionamento";
 
 interface Props {
   senha: string;
@@ -30,7 +29,6 @@ interface Props {
   tipo: TipoTratamento;
   camara: string | null;
   comunicado: Comunicado | null;
-  dataComunicado: string | null;
   onToast: (msg: string) => void;
   onPadraoSalvo: (padrao: PadraoRelatorio) => void;
 }
@@ -40,7 +38,7 @@ interface Props {
  * RT e volume da câmara não estão na curva: são digitados uma vez e ficam
  * salvos na empresa (gravados ao copiar a linha).
  */
-export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, comunicado, dataComunicado, onToast, onPadraoSalvo }: Props) {
+export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, comunicado, onToast, onPadraoSalvo }: Props) {
   const salvo = empresa.relatorio ?? {};
   // Padrão das linhas já lançadas na planilha de relatório da empresa (objetivo, formatos, processo, RT...).
   const estilo = empresa.estilo ?? null;
@@ -51,12 +49,8 @@ export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, comu
   const [processo, setProcesso] = useState(
     mann ? salvo.processo || PROCESSO_COMUNICADO_MANN : salvo.processo || estilo?.processo || ""
   );
-  // Com comunicado enviado, a data é a de criação do PDF; na programação, a data salva do mês.
-  // Achando o recibo do SEI na pasta do OneDrive, vale a data do peticionamento (ReciboPeticionamento).
-  const usaComunicado = dataComunicado != null || empresa.documento === "comunicado";
-  const [dataDocumento, setDataDocumento] = useState(
-    usaComunicado ? (dataComunicado ?? "") : (salvo.dataDocumento || estilo?.dataDocumento || "")
-  );
+  // Data da programação/comunicado (dia do peticionamento): digitada à mão pelo operador (08/10/2026).
+  const [dataDocumento, setDataDocumento] = useState("");
   // Nome completo do RT (o da assinatura no SEI), não o apelido da Planilha Geral.
   const [rt, setRt] = useState(rtCompleto(empresa.rt) || salvo.rt || estilo?.rt || "");
   const [volumeCamara, setVolumeCamara] = useState(
@@ -90,7 +84,6 @@ export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, comu
     }
     // Guarda os dados repetitivos para a próxima emissão desta empresa.
     const guardar: PadraoRelatorio = mann ? { processo, rt } : { processo, rt, volumesCamara: padrao.volumesCamara };
-    if (!usaComunicado) guardar.dataDocumento = dataDocumento;
     try {
       const res = await fetch("/api/madeireiras/padrao", {
         method: "POST",
@@ -125,20 +118,6 @@ export function LinhaRelatorioCard({ senha, empresa, valores, tipo, camara, comu
             <label htmlFor="rel-data">Data do {empresa.documento === "comunicado" ? "comunicado" : "documento (programação)"}</label>
             <input id="rel-data" type="text" value={dataDocumento} onChange={(e) => setDataDocumento(e.target.value)} placeholder="dd/mm/aaaa" />
           </div>
-          {!mann && (
-            <div className="field full">
-              {/* Data do peticionamento: lida do recibo do SEI na pasta do OneDrive. */}
-              <ReciboPeticionamento
-                senha={senha}
-                empresa={empresa}
-                tipo={usaComunicado ? "comunicado" : "programacao"}
-                data={valores.dataInicio ?? null}
-                numeroComunicado={usaComunicado ? (comunicado?.numero ?? valores.comunicado ?? null) : null}
-                trimestral={!!regraDe(empresa).programacaoTrimestral}
-                onData={setDataDocumento}
-              />
-            </div>
-          )}
           <div className="field">
             <label htmlFor="rel-rt">Responsável técnico</label>
             <input id="rel-rt" type="text" value={rt} onChange={(e) => setRt(e.target.value)} />

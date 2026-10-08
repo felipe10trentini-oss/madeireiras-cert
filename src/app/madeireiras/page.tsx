@@ -495,6 +495,21 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
       )}
 
       <div className="section-title">
+        <h2>RTs cadastrados {rts ? `(${rts.length})` : ""}</h2>
+        <p>Acessos do SEI — a senha fica oculta: clique em mostrar</p>
+      </div>
+      <ListaRts
+        senha={senha}
+        rts={rts}
+        onEditar={(r) => {
+          setEditRt(r);
+          abrir("rt");
+        }}
+        onExcluido={() => void carregarRts()}
+        onToast={setToast}
+      />
+
+      <div className="section-title" style={{ marginTop: 26 }}>
         <h2>Madeireiras cadastradas {lista ? `(${lista.length})` : ""}</h2>
         <div className="field" style={{ minWidth: 240 }}>
           <input type="text" placeholder="Buscar empresa, CNPJ ou registro" value={filtro} onChange={(e) => setFiltro(e.target.value)} />
@@ -554,20 +569,6 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
         </table>
       </div>
 
-      <div className="section-title" style={{ marginTop: 26 }}>
-        <h2>RTs cadastrados {rts ? `(${rts.length})` : ""}</h2>
-        <p>Acessos do SEI — a senha fica oculta: clique em mostrar</p>
-      </div>
-      <ListaRts
-        senha={senha}
-        rts={rts}
-        onEditar={(r) => {
-          setEditRt(r);
-          abrir("rt");
-        }}
-        onExcluido={() => void carregarRts()}
-        onToast={setToast}
-      />
 
       {toast && (
         <div id="toast-host" role="status">

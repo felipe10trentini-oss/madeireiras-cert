@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { CertificadoMestre, DemonstrativoRastreabilidade } from "@/lib/certificadoMestre";
 import {
   CAMPOS_MANUAIS,
+  COMPRADORES_FREQUENTES,
   filialEmissora,
   materialDaDR,
   materialDoMestre,
@@ -283,10 +284,9 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
                     <label htmlFor="m-seq">Sequência do desdobrado (nº {lido.tipo === "mestre" ? lido.mestre.numero : ""}-?)</label>
                     <input
                       id="m-seq"
-                      inputMode="numeric"
                       value={sequencia}
-                      onChange={(e) => setSequencia(e.target.value.replace(/\D/g, ""))}
-                      placeholder="1, 2, 3…"
+                      onChange={(e) => setSequencia(e.target.value.replace(/[^0-9A-Za-z]/g, "").toUpperCase())}
+                      placeholder="1, 2, 3… ou A, B, C…"
                     />
                   </div>
                 )}
@@ -312,6 +312,21 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
                       onChange={(e) => setQuantidade(e.target.value)}
                       placeholder={material === "palete" ? "ex.: 250" : "ex.: 50,252"}
                     />
+                  </div>
+                )}
+                {tipo === "desdobrado" && (
+                  <div className="field">
+                    <label htmlFor="m-comprador">Comprador frequente (preenche o 2.1)</label>
+                    <select
+                      id="m-comprador"
+                      value={COMPRADORES_FREQUENTES.includes(valores["2.1"] ?? "") ? valores["2.1"] : ""}
+                      onChange={(e) => setAjustes((a) => ({ ...a, "2.1": e.target.value }))}
+                    >
+                      <option value="">— nenhum (digitar no 2.1) —</option>
+                      {COMPRADORES_FREQUENTES.map((c) => (
+                        <option key={c}>{c}</option>
+                      ))}
+                    </select>
                   </div>
                 )}
                 {manuais.map((c) => (

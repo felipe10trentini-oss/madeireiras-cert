@@ -578,7 +578,6 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
                   tipo={tipo}
                   camara={curva?.camara ?? null}
                   comunicado={extraido.comunicado}
-                  dataComunicado={extraido.dataComunicado}
                   onToast={setToast}
                   onPadraoSalvo={(padrao) =>
                     setEmpresas((lista) =>

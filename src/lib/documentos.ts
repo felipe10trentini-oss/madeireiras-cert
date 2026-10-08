@@ -115,7 +115,15 @@ export function valoresDesdobrado(
     "3.14": m.horaFim ?? "",
     "3.15": m.temperatura ?? "",
     // Só secagem KD (umidade < 18%): AQF e secagem HT (umidade ≥ 18%) não levam a observação.
-    obs: material === "madeira" && modalidadeCurta(m.modalidade) === "KD" ? "Obs: Madeira com umidade inferior a 18%" : "",
+    // Uma observação por linha. Reis: o contratante (tomador fixo, Madeireira São Gabriel) também vai aqui.
+    obs: [
+      material === "madeira" && modalidadeCurta(m.modalidade) === "KD" ? "Obs: Madeira com umidade inferior a 18%" : "",
+      empresa && regraDe(empresa).tomadorFixo
+        ? `Obs: Contratante ${regraDe(empresa).tomadorFixo!.razao}, Cnpj ${regraDe(empresa).tomadorFixo!.cnpj}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
     // Só "Município - UF", tirado do endereço completo com CEP (1.4): não depende do que veio no mestre.
     // Inexport: o da filial de Capivari do Sul.
     local: cidadeUf(filial?.endereco) || cidadeUf(d.endereco) || cidadeUf(m.local) || "",
@@ -165,6 +173,21 @@ export function valoresConsolidado(
   };
 }
 
+/** Compradores frequentes do desdobrado: escolher um preenche a razão social (2.1). */
+export const COMPRADORES_FREQUENTES = [
+  "Serrabras Comércio de Madeiras Ltda",
+  "Tree Serviços, Com. Importação e Exportação de Madeiras Ltda",
+  "Brasilmad Exportadora S.A.",
+  "Multi-Pine Wood Trading Ltda",
+  "Mow Brazil Co Ltda",
+  "Blue Export Comercial Exportadora Ltda",
+  "Embalatec Industrial Ltda",
+  "Pallets Castillo Brasil Comercial Ltda",
+  "Madetam Madeireira Tamandare Ltda",
+  "Eagle Comercial Exportadora Ltda",
+  "Embalatec Mato Grosso do Sul Embalagens Ltda",
+];
+
 /** Rótulos editáveis na tela (o resto vem do mestre/DR e pode ser ajustado em "editar"). */
 export const CAMPOS_MANUAIS: Record<TipoDocumento, { k: string; rotulo: string }[]> = {
   desdobrado: [
@@ -208,7 +231,9 @@ export function montarDocumento(tipo: TipoDocumento, valores: ValoresDocumento, 
     if (en[num]) r = `${r.slice(0, -1)} / ${en[num]}:`;
     const valor = val(num);
     let html = `${p}${num}${r}${valor ? ` ${esc(valor)}` : ""}${fim}`;
-    if (num === "3.15" && val("obs")) html += `<p class="Texto_Alinhado_Esquerda">${esc(val("obs"))}</p>`;
+    if (num === "3.15" && val("obs")) {
+      for (const linha of val("obs").split("\n").filter(Boolean)) html += `<p class="Texto_Alinhado_Esquerda">${esc(linha)}</p>`;
+    }
     return html;
   });
   // Os itens fixos do consolidado ("vide Demonstrativo de Rastreabilidade:") perdem o ":" final.
@@ -310,7 +335,7 @@ function traduzirValores(v: ValoresDocumento): ValoresDocumento {
   }
   // "56°C / Duração: 32 min" -> "56°C; Duração / Duration: 32 min".
   if (t["3.15"]) t["3.15"] = t["3.15"].replace(/\s*\/\s*Dura[çc][ãa]o:/i, "; Duração / Duration:");
-  if (/umidade inferior a 18%$/i.test(t.obs ?? "")) t.obs = `${t.obs} / wood with moisture content less than 18%`;
+  if (t.obs) t.obs = t.obs.replace(/umidade inferior a 18%(?=\n|$)/i, "$& / wood with moisture content less than 18%");
   return t;
 }
 
