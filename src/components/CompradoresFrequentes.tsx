@@ -1,6 +1,6 @@
 "use client";
 
-// Compradores frequentes do desdobrado (aba Cadastros): a razão social que aparece para escolher
+// Compradores frequentes do desdobrado e do consolidado (aba Cadastros): a razão social que aparece para escolher
 // no campo 2.1 do certificado desdobrado.
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
@@ -16,6 +16,8 @@ export function CompradoresFrequentes({ senha, onToast, onFechar }: { senha: str
   const [razao, setRazao] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  // Correção do nome na própria lista (alguém digitou errado).
+  const [editando, setEditando] = useState<{ id: number; razao: string } | null>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -59,6 +61,23 @@ export function CompradoresFrequentes({ senha, onToast, onFechar }: { senha: str
     }
   }
 
+  async function salvarEdicao() {
+    if (!editando) return;
+    const r = editando.razao.replace(/\s+/g, " ").trim();
+    if (r.length < 3) return onToast("Informe a razão social do comprador.");
+    if (lista?.some((c) => c.id !== editando.id && c.razao.toLowerCase() === r.toLowerCase())) return onToast("Já existe um comprador com esse nome.");
+    const res = await fetch("/api/madeireiras/compradores", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...cabecalhoSenha(senha) },
+      body: JSON.stringify({ id: editando.id, razao: r }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return onToast(data.error ?? "Não foi possível alterar.");
+    onToast(`Nome corrigido: ${r}.`);
+    setEditando(null);
+    void carregar();
+  }
+
   async function remover(c: Comprador) {
     if (!confirm(`Tirar ${c.razao} dos compradores frequentes?`)) return;
     const res = await fetch(`/api/madeireiras/compradores?id=${c.id}`, { method: "DELETE", headers: cabecalhoSenha(senha) });
@@ -71,9 +90,9 @@ export function CompradoresFrequentes({ senha, onToast, onFechar }: { senha: str
 
   return (
     <form className="card" onSubmit={adicionar} style={{ marginBottom: 18 }}>
-      <h3 style={{ margin: "0 0 4px", fontSize: 15 }}>Compradores frequentes (desdobrado)</h3>
+      <h3 style={{ margin: "0 0 4px", fontSize: 15 }}>Compradores frequentes (desdobrado e consolidado)</h3>
       <p className="hint" style={{ marginTop: 0 }}>
-        Aparecem para escolher no desdobrado e preenchem a razão social do comprador (2.1).
+        Aparecem para escolher no desdobrado e no consolidado e preenchem a razão social do comprador (2.1).
       </p>
       <div className="form-grid">
         <div className="field">
@@ -114,18 +133,55 @@ export function CompradoresFrequentes({ senha, onToast, onFechar }: { senha: str
                 </td>
               </tr>
             ) : (
-              lista.map((c) => (
-                <tr key={c.id}>
-                  <td>{c.razao}</td>
-                  <td style={{ width: 1, whiteSpace: "nowrap" }}>
-                    {!padrao && (
-                      <button type="button" className="link" onClick={() => remover(c)}>
-                        Remover
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))
+              lista.map((c) => {
+                const ed = editando?.id === c.id ? editando : null;
+                return (
+                  <tr key={c.id}>
+                    <td>
+                      {ed ? (
+                        <input
+                          aria-label="Razão social do comprador"
+                          value={ed.razao}
+                          autoFocus
+                          onChange={(e) => setEditando({ ...ed, razao: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void salvarEdicao();
+                            } else if (e.key === "Escape") setEditando(null);
+                          }}
+                          style={{ width: "100%" }}
+                        />
+                      ) : (
+                        c.razao
+                      )}
+                    </td>
+                    <td style={{ width: 1, whiteSpace: "nowrap" }}>
+                      {padrao ? null : ed ? (
+                        <>
+                          <button type="button" className="link" onClick={() => void salvarEdicao()}>
+                            Salvar
+                          </button>
+                          {" · "}
+                          <button type="button" className="link" onClick={() => setEditando(null)}>
+                            Cancelar
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" className="link" onClick={() => setEditando({ id: c.id, razao: c.razao })}>
+                            Editar
+                          </button>
+                          {" · "}
+                          <button type="button" className="link" onClick={() => remover(c)}>
+                            Remover
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

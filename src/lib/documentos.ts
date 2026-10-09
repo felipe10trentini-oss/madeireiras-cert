@@ -173,7 +173,7 @@ export function valoresConsolidado(
   };
 }
 
-/** Compradores frequentes do desdobrado: escolher um preenche a razão social (2.1). */
+/** Compradores frequentes (desdobrado e consolidado): escolher um preenche a razão social (2.1). */
 export const COMPRADORES_FREQUENTES = [
   "Serrabras Comércio de Madeiras Ltda",
   "Tree Serviços, Com. Importação e Exportação de Madeiras Ltda",

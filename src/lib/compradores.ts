@@ -31,6 +31,15 @@ export async function adicionarComprador(razao: string): Promise<void> {
   }
 }
 
+/** Corrige a razão social (nome digitado errado). */
+export async function renomearComprador(id: number, razao: string): Promise<void> {
+  const { error } = await getSupabaseServerClient().from(TABELA).update({ razao }).eq("id", id);
+  if (error) {
+    if (/duplicate|unique/i.test(error.message)) throw new Error("Já existe um comprador com esse nome.");
+    throw new Error(`Falha ao alterar: ${error.message}`);
+  }
+}
+
 export async function excluirComprador(id: number): Promise<void> {
   const { error } = await getSupabaseServerClient().from(TABELA).delete().eq("id", id);
   if (error) throw new Error(`Falha ao excluir: ${error.message}`);

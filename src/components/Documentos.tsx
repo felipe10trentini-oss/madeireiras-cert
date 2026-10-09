@@ -322,21 +322,20 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
                     />
                   </div>
                 )}
-                {tipo === "desdobrado" && (
-                  <div className="field">
-                    <label htmlFor="m-comprador">Comprador frequente (preenche o 2.1)</label>
-                    <select
-                      id="m-comprador"
-                      value={compradores.includes(valores["2.1"] ?? "") ? valores["2.1"] : ""}
-                      onChange={(e) => setAjustes((a) => ({ ...a, "2.1": e.target.value }))}
-                    >
-                      <option value="">— nenhum (digitar no 2.1) —</option>
-                      {compradores.map((c) => (
-                        <option key={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                {/* Desdobrado e consolidado: o comprador frequente preenche só a razão social (2.1). */}
+                <div className="field">
+                  <label htmlFor="m-comprador">Comprador frequente (preenche o 2.1)</label>
+                  <select
+                    id="m-comprador"
+                    value={compradores.includes(valores["2.1"] ?? "") ? valores["2.1"] : ""}
+                    onChange={(e) => setAjustes((a) => ({ ...a, "2.1": e.target.value }))}
+                  >
+                    <option value="">— nenhum (digitar no 2.1) —</option>
+                    {compradores.map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
                 {manuais.map((c) => (
                   <div className="field" key={c.k}>
                     <label htmlFor={`m-${c.k}`}>{c.rotulo}</label>
