@@ -83,7 +83,8 @@ export function valoresDesdobrado(
 ): ValoresDocumento {
   const unidade = material === "palete" ? "unidades" : "m³";
   const d = dadosEmpresa(empresa, m);
-  const descVolumes = material === "palete" ? (m.volumes ?? "Paletes de madeira") : "Fardos";
+  // Paletes: 3.5 sempre "Paletes de madeira", sem número (combinado em 09/10/2026); madeira: "12 Fardos".
+  const descVolumes = material === "palete" ? "Paletes de madeira" : "Fardos";
   return {
     numero: m.numero ? (sequencia.trim() ? `${m.numero}-${sequencia.trim()}` : m.numero) : "",
     processo: m.processo ?? "",
@@ -103,7 +104,7 @@ export function valoresDesdobrado(
     "3.2": m.enderecoTrat ?? d.endereco,
     "3.3": "Nihil",
     "3.4": material === "palete" ? (m.produto ?? "Madeira reflorestada") : semBitola(m.produto) || "Madeira serrada de pinus",
-    "3.5": volumes.trim() ? `${volumes.trim()} ${descVolumes}` : descVolumes,
+    "3.5": material === "madeira" && volumes.trim() ? `${volumes.trim()} ${descVolumes}` : descVolumes,
     "3.6": quantidade.trim() ? `${quantidade.trim()} ${unidade}` : unidade,
     "3.7": m.lote ?? "",
     "3.8": m.ciclo ?? "",
@@ -186,6 +187,7 @@ export const COMPRADORES_FREQUENTES = [
   "Madetam Madeireira Tamandare Ltda",
   "Eagle Comercial Exportadora Ltda",
   "Embalatec Mato Grosso do Sul Embalagens Ltda",
+  "Trombini Embalagens S/A",
 ];
 
 /** Rótulos editáveis na tela (o resto vem do mestre/DR e pode ser ajustado em "editar"). */

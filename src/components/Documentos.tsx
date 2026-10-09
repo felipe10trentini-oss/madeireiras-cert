@@ -172,7 +172,7 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
   const faltando = valores
     ? [
         ...(tipo === "desdobrado" && !sequencia ? [{ k: "numero", rotulo: "Nº do desdobramento" }] : []),
-        ...(tipo === "desdobrado" && !volumes.trim() ? [{ k: "3.5", rotulo: "3.5." }] : []),
+        ...(tipo === "desdobrado" && material === "madeira" && !volumes.trim() ? [{ k: "3.5", rotulo: "3.5." }] : []),
         ...(tipo === "desdobrado" && !quantidade.trim() ? [{ k: "3.6", rotulo: "3.6." }] : []),
         ...manuais.filter((c) => !valores[c.k] || ["m³", "unidades", "NFe"].includes(valores[c.k].trim())),
       ]
@@ -298,9 +298,10 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
                     />
                   </div>
                 )}
-                {tipo === "desdobrado" && (
+                {/* Paletes: o 3.5 é sempre "Paletes de madeira" (sem número); só a madeira pede os fardos. */}
+                {tipo === "desdobrado" && material === "madeira" && (
                   <div className="field">
-                    <label htmlFor="m-vol">3.5. Quantidade de {material === "palete" ? "volumes" : "fardos"}</label>
+                    <label htmlFor="m-vol">3.5. Quantidade de fardos</label>
                     <input
                       id="m-vol"
                       inputMode="numeric"
