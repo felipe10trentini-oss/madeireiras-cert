@@ -51,8 +51,9 @@ export function linhaMannMovel(
     dataDocumento: a.dataDocumento,
     tomador: v.tomRazao ?? "",
     produto: v.produto ?? "",
-    // A linha genérica soma os itens em "quantidade"; a planilha da Mann usa "Número de volumes".
-    volumes: base.quantidade,
+    // Total de peças em "Número de volumes": a linha genérica põe a soma em "quantidade" ou, quando o
+    // estilo da planilha conta em volumes (o da Mann), já em "volumes" — vale a que vier preenchida.
+    volumes: base.quantidade || base.volumes,
     unidadeVolumes: "Unidades",
     quantidade: "",
     unidadeQuantidade: "",
