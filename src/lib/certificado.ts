@@ -84,6 +84,8 @@ export interface RegraEmpresa {
   relatorioAqfHM?: boolean;
   /** Certificado: "32min" sem espaço (AGK, MD). */
   minSemEspaco?: boolean;
+  /** Prestadora: local de emissão é o município dela (Mann móvel: Curitiba - PR), não o do cliente. */
+  localDoPrestador?: boolean;
   /** Caixas da curva são "kit caixas" (TLP). */
   caixasEmKit?: boolean;
   /** "Madeira de Pinus com 7000 Pcs" = 7000 ripas; produto "Madeira reflorestada de pinus" (Madeico). */
@@ -109,7 +111,7 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "03298956000100": { numeroEhLote: true }, // Pinustan
   "02927182000176": { loteEhNumero: true }, // JJ Thomazi
   "24046686000110": { prestadora: true }, // Exata (prestadora de serviço, como a Mann móvel)
-  "00093600000141": { prestadora: true }, // Mann Unid. Volante
+  "00093600000141": { prestadora: true, localDoPrestador: true }, // Mann Unid. Volante (local de emissão: Curitiba - PR)
   "21730230000186": { loteSequencial: true }, // GM
   "03636539000120": { loteAnoSemana: true, produto: "Madeira serrada para embalagens", programacaoTrimestral: true }, // MART
   "21495060000283": { kitEhAqf: true }, // Maxi
@@ -623,8 +625,10 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     dataFim: fim?.data ?? null,
     horaFim: fim ? horaFmt(fim.hora) : null,
     temperatura,
-    // Município - UF do local do tratamento (3.2); prestadora: o do cliente.
-    local: localDoEndereco(regra.prestadora ? (comunicado?.endereco ?? salvo?.endereco ?? null) : null) || localDoEndereco(empresa.endereco),
+    // Município - UF do local do tratamento (3.2); prestadora: o do cliente (Mann móvel: o dela, Curitiba - PR).
+    local:
+      localDoEndereco(regra.prestadora && !regra.localDoPrestador ? (comunicado?.endereco ?? salvo?.endereco ?? null) : null) ||
+      localDoEndereco(empresa.endereco),
   };
   return { modelo, valores, avisos, inicio, duracaoTexto };
 }
