@@ -57,8 +57,6 @@ export interface RegraEmpresa {
   email?: string;
   /** Descrição do produto sempre igual nos certificados da empresa (MART). */
   produto?: string;
-  /** Planilha de relatório do MAPA no modelo de cadastrada (A–X), mesmo sendo credenciada (Decorbras). */
-  relatorioSemTomador?: boolean;
   /**
    * Prestadora de serviço (igual à Mann móvel): trata na casa do cliente, com comunicado
    * por tratamento. Tomador e endereço do tratamento são do cliente; produto e
@@ -105,7 +103,7 @@ export interface RegraEmpresa {
 
 export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "39271111000178": { unidadeVolumes: "Tábuas", suportesEmPecas: true }, // ABB Wood
-  "73931933000176": { unidadeVolumes: "tábuas", loteTresDigitos: true, relatorioSemTomador: true }, // Decorbras
+  "73931933000176": { unidadeVolumes: "tábuas", loteTresDigitos: true }, // Decorbras (cadastrada desde 14/10/2026)
   "06941489000182": { loteTresDigitos: true }, // CL
   "49890808000180": { loteTresDigitos: true, unidadeVolumes: "fardos" }, // Serraria Céu Azul (fardos e bitola: curva + comunicado)
   "03298956000100": { numeroEhLote: true }, // Pinustan

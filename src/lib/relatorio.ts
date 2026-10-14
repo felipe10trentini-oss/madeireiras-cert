@@ -96,8 +96,7 @@ export type LinhaRelatorio = Record<string, string>;
 
 /** Modelo da planilha de relatório da empresa: A–Z (credenciadas, com tomador) ou A–X. */
 export function colunasRelatorio(empresa: Madeireira): Coluna[] {
-  const semTomador = REGRAS_EMPRESA[soDigitos(empresa.cnpj)]?.relatorioSemTomador;
-  return empresa.modalidade === "Credenciada" && !semTomador ? COLUNAS_CREDENCIADA : COLUNAS_CADASTRADA;
+  return empresa.modalidade === "Credenciada" ? COLUNAS_CREDENCIADA : COLUNAS_CADASTRADA;
 }
 
 const up = (s: string | null | undefined) => (s ?? "").toUpperCase();
