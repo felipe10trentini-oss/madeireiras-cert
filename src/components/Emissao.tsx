@@ -212,7 +212,11 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
     if (/^\d{1,8}$/.test(valores.lote ?? "")) padrao.ultimoLote = valores.lote;
     if (chaveCiclo) padrao.ciclos = { [chaveCiclo.estufa]: chaveCiclo.numero };
     const cnpj = soDigitos(valores.tomCnpj);
-    if (cnpj.length === 14 && cnpj !== soDigitos(empresa.cnpj) && valores.tomEndereco) {
+    // Só guarda tomador que ainda não está cadastrado: o cadastro (Cadastros > clientes) é a fonte do 2.3
+    // (sede do cartão CNPJ). Senão um 2.3 trocado pelo endereço de um local de tratamento (cliente com dois
+    // endereços no mesmo CNPJ) ficaria salvo e voltaria nos próximos certificados.
+    const jaCadastrado = !!empresa.relatorio?.tomadores?.[cnpj];
+    if (cnpj.length === 14 && cnpj !== soDigitos(empresa.cnpj) && valores.tomEndereco && !jaCadastrado) {
       padrao.tomadores = {
         [cnpj]: {
           razao: valores.tomRazao ?? "",

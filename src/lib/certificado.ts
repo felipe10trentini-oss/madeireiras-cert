@@ -593,6 +593,10 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
         }
       : null;
 
+  if (regra.prestadora && comunicado && !comunicado.endereco) {
+    avisos.push("O comunicado não traz o endereço do local do tratamento: preencha o 3.2 (o endereço do cadastro do cliente é o da sede, do 2.3).");
+  }
+
   const valores: ValoresCertificado = {
     numero,
     razao: prestador.razaoSocial,
@@ -608,8 +612,9 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     tomTelefone: fixo ? fixo.telefone : tomadorOutro ? (salvo?.telefone ?? "") : "Nihil",
     tomEmail: fixo ? fixo.email : tomadorOutro ? (salvo?.email ?? "") : "Nihil",
     comunicado: numComunicado,
-    // Prestadora trata na casa do cliente: endereço do comunicado.
-    enderecoTrat: regra.prestadora ? (comunicado?.endereco ?? salvo?.endereco ?? null) : empresa.endereco,
+    // Prestadora trata na casa do cliente: 3.2 é sempre o endereço do comunicado (o cliente pode ter mais de
+    // um local no mesmo CNPJ); o da sede (cadastro) só vai no 2.3.
+    enderecoTrat: regra.prestadora ? (comunicado?.endereco ?? null) : empresa.endereco,
     destino: regra.destino ?? "Estoque",
     produto,
     volumes,

@@ -60,7 +60,11 @@ export async function lerPlanilhaClientes(buffer: ArrayBuffer | Buffer): Promise
   }
   if (cabecalho < 0) throw new Error('Não encontrei as colunas "Nome" e "CNPJ" no topo da planilha.');
 
-  const porCnpj = new Map<string, Tomador>();
+  // Mesmo CNPJ em mais de uma linha (outro local de tratamento: "Bobipar (novo endereço)", "ALR Toledo"):
+  // o tomador é um só. 2.3 = endereço do escritório/sede (cartão CNPJ, com CEP) de qualquer uma das linhas
+  // (as de "novo endereço" vêm sem ele); só sem nenhum escritório vale o local da 1ª linha. Telefone e
+  // e-mail: o 1º preenchido. O local do tratamento (3.2) vem sempre do comunicado.
+  const porCnpj = new Map<string, Tomador & { escritorio: string; local: string }>();
   let ignoradas = 0;
   for (let r = cabecalho + 1; r <= ws.rowCount; r++) {
     const row = ws.getRow(r);
@@ -74,15 +78,19 @@ export async function lerPlanilhaClientes(buffer: ArrayBuffer | Buffer): Promise
       ignoradas++;
       continue;
     }
+    // Vários telefones: o certificado separa com " / ".
+    const telefone = (d.telefone ?? "").replace(/\s*\/\s*/g, " / ");
+    const antes = porCnpj.get(cnpj);
     porCnpj.set(cnpj, {
-      razao: d.nome,
-      cnpj: d.cnpj!,
-      // O certificado usa o endereço do escritório (com CEP); sem ele, o do local.
-      endereco: d.enderecoEscritorio || d.endereco || "",
-      // Vários telefones: o certificado separa com " / ".
-      telefone: (d.telefone ?? "").replace(/\s*\/\s*/g, " / "),
-      email: d.email ?? "",
+      razao: antes?.razao ?? d.nome,
+      cnpj: antes?.cnpj ?? d.cnpj!,
+      endereco: "",
+      escritorio: antes?.escritorio || d.enderecoEscritorio || "",
+      local: antes?.local || d.endereco || "",
+      telefone: antes?.telefone || telefone,
+      email: antes?.email || d.email || "",
     });
   }
-  return { clientes: [...porCnpj.values()], ignoradas };
+  const clientes: Tomador[] = [...porCnpj.values()].map(({ escritorio, local, ...t }) => ({ ...t, endereco: escritorio || local }));
+  return { clientes, ignoradas };
 }
