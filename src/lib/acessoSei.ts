@@ -134,6 +134,10 @@ export function escolherAcesso<T extends { nome: string; funcao: string | null; 
       const primeiroOk = doRt(n[0]) || (n[0]?.[0] === rt[0][0] && n.slice(1).some(doRt));
       if (!primeiroOk) return { a, s: 0 };
       const comuns = n.slice(1).filter(doRt).length;
+      // O 1º nome da planilha bateu só com um nome do meio do RT ("José Roberto …" x "Caetano José Tedeschi"):
+      // só vale com sobrenome em comum, senão pega o RT de outra empresa.
+      const primeiroDoRt = parecido(n[0], rt[0]) || parecido(n[0], curto[0]);
+      if (!primeiroDoRt && comuns === 0) return { a, s: 0 };
       const emp = a.empresa ? chaveNome(a.empresa) : "";
       const daEmpresa = emp && (emp.includes(apelido) || apelido.includes(emp)) ? 2 : 0;
       return { a, s: 1 + comuns + daEmpresa };
