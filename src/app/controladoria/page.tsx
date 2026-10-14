@@ -116,6 +116,8 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
   const [busca, setBusca] = useState("");
   const [verEmpresas, setVerEmpresas] = useState(PRIMEIRAS_EMPRESAS);
   const [verEmissoes, setVerEmissoes] = useState(PRIMEIRAS_EMISSOES);
+  // Quem está online agora (luz verde/vermelha ao lado do nome), atualizado a cada 30 s.
+  const [online, setOnline] = useState<Record<number, { online: boolean; vistoEm: string | null }>>({});
 
   const intervalo: [string, string] =
     tipo === "dia" ? [dia, dia] : tipo === "mes" ? [`${mes}-01`, ultimoDiaDoMes(mes)] : tipo === "ano" ? [`${ano}-01-01`, `${ano}-12-31`] : [de, ate];
@@ -149,6 +151,22 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial dos dados da página
     void carregar();
   }, [carregar]);
+
+  useEffect(() => {
+    const ver = async () => {
+      try {
+        const res = await fetch("/api/presenca", { headers: cabecalhoSenha(senha), cache: "no-store" });
+        if (!res.ok) return;
+        const d = (await res.json()) as { online: { id: number; online: boolean; vistoEm: string | null }[] };
+        setOnline(Object.fromEntries(d.online.map((o) => [o.id, { online: o.online, vistoEm: o.vistoEm }])));
+      } catch {
+        // presença é só informativa
+      }
+    };
+    void ver();
+    const t = setInterval(ver, 30_000);
+    return () => clearInterval(t);
+  }, [senha]);
 
   async function enviar(method: "POST" | "PATCH", corpo: object, ok: string) {
     setAviso(null);
@@ -390,7 +408,10 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
 
       <div className="section-title">
         <h2>Colaboradores</h2>
-        <p>Certificados copiados por colaborador (horário de Brasília). “Período” = {rotuloPeriodo}.</p>
+        <p>
+          <span className="luz on" aria-hidden="true" /> {Object.values(online).filter((o) => o.online).length} online agora · Certificados
+          copiados por colaborador (horário de Brasília). “Período” = {rotuloPeriodo}.
+        </p>
       </div>
       {aviso && <p className="hint" style={{ marginBottom: 8 }}>{aviso}</p>}
       <div className="table-wrap" style={{ marginBottom: 18 }}>
@@ -429,6 +450,18 @@ function Controladoria({ senha, sair }: { senha: string; sair: () => void }) {
                       <input aria-label="Nome" value={ed.nome} onChange={(e) => setEditando({ ...ed, nome: e.target.value })} />
                     ) : (
                       <>
+                        <span
+                          className={`luz ${online[o.id]?.online ? "on" : "off"}`}
+                          role="img"
+                          aria-label={online[o.id]?.online ? "Online" : "Offline"}
+                          title={
+                            online[o.id]?.online
+                              ? "Online agora"
+                              : online[o.id]?.vistoEm
+                                ? `Offline · visto por último em ${quando(online[o.id]!.vistoEm!)}`
+                                : "Offline"
+                          }
+                        />{" "}
                         {o.nome}
                         {o.perfil === "master" ? (
                           <span className="kpi-sub"> · controladoria</span>

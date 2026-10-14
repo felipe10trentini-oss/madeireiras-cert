@@ -289,3 +289,8 @@ table.dados tbody tr:hover { background: var(--surface-2); }
 .periodo-botoes input[type="date"] { width: auto; }
 .ver-mais { margin: 8px 0 18px; align-items: center; gap: 10px; }
 .ver-mais .hint { margin: 0; }
+
+/* Controladoria: quem está online (luz verde) ou offline (luz vermelha) */
+.luz { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; flex: none; }
+.luz.on { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2); }
+.luz.off { background: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15); }

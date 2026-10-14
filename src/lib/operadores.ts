@@ -121,6 +121,33 @@ export async function alterarOperador(
   }
 }
 
+// ---------- presença (quem está online) ----------
+
+/** Sem sinal há mais que isso = offline (o navegador avisa a cada minuto). */
+export const ONLINE_MS = 2 * 60 * 1000;
+
+/** Sinal de vida do colaborador logado (ou `null` ao sair). */
+export async function marcarPresenca(id: number, online: boolean): Promise<void> {
+  const { error } = await getSupabaseServerClient()
+    .from("operadores")
+    .update({ visto_em: online ? new Date().toISOString() : null })
+    .eq("id", id);
+  if (error) throw new Error(`Falha ao registrar presença: ${error.message}`);
+}
+
+/** Último sinal de cada colaborador; antes da migração 007 (sem a coluna) devolve vazio. */
+export async function listarPresenca(): Promise<{ id: number; visto_em: string | null }[]> {
+  const { data, error } = await getSupabaseServerClient()
+    .from("operadores")
+    .select("id, visto_em")
+    .returns<{ id: number; visto_em: string | null }[]>();
+  if (error) {
+    if (/visto_em|column/i.test(error.message)) return [];
+    throw new Error(`Falha ao ler presença: ${error.message}`);
+  }
+  return data ?? [];
+}
+
 export async function registrarEmissao(
   e: Omit<Emissao, "id" | "created_at"> & { operador_id: number; comunicado?: string | null }
 ): Promise<void> {
