@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { REGRAS_EMPRESA } from "@/lib/certificado";
+import { regraDe } from "@/lib/certificado";
 import type { MadeireiraSalva, ResumoTomadores } from "@/lib/madeireirasDb";
 import { CNPJ_MANN_MOVEL } from "@/lib/relatorioMannMovel";
 import { lerPlanilhaClientes } from "@/lib/planilhaClientes";
@@ -29,7 +29,8 @@ interface Props {
  * entram no certificado. Substitui a antiga aba "Clientes" do site da Mann móvel.
  */
 export function ClientesPrestadora({ senha, empresas, onAplicado }: Props) {
-  const prestadoras = (empresas ?? []).filter((e) => REGRAS_EMPRESA[soDigitos(e.cnpj)]?.prestadora);
+  // Prestadora fixa no código (Mann móvel, Exata) ou marcada no cadastro ("Prestadora de serviço: Sim", CJ Tedeski).
+  const prestadoras = (empresas ?? []).filter((e) => regraDe(e).prestadora);
   const [escolhida, setEscolhida] = useState(CNPJ_MANN_MOVEL);
   const alvo = prestadoras.find((e) => soDigitos(e.cnpj) === soDigitos(escolhida)) ?? prestadoras[0] ?? null;
   const salvos = alvo ? Object.keys(alvo.relatorio?.tomadores ?? {}).length : 0;

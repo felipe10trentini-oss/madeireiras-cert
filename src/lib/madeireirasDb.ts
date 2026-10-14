@@ -235,7 +235,7 @@ export async function sincronizarTomadores(
   const rows = await lerRows();
   const prestadora = rows.find((r) => soDigitos(r.cnpj) === soDigitos(cnpjPrestadora));
   if (!prestadora) throw new Error("Empresa não encontrada no cadastro.");
-  if (!REGRAS_EMPRESA[soDigitos(prestadora.cnpj)]?.prestadora) {
+  if (!REGRAS_EMPRESA[soDigitos(prestadora.cnpj)]?.prestadora && !prestadora.config?.prestadora) {
     throw new Error("Só as prestadoras de serviço (Mann móvel, Exata) têm clientes tomadores.");
   }
 

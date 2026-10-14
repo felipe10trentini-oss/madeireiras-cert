@@ -4,7 +4,7 @@
 // planilha de clientes. Grava pela mesma rota do upload (/api/madeireiras/clientes), que só
 // cadastra ou atualiza pelo CNPJ (nunca apaga).
 import { useState, type FormEvent } from "react";
-import { REGRAS_EMPRESA } from "@/lib/certificado";
+import { regraDe } from "@/lib/certificado";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import type { Tomador } from "@/lib/relatorio";
 import { CNPJ_MANN_MOVEL } from "@/lib/relatorioMannMovel";
@@ -16,7 +16,7 @@ const VAZIO: Tomador = { razao: "", cnpj: "", endereco: "", telefone: "", email:
 /** Prestadoras com clientes (Mann móvel primeiro). */
 export function prestadorasDe(empresas: MadeireiraSalva[] | null): MadeireiraSalva[] {
   return (empresas ?? [])
-    .filter((e) => REGRAS_EMPRESA[soDigitos(e.cnpj)]?.prestadora)
+    .filter((e) => regraDe(e).prestadora)
     .sort((a, b) => Number(soDigitos(b.cnpj) === CNPJ_MANN_MOVEL) - Number(soDigitos(a.cnpj) === CNPJ_MANN_MOVEL));
 }
 

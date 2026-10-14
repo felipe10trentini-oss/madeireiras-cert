@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { montarCertificado, REGRAS_EMPRESA, sugerirTipo, type TipoTratamento } from "@/lib/certificado";
+import { montarCertificado, regraDe, sugerirTipo, type TipoTratamento } from "@/lib/certificado";
 import type { Comunicado } from "@/lib/comunicado";
 import { curvaVazia, type Curva } from "@/lib/curvas/tipos";
 import { identificarEmpresa, lerNomeArquivo } from "@/lib/madeireiras";
@@ -99,7 +99,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
   const html = montado && valores ? montarHtml(montado.modelo, valores) : "";
 
   // Trava de divergência: comunicado x curva (dia, horário, material, quantidade).
-  const prestadora = !!(empresa && REGRAS_EMPRESA[soDigitos(empresa.cnpj)]?.prestadora);
+  const prestadora = !!(empresa && regraDe(empresa).prestadora);
   const numeroCertificado = valores?.numero ?? null;
   const numeroComunicado = extraido?.comunicado?.numero ?? null;
 
