@@ -20,6 +20,7 @@ const NOMES: Record<string, string> = {
   MAIKON: "Maicon Berkenbrock",
   HUMBERTOCABRAL: "Humberto de Ramos Cabral",
   TICIANO: "Ticiano José Boing",
+  CAETANO: "Caetano José Tedeschi", // CJ Tedeski (signatário dos recibos do SEI)
   // Só nas planilhas de relatório (sem certificado assinado em setembro):
   CAMILASESTREM: "Camila Cristiane Sestrem",
   ROBERTO: "José Roberto Andrade Nobell",

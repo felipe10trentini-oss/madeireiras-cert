@@ -4,7 +4,7 @@
 import type { TipoTratamento } from "./certificado";
 import type { Madeireira } from "./madeireiras";
 import type { ValoresCertificado } from "./modelos";
-import { REGRAS_EMPRESA } from "./certificado";
+import { localDoEndereco, REGRAS_EMPRESA } from "./certificado";
 import { EMBALAGEM, type EstiloGrupo, type EstiloRelatorio } from "./estiloRelatorio";
 import { somaDeItens } from "./produtoTexto";
 import { rtCompleto } from "./responsaveis";
@@ -181,7 +181,8 @@ export function montarLinhaRelatorio(args: {
     unidadeQuantidade = g.unidadeQuantidade ?? "m³";
   } else {
     // Embalagens contadas ("720 paletes"): produto = descrição das embalagens.
-    produto = v.volumes && !/^\d/.test(v.volumes) ? v.volumes : (v.produto ?? "");
+    // Prestadoras: volumes "Nihil" -> o produto do comunicado ("Paletes de madeira").
+    produto = v.volumes && !/^\d/.test(v.volumes) && !/^nihil$/i.test(v.volumes.trim()) ? v.volumes : (v.produto ?? "");
     if (g.embalagemDeMadeira && EMBALAGEM.test(produto) && !/madeira/i.test(produto)) produto += " de madeira";
     produto = caixa(produto);
     const unidade = g.contagemEm === "volumes" ? (g.unidadeVolumes ?? "Unidades") : (g.unidadeQuantidade ?? caixa("Unidades"));
@@ -235,7 +236,8 @@ export function montarLinhaRelatorio(args: {
   const horario = g.horario === ":" ? (v.horaInicio ?? "").replace(/^(\d{2})h(\d{2})m$/, "$1:$2") : (v.horaInicio ?? "");
   const tomadorTexto = tomadorNihil ? empresa.razaoSocial : (v.tomRazao ?? "");
   // "000 TUNAS DO PARANÁ - PR" -> "TUNAS DO PARANÁ" (sobra de número do endereço no comunicado)
-  const local = (v.local ?? "").replace(/\s*[-–]\s*[A-Z]{2}$/, "").replace(/^\d+\s+/, "");
+  // "Local do Tratamento": a cidade do 3.2 (prestadora que emite na própria cidade, como a CJ, trata no cliente).
+  const local = (localDoEndereco(v.enderecoTrat) || v.local || "").replace(/\s*[-–]\s*[A-Z]{2}$/, "").replace(/^\d+\s+/, "");
 
   return {
     // AQF e embalagens (paletes, caixas, kits, skids, suportes): sempre atendimento à NIMF 15, no texto

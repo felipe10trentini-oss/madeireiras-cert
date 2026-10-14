@@ -118,6 +118,8 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "13804475000182": { bitolaPadraoMm: 17, loteTresDigitos: true }, // Rio Timbó
   "04456108000144": { embalagemDeMadeira: true, relatorioAqfHM: true, minSemEspaco: true }, // MD Paletes (paletes e tampas item a item)
   "26341045000113": { cicloTresDigitos: true }, // Induspacking Cotia: ciclo "077" como o lote
+  // CJ Tedeski (prestadora: cadastro com "Prestadora de serviço"): emite em Torrinha - SP, lote/ciclo "016".
+  "13273758000145": { localDoPrestador: true, cicloTresDigitos: true },
   "05199829000260": { prestadorCnpj: "05199829000189" }, // Inexport Capivari: prestador é a matriz (Palmares)
   "06249793000163": { tomadorFixo: { razao: "Madeireira São Gabriel Ltda", cnpj: "40.950.343/0001-31" } }, // Reis
   "83951012000129": { ajusteFimMin: -1, madeiraEmRipas: true }, // Madeico
@@ -544,6 +546,8 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
 
   let lote = arq.lote ?? curva.lote ?? curva.ciclo;
   if (lote && regra.loteTresDigitos) lote = loteTres(lote);
+  // Ciclo com 3 dígitos e lote = nº do ciclo ("16"): o lote acompanha ("016").
+  if (lote && regra.cicloTresDigitos && /^\d{1,2}$/.test(lote)) lote = lote.padStart(3, "0");
   if (lote && regra.loteSemHifen) lote = lote.replace(/^(\d+)-(\d+)$/, "$1$2");
   if (regra.loteAnoSemana && inicio) lote = anoSemana(inicio.data);
   if (arq.loteInformado) {
