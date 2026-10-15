@@ -68,6 +68,8 @@ export interface RegraEmpresa {
    * mais de dois tratamentos no dia exigem comunicado próprio (MART).
    */
   programacaoTrimestral?: boolean;
+  /** Nº da programação diferente do mês do tratamento: "10/2026" -> "05/2026" (Madepar). */
+  programacaoDoMes?: Record<string, string>;
   /** Kits de paletes são sempre AQF em unidades (Maxi). */
   kitEhAqf?: boolean;
   /** Curva SV580 "Finalizado (HT)" vai no modelo AQF "AQF - HT" (Palletimber). */
@@ -126,6 +128,8 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "15705169000114": { relatorioAqfHM: true, minSemEspaco: true }, // AGK
   "12579164000102": { relatorioAqfHM: true }, // Madeval
   "52249461000104": { caixasEmKit: true }, // TLP
+  // Madepar: programações protocoladas fora da sequência do mês (14/10/2026).
+  "83418434000133": { programacaoDoMes: { "10/2026": "05/2026", "11/2026": "06/2026", "12/2026": "07/2026" } },
 };
 
 /** Páscoa (algoritmo de Meeus) — base dos feriados móveis. */
@@ -523,6 +527,8 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
   } else if (inicio) {
     numComunicado = inicio.data.slice(3); // "21/09/2026" -> "09/2026"
   }
+  const doMes = (p: string) => regra.programacaoDoMes?.[p] ?? p;
+  if (numComunicado && !comunicado?.numero) numComunicado = doMes(numComunicado);
   // Secagem que atravessa o mês (ou o trimestre): vale a programação do mês do INÍCIO da curva
   // (decisão de 01/10/2026); o aviso lembra que o operador pode trocar se precisar.
   // AQF começa e termina no mesmo dia (vale a data da janela HT): só a secagem atravessa o mês.
@@ -532,7 +538,7 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
       const [, mes, ano] = data.split("/");
       return regra.programacaoTrimestral
         ? `${String(Math.ceil(parseInt(mes, 10) / 3)).padStart(2, "0")}/${ano}`
-        : `${mes}/${ano}`;
+        : doMes(`${mes}/${ano}`);
     };
     const doInicio = numComunicado;
     const doFim = periodo(fimCiclo.data);
