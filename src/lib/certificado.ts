@@ -8,8 +8,8 @@ import type { Tomador } from "./relatorio";
 import { duracaoHM, horaFmt, m3BR, semAcento, soDigitos, somarMinutos, tempBR, type DataHora } from "./util";
 
 /**
- * KD  = secagem em estufa, umidade final < 18%
- * HT  = tratamento térmico em estufa (empresa KD/HT com umidade >= 18%)
+ * KD  = secagem em estufa, umidade final até 18,0% (18,00% ainda é KD)
+ * HT  = tratamento térmico em estufa (empresa KD/HT com umidade acima de 18% — 18,1% já é HT)
  * AQF = ar quente forçado: empresas só HT, ou skids/suportes/paletes de empresa KD/HT
  */
 export type TipoTratamento = "KD" | "HT" | "AQF";
@@ -226,9 +226,9 @@ export function sugerirTipo(e: EntradaCertificado): { tipo: TipoTratamento; moti
     return { tipo: "AQF", motivo: "produto é embalagem (paletes/caixas)" };
   }
   if (curva.umidadeFinal != null) {
-    return curva.umidadeFinal < UMIDADE_LIMITE_KD
-      ? { tipo: "KD", motivo: `umidade final ${tempBR(curva.umidadeFinal)}% (abaixo de ${UMIDADE_LIMITE_KD}%)` }
-      : { tipo: "HT", motivo: `umidade final ${tempBR(curva.umidadeFinal)}% (${UMIDADE_LIMITE_KD}% ou mais)` };
+    return curva.umidadeFinal <= UMIDADE_LIMITE_KD
+      ? { tipo: "KD", motivo: `umidade final ${tempBR(curva.umidadeFinal)}% (até ${UMIDADE_LIMITE_KD}%)` }
+      : { tipo: "HT", motivo: `umidade final ${tempBR(curva.umidadeFinal)}% (acima de ${UMIDADE_LIMITE_KD}%)` };
   }
   if (curva.statusTipo) return { tipo: curva.statusTipo, motivo: `a curva indica "${curva.statusTipo}"` };
   return { tipo: "KD", motivo: "a curva não informa umidade — confira" };

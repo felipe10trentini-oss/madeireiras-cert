@@ -115,7 +115,7 @@ export function valoresDesdobrado(
     "3.13": m.dataFim ?? "",
     "3.14": m.horaFim ?? "",
     "3.15": m.temperatura ?? "",
-    // Só secagem KD (umidade < 18%): AQF e secagem HT (umidade ≥ 18%) não levam a observação.
+    // Só secagem KD (umidade até 18%): AQF e secagem HT (umidade acima de 18%) não levam a observação.
     // Uma observação por linha. Reis: o contratante (tomador fixo, Madeireira São Gabriel) também vai aqui.
     obs: [
       material === "madeira" && modalidadeCurta(m.modalidade) === "KD" ? "Obs: Madeira com umidade inferior a 18%" : "",

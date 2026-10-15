@@ -265,7 +265,7 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
                   <option value="palete">Paletes / embalagens</option>
                   <option value="madeira">Madeira serrada</option>
                 </select>
-                <div className="kpi-sub">{tipo === "desdobrado" && valores.obs ? "com a observação de umidade < 18% (KD)" : " "}</div>
+                <div className="kpi-sub">{tipo === "desdobrado" && valores.obs ? "com a observação de umidade até 18% (KD)" : " "}</div>
               </div>
               <div className="card">
                 <div className="kpi-label">Nº do {tipo === "desdobrado" ? "desdobrado" : "consolidado"}</div>
