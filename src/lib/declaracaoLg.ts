@@ -55,12 +55,15 @@ function itensTratados(itens: ItemNota[], qtdLotes: number[]): { itens: ItemNota
   return { itens, casou: false };
 }
 
-const primeiraPalavra = (razao: string) =>
-  razao
+/** Nome curto do cliente: a 1ª palavra ("BRF", "SEARA"); com número/santo, as duas ("DUAS RODAS", "SÃO JOÃO"). */
+const primeiraPalavra = (razao: string) => {
+  const ps = razao
     .replace(/\b(S\.?\/?A\.?|LTDA\.?|EIRELI|ME|EPP)\b/gi, " ")
     .trim()
-    .split(/\s+/)[0]
-    ?.toUpperCase() ?? "";
+    .toUpperCase()
+    .split(/\s+/);
+  return (/^(DUAS|DOIS|TR[EÊ]S|QUATRO|S[ÃA]O|SANTA|SANTO|NOVA|NOVO|BOM|BOA)$/.test(ps[0] ?? "") ? ps.slice(0, 2) : ps.slice(0, 1)).join(" ");
+};
 
 /** Nome no padrão da pasta: "DECL. BRF CHAPECO NFE 6302.docx" (filial leva a cidade). */
 export function nomeArquivoLg(nf: NotaFiscal): string {

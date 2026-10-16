@@ -87,3 +87,34 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
     observacao: obs,
   };
 }
+
+export interface CartaCorrecao {
+  numeroNf: string | null; // "6317" (sem os zeros da frente)
+  chave: string | null; // chave de acesso da NF (44 dígitos)
+  sequencia: string | null; // nº da correção
+  correcao: string;
+  lotes: LoteNota[];
+}
+
+/**
+ * Carta de Correção Eletrônica (DACCe) da nota: o texto da correção ("650 UN LOTE/UR 720") troca os
+ * lotes da nota. O texto vem entre o quadro de condições de uso e "DESCRIÇÃO DA CORREÇÃO".
+ */
+export function lerCartaCorrecao(texto: string): CartaCorrecao | null {
+  if (!/Carta de Corre[çc][ãa]o|DACCe/i.test(texto)) return null;
+  const t = texto.replace(/[ \t]+/g, " ");
+  const numero = t.match(/N[º°o]\.?\s*0*(\d{1,9})\s*\n\s*S[ée]rie/i)?.[1] ?? t.match(/N[º°o]\.?\s*0*(\d{1,9})/i)?.[1] ?? null;
+  const chave = t.replace(/\s+/g, " ").match(/((?:\d{4}\s?){11})/)?.[1].replace(/\s/g, "") ?? null;
+  // Linhas que não são o modelo fixo do DACCe = a correção.
+  const fixo =
+    /^(N[º°o]|S[ée]rie|PROTOCOLO|CHAVE|CNPJ|DACCe|Documento Auxiliar|Carta de Corre|A Carta de Corre|de erro ocorrido|I+ ?-|presta[çc][ãa]o|III|CONDI[ÇC][ÕO]ES|DESCRI[ÇC][ÃA]O DA CORRE|N[ÚU]MERO CORRE|DATA E HORA|--|\d{4} \d{4} \d{4}|\d{14,}$|\d{12,} - \d{2}\/)/i;
+  const linhas = t.split("\n").map((l) => l.trim()).filter((l) => l && !fixo.test(l));
+  const correcao = linhas.join(" ").trim();
+  return {
+    numeroNf: numero ? String(parseInt(numero, 10)) : null,
+    chave: chave && chave.length === 44 ? chave : null,
+    sequencia: t.match(/N[ÚU]MERO CORRE[ÇC][ÃA]O:\s*(\d+)/i)?.[1] ?? null,
+    correcao,
+    lotes: lotesDaObservacao(correcao),
+  };
+}

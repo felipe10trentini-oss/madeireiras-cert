@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import { lerSessao, respostaNaoAutorizado } from "@/lib/auth";
 import { lerCertificadoMestre } from "@/lib/certificadoMestre";
-import { lerNotaFiscal } from "@/lib/notaFiscal";
+import { lerCartaCorrecao, lerNotaFiscal } from "@/lib/notaFiscal";
 import { extractPdf } from "@/lib/pdfText";
 
 export const runtime = "nodejs";
 
 /**
- * Lê um documento da remessa (PDF): nota fiscal (DANFE), certificado mestre ou outro (BL, booking,
- * invoice…). Devolve o texto e o que reconheceu. Nada é guardado.
+ * Lê um documento da remessa (PDF): nota fiscal (DANFE), carta de correção da nota (DACCe),
+ * certificado mestre ou outro (BL, booking, invoice…). Devolve o texto e o que reconheceu.
+ * Nada é guardado.
  */
 export async function POST(req: Request) {
   if (!lerSessao(req)) return respostaNaoAutorizado();
@@ -18,6 +19,9 @@ export async function POST(req: Request) {
   try {
     const { text } = await extractPdf(Buffer.from(await arq.arrayBuffer()));
     if (!text.trim()) return NextResponse.json({ error: "PDF sem texto (escaneado): não consigo ler." }, { status: 422 });
+    // A carta de correção também fala de "NF-e": vem antes da nota.
+    const cc = lerCartaCorrecao(text);
+    if (cc) return NextResponse.json({ nf: null, mestre: null, cc, texto: text.slice(0, 200_000) });
     const nf = lerNotaFiscal(text);
     const mestre = nf?.numero ? null : lerCertificadoMestre(text);
     return NextResponse.json({ nf: nf?.numero ? nf : null, mestre: mestre?.numero ? mestre : null, texto: text.slice(0, 200_000) });

@@ -5,7 +5,7 @@
 import fontkit from "@pdf-lib/fontkit";
 import JSZip from "jszip";
 import { degrees, PDFDocument, rgb, StandardFonts, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
-import type { DadosDeclaracao } from "./declaracao";
+import { textoTratamento, type DadosDeclaracao } from "./declaracao";
 
 export interface AtivosModelo {
   logo: Uint8Array | null;
@@ -49,15 +49,20 @@ export async function ativosDoModelo(modelo: Uint8Array | ArrayBuffer): Promise<
     const rels = await ler(h.replace("word/", "word/_rels/") + ".rels");
     const alvo = (id: string) => rels.match(new RegExp(`Id="${id}"[^>]*Target="([^"]+)"`))?.[1];
     const logoId = xml.match(/<a:blip r:embed="(\w+)"/)?.[1];
-    const marcaId = xml.match(/<v:imagedata r:id="(\w+)"/)?.[1];
+    // Marca-d'água só a de verdade do Word ("WordPictureWatermark…"); outras imagens VML do
+    // cabeçalho são enfeites do timbre.
+    const marcaId = xml.match(/<v:shape [^>]*id="WordPictureWatermark[^"]*"[\s\S]*?<v:imagedata r:id="(\w+)"/)?.[1];
     if (logoId && !out.logo) out.logo = await bin(`word/${alvo(logoId)}`);
     if (marcaId && !out.marca) out.marca = await bin(`word/${alvo(marcaId)}`);
     for (const cx of xml.match(/<w:txbxContent>[\s\S]*?<\/w:txbxContent>/g) ?? []) {
       const ps = paragrafos(cx).map((t) => t.trim()).filter(Boolean);
       if (ps.some((t) => /REGISTRO\s*MAPA/i.test(t))) out.registro ||= ps.find((t) => /REGISTRO\s*MAPA/i.test(t))!;
       else if (ps.length >= 3 && !out.nome) {
-        out.nome = ps[0];
-        out.linhas = ps.slice(1).map((t) => {
+        // O nome às vezes vem na mesma linha do endereço, separado por espaços ("Madeico …     Rua …").
+        const [nome, ...resto] = ps[0].split(/\t+|\s{3,}/);
+        out.nome = nome.trim();
+        const linhas = [...(resto.length ? [resto.join("   ")] : []), ...ps.slice(1)];
+        out.linhas = linhas.map((t) => {
           const [a, ...b] = t.split(/\t+|\s{3,}/);
           return [a.trim(), b.join(" ").trim()];
         });
@@ -66,7 +71,17 @@ export async function ativosDoModelo(modelo: Uint8Array | ArrayBuffer): Promise<
   }
   const doc = (await ler("word/document.xml")).replace(/<mc:Fallback>[\s\S]*?<\/mc:Fallback>/g, "");
   const rels = await ler("word/_rels/document.xml.rels");
-  const anc = [...doc.matchAll(/<wp:anchor\b[\s\S]*?<\/wp:anchor>/g)].map((m) => m[0]).find((a) => /<a:blip r:embed=/.test(a) && !/positionV relativeFrom="paragraph">\s*<wp:posOffset>[3-9]\d{6}/.test(a));
+  // Imagens do corpo (sem as "perdidas" fora da página). A assinatura é a última; se o cabeçalho não
+  // tem logo, o logo é a primeira (há Word com o timbre no corpo, como o da Madeico).
+  const imgs = [...doc.matchAll(/<wp:anchor\b[\s\S]*?<\/wp:anchor>/g)]
+    .map((m) => m[0])
+    .filter((a) => /<a:blip r:embed=/.test(a) && !/positionV relativeFrom="paragraph">\s*<wp:posOffset>[3-9]\d{6}/.test(a));
+  const anc = imgs[imgs.length - 1];
+  if (!out.logo && imgs.length > 1) {
+    const id = imgs[0].match(/<a:blip r:embed="(\w+)"/)![1];
+    const alvo = rels.match(new RegExp(`Id="${id}"[^>]*Target="([^"]+)"`))?.[1];
+    if (alvo) out.logo = await bin(`word/${alvo}`);
+  }
   if (anc) {
     const id = anc.match(/<a:blip r:embed="(\w+)"/)![1];
     const alvo = rels.match(new RegExp(`Id="${id}"[^>]*Target="([^"]+)"`))?.[1];
@@ -351,8 +366,6 @@ export async function gerarPdfLg(d: DadosDeclaracao, a: AtivosModelo, fontes?: F
 
 // ---------- versão B (layout novo, mesma identidade) ----------
 
-const VERDE = rgb(0.118, 0.318, 0.212); // verde do logo da LG
-const VERDE_CLARO = rgb(0.925, 0.953, 0.933);
 const CINZA_FUNDO = rgb(0.965, 0.972, 0.968);
 const CINZA_LINHA = rgb(0.79, 0.83, 0.81);
 const CINZA_TXT = rgb(0.36, 0.39, 0.38);
@@ -364,7 +377,7 @@ const ICONE_FONE = [
   "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z",
 ];
 
-function iconeTraco(pg: PDFPage, caminhos: string[], x: number, yTopo: number, tam: number, cor = VERDE) {
+function iconeTraco(pg: PDFPage, caminhos: string[], x: number, yTopo: number, tam: number, cor: ReturnType<typeof rgb>) {
   const esc = tam / 24;
   for (const c of caminhos) pg.drawSvgPath(c, { x, y: A4.h - yTopo, scale: esc, borderColor: cor, borderWidth: 1.8 });
   return tam + 3;
@@ -377,11 +390,28 @@ function caixa(pg: PDFPage, x: number, yTopo: number, w: number, h: number, r: n
   pg.drawSvgPath(d, { x, y: A4.h - yTopo, color: o.fundo, borderColor: o.borda, borderWidth: o.borda ? (o.esp ?? 0.8) : 0 });
 }
 
-/** PDF da declaração da LG, versão B: margens iguais, rótulos em coluna, tabela com faixa e cantos arredondados. */
-export async function gerarPdfLgB(d: DadosDeclaracao, a: AtivosModelo, fontes: FontesPdf): Promise<Uint8Array> {
+/** PDF da declaração da LG, versão B (layout novo, no verde da LG). */
+export function gerarPdfLgB(d: DadosDeclaracao, a: AtivosModelo, fontes: FontesPdf): Promise<Uint8Array> {
+  return gerarPdfPadrao(d, a, fontes, { cor: [0.118, 0.318, 0.212], geral: false });
+}
+
+export interface OpcoesPdf {
+  /** Cor de destaque (r, g, b de 0 a 1): a do logo da empresa. */
+  cor: [number, number, number];
+  /** true: campos de qualquer empresa (importador, NF-e, navio…), coluna do ciclo e o texto do tratamento. */
+  geral: boolean;
+}
+
+/**
+ * Layout novo da declaração (o da LG versão B) para qualquer empresa: margens iguais, rótulos em
+ * coluna, selo do registro no MAPA, tabela com faixa e cantos arredondados, cor do logo da empresa.
+ */
+export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes: FontesPdf, o: OpcoesPdf): Promise<Uint8Array> {
+  const VERDE = rgb(...o.cor);
+  const VERDE_CLARO = rgb(...(o.cor.map((c) => c * 0.08 + 0.92) as [number, number, number]));
   const doc = await PDFDocument.create();
   doc.setTitle("Declaração de Tratamento Fitossanitário");
-  doc.setAuthor(a.nome || "LG");
+  doc.setAuthor(a.nome || "MANN");
   doc.registerFontkit(fontkit);
   const r = await doc.embedFont(fontes.r, { subset: true });
   const b = await doc.embedFont(fontes.b, { subset: true });
@@ -401,22 +431,39 @@ export async function gerarPdfLgB(d: DadosDeclaracao, a: AtivosModelo, fontes: F
 
   // ---------- cabeçalho ----------
   let xTxt = ME;
+  const fimTxt = MD - (a.registro ? 98 + 12 : 0); // o texto do cabeçalho termina antes do selo
   if (logo) {
-    // Do topo do nome até a última linha do cabeçalho.
-    const h = 66;
-    const w = (logo.width / logo.height) * h;
-    pg.drawImage(logo, { x: ME, y: A4.h - 33 - h, width: w, height: h });
+    // Do topo do nome até a última linha do cabeçalho; logo largo (só o nome da marca) fica
+    // limitado para sobrar espaço para os dados.
+    let h = 66;
+    let w = (logo.width / logo.height) * h;
+    const maxW = Math.min(170, (fimTxt - ME) * 0.4);
+    if (w > maxW) {
+      w = maxW;
+      h = (logo.height / logo.width) * w;
+    }
+    pg.drawImage(logo, { x: ME, y: A4.h - 33 - (66 + h) / 2, width: w, height: h });
     xTxt = ME + w + 16;
   }
-  texto(pg, a.nome, xTxt, 36, b, 13.5, VERDE);
-  const col2 = xTxt + 168;
-  a.linhas.forEach(([e, dir], i) => {
+  const espTxt = fimTxt - xTxt;
+  const tamNome = Math.min(13.5, (13.5 * espTxt) / Math.max(1, largura(b, a.nome, 13.5)));
+  texto(pg, a.nome, xTxt, 36, b, tamNome, VERDE);
+  // Duas colunas no espaço que sobra; letra menor se a linha não couber.
+  const col2 = xTxt + espTxt * 0.55;
+  const tamLinha = Math.min(
+    8.4,
+    ...a.linhas.flatMap(([e, dir]) => [
+      (8.4 * (espTxt * (dir ? 0.53 : 1))) / Math.max(1, largura(r, e.replace(/[\u0001\u0002]\s*:?\s*/g, "") + "   ", 8.4)),
+      dir ? (8.4 * espTxt * 0.45) / Math.max(1, largura(r, dir.replace(/[\u0001\u0002]\s*:?\s*/g, "") + "   ", 8.4)) : 8.4,
+    ])
+  );
+  a.linhas.slice(0, 4).forEach(([e, dir], i) => {
     const y = 55 + i * 11;
     const escreve = (t: string, x: number) => {
       let cx = x;
-      if (t.includes("\u0001")) cx += iconeTraco(pg, ICONE_EMAIL, cx, y - 0.5, 8.5);
-      if (t.includes("\u0002")) cx += iconeTraco(pg, ICONE_FONE, cx, y - 0.5, 8.5);
-      texto(pg, t.replace(/[\u0001\u0002]\s*:?\s*/g, ""), cx, y, r, 8.4, CINZA_TXT);
+      if (t.includes("\u0001")) cx += iconeTraco(pg, ICONE_EMAIL, cx, y - 0.5, 8.5, VERDE);
+      if (t.includes("\u0002")) cx += iconeTraco(pg, ICONE_FONE, cx, y - 0.5, 8.5, VERDE);
+      texto(pg, t.replace(/[\u0001\u0002]\s*:?\s*/g, ""), cx, y, r, Math.max(6.5, tamLinha), CINZA_TXT);
     };
     escreve(e, xTxt);
     if (dir) escreve(dir, col2);
@@ -479,17 +526,44 @@ export async function gerarPdfLgB(d: DadosDeclaracao, a: AtivosModelo, fontes: F
     linhaH(pg, ME, MD, y - 4, 0.4, CINZA_LINHA);
     y += 4;
   };
-  linhaCampo("EXPORTADOR", "Shipper", [d.exportador, d.enderecoExportador].filter(Boolean).join("\n"));
-  linhaCampo("DESTINATÁRIO", "Consignee", d.destinatario || "NIHIL");
-  linhaCampo("CICLO DE TRATAMENTO", "Treatment cycle", [...new Set(d.linhas.map((l) => l.ciclo).filter(Boolean))].join(" / "));
-  linhaCampo("PROGRAMAÇÃO MAPA", "MAPA schedule", d.comunicado.replace(/Programa[çc][ãa]o MAPA\s*/gi, ""));
-  linhaCampo("QUANTIDADE", "Quantity", d.volumes);
-  linhaCampo("NATUREZA DO PRODUTO", "Kind of product", (d.produto || "").split(" / ")[0]);
-  linhaCampo("PROCEDÊNCIA", "Origin", (d.origem || "BRASIL").split(" / ")[0], { pt: "DESTINO", en: "Destination", valor: d.destino || "NIHIL" });
+  const ciclos = [...new Set(d.linhas.map((l) => l.ciclo).filter(Boolean))].join(" / ");
+  const ptDe = (v: string) => v.split(" / ")[0];
+  if (!o.geral) {
+    linhaCampo("EXPORTADOR", "Shipper", [d.exportador, d.enderecoExportador].filter(Boolean).join("\n"));
+    linhaCampo("DESTINATÁRIO", "Consignee", d.destinatario || "NIHIL");
+    linhaCampo("CICLO DE TRATAMENTO", "Treatment cycle", ciclos);
+    linhaCampo("PROGRAMAÇÃO MAPA", "MAPA schedule", d.comunicado.replace(/Programa[çc][ãa]o MAPA\s*/gi, ""));
+    linhaCampo("QUANTIDADE", "Quantity", d.volumes);
+    linhaCampo("NATUREZA DO PRODUTO", "Kind of product", ptDe(d.produto || ""));
+    linhaCampo("PROCEDÊNCIA", "Origin", ptDe(d.origem || "BRASIL"), { pt: "DESTINO", en: "Destination", valor: d.destino || "NIHIL" });
+  } else {
+    // Só os campos preenchidos; os curtos vão dois por linha.
+    const um = (pt: string, en: string, v: string) => v.trim() && linhaCampo(pt, en, v);
+    const dois = (a1: [string, string, string], a2: [string, string, string]) => {
+      const [x, y2] = [a1[2].trim(), a2[2].trim()];
+      if (x && y2) linhaCampo(a1[0], a1[1], x, { pt: a2[0], en: a2[1], valor: y2 });
+      else if (x) linhaCampo(a1[0], a1[1], x);
+      else if (y2) linhaCampo(a2[0], a2[1], y2);
+    };
+    um("EXPORTADOR", "Shipper", [d.exportador, d.enderecoExportador].filter(Boolean).join("\n"));
+    um("IMPORTADOR", "Importer", d.importador);
+    um("DESTINATÁRIO", "Consignee", d.destinatario);
+    dois(["FATURA", "Invoice", d.fatura], ["NF-E", "Invoice no.", d.nfe]);
+    dois(["BOOKING", "Booking", d.booking], ["B/L", "Bill of lading", d.bl]);
+    dois(["NAVIO", "Vessel", d.navio], ["CONTÊINER", "Container", d.container]);
+    um("MARCAS", "Marks", d.marcas);
+    um("QUANTIDADE", "Quantity", d.volumes);
+    um("NATUREZA DO PRODUTO", "Kind of product", ptDe(d.produto || ""));
+    dois(["PESO LÍQUIDO", "Net weight", d.pesoLiquido], ["PESO BRUTO", "Gross weight", d.pesoBruto]);
+    dois(["PROCEDÊNCIA", "Origin", ptDe(d.origem || "")], ["DESTINO", "Destination", d.destino]);
+    dois(["CERTIFICADO MESTRE", "Master certificate", [...new Set(d.linhas.map((l) => l.certificado).filter(Boolean))].join("; ")], ["CICLO", "Cycle", ciclos]);
+    um("PROGRAMAÇÃO / COMUNICADO", "Treatment notice", d.comunicado.replace(/Programa[çc][ãa]o MAPA\s*/gi, ""));
+  }
   y += 8;
 
   // ---------- tabela do tratamento ----------
-  const cols = [0, 0.16, 0.34, 0.6, 0.86, 1].map((f) => ME + f * LARG);
+  const comCiclo = o.geral && d.linhas.some((l) => l.ciclo);
+  const cols = (comCiclo ? [0, 0.13, 0.25, 0.38, 0.62, 0.86, 1] : [0, 0.16, 0.34, 0.6, 0.86, 1]).map((f) => ME + f * LARG);
   const topo = y;
   const hFaixa = 17;
   const hCab = 26;
@@ -501,6 +575,7 @@ export async function gerarPdfLgB(d: DadosDeclaracao, a: AtivosModelo, fontes: F
   centro(pg, "TRATAMENTO  ·  TREATMENT", A4.w / 2, topo + 5, b, 8.2, rgb(1, 1, 1));
   pg.drawRectangle({ x: ME, y: A4.h - topo - hFaixa - hCab, width: LARG, height: hCab, color: VERDE_CLARO });
   const cab: [string, string][] = [
+    ...(comCiclo ? ([["Ciclo", "Cycle"]] as [string, string][]) : []),
     ["Tratamento", "Treatment"],
     ["Temperatura", "Temperature"],
     ["Início do tratamento", "Start of treatment"],
@@ -516,22 +591,36 @@ export async function gerarPdfLgB(d: DadosDeclaracao, a: AtivosModelo, fontes: F
   const dh = (v: string) => v.replace(/^(\d{2}\/\d{2}\/\d{4})\s+(\d{2}h\d{2}m)$/, "$1  ·  $2");
   linhas.forEach((l, k) => {
     if (k % 2 === 1) pg.drawRectangle({ x: ME, y: A4.h - yl - hLin, width: LARG, height: hLin, color: CINZA_FUNDO });
-    const vals = [l.tipo, l.temperatura ? `${l.temperatura} °C` : "", dh(l.inicio), dh(l.fim), l.duracao];
-    vals.forEach((v, i) => centro(pg, v || "—", (cols[i] + cols[i + 1]) / 2, yl + 5, i === 0 ? b : r, 8.4, TINTA));
+    const vals = [...(comCiclo ? [l.ciclo] : []), l.tipo, l.temperatura ? `${l.temperatura} °C` : "", dh(l.inicio), dh(l.fim), l.duracao];
+    vals.forEach((v, i) => centro(pg, v || "—", (cols[i] + cols[i + 1]) / 2, yl + 5, i === (comCiclo ? 1 : 0) ? b : r, 8.4, TINTA));
     linhaH(pg, ME, MD, yl, 0.4, CINZA_LINHA);
     yl += hLin;
   });
   linhaH(pg, ME, MD, yl, 0.4, CINZA_LINHA);
-  for (const x of cols.slice(1, 5)) linhaV(pg, x, topo + hFaixa, yl, 0.4, CINZA_LINHA);
+  for (const x of cols.slice(1, -1)) linhaV(pg, x, topo + hFaixa, yl, 0.4, CINZA_LINHA);
   texto(pg, "Local do tratamento / Place of treatment:", ME + 8, yl + 5, b, 7.6, TINTA);
   texto(pg, d.localTratamento, ME + 8 + largura(b, "Local do tratamento / Place of treatment:", 7.6) + 5, yl + 5, r, 8.2, TINTA);
   caixa(pg, ME, topo, LARG, hTotal, 5, { borda: VERDE, esp: 0.9 });
   y = topo + hTotal + 16;
+  if (o.geral) {
+    const tt = textoTratamento(d);
+    for (const [txt, f, cor, tam] of [
+      [`Tratamento: ${tt.pt}`, r, TINTA, 8.2],
+      [`Treatment: ${tt.en}`, it, CINZA_TXT, 7.6],
+    ] as const) {
+      for (const l of quebrar(f, txt, tam, LARG)) {
+        texto(pg, l, ME, y, f, tam, cor);
+        y += tam * 1.35;
+      }
+      y += 4;
+    }
+    y += 6;
+  }
 
   // ---------- observação, local/data, assinatura ----------
-  linhaCampo("OBSERVAÇÃO", "Remark", d.observacao.replace(/^Ref\.?\s*[àa]\s*NF-?e/i, "REF. A NFE"));
+  if (d.observacao.trim() || !o.geral) linhaCampo("OBSERVAÇÃO", "Remark", d.observacao.replace(/^Ref\.?\s*[àa]\s*NF-?e/i, "REF. A NFE"));
   const data = d.data.match(/\d{2}\/\d{2}\/\d{4}/)?.[0] ?? d.data;
-  linhaCampo("LOCAL E DATA", "Place and date", `${(d.localEmissao || "Concórdia - SC").replace(/\s*-\s*/, " – ")} – BRAZIL, ${data}`);
+  linhaCampo("LOCAL E DATA", "Place and date", `${(d.localEmissao || "").replace(/\s*-\s*/, " – ")}${d.localEmissao ? " – BRAZIL, " : ""}${data}`);
 
   const cxAss = MD - 95;
   const yLinha = y + 62;
@@ -560,4 +649,75 @@ export async function gerarPdfLgB(d: DadosDeclaracao, a: AtivosModelo, fontes: F
   const dir = `Emitido em ${data}  ·  Página 1/1`;
   texto(pg, dir, MD - largura(r, dir, 7), yRod + 6, r, 7, CINZA_TXT);
   return doc.save();
+}
+
+/**
+ * Cor de destaque a partir do logo (no navegador): a cor viva que mais aparece, escurecida se
+ * preciso para servir de texto. Sem logo ou só cinza: azul-ardósia.
+ */
+export async function corDoLogo(png: Uint8Array | null): Promise<[number, number, number]> {
+  const padrao: [number, number, number] = [0.12, 0.23, 0.34];
+  if (!png || typeof document === "undefined") return padrao;
+  try {
+    const bmp = await createImageBitmap(new Blob([png as BlobPart]));
+    const c = document.createElement("canvas");
+    const k = Math.min(1, 120 / Math.max(bmp.width, bmp.height));
+    c.width = Math.max(1, Math.round(bmp.width * k));
+    c.height = Math.max(1, Math.round(bmp.height * k));
+    const g = c.getContext("2d")!;
+    g.drawImage(bmp, 0, 0, c.width, c.height);
+    const px = g.getImageData(0, 0, c.width, c.height).data;
+    const baldes = new Map<number, { n: number; r: number; g: number; b: number }>();
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i + 3] < 128) continue;
+      const [r, gg, b] = [px[i] / 255, px[i + 1] / 255, px[i + 2] / 255];
+      const max = Math.max(r, gg, b);
+      const min = Math.min(r, gg, b);
+      const l = (max + min) / 2;
+      const sat = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+      if (sat < 0.3 || l < 0.08 || l > 0.85) continue;
+      let h = 0;
+      if (max === r) h = ((gg - b) / (max - min)) % 6;
+      else if (max === gg) h = (b - r) / (max - min) + 2;
+      else h = (r - gg) / (max - min) + 4;
+      const balde = Math.round(((h * 60 + 360) % 360) / 20);
+      const x = baldes.get(balde) ?? { n: 0, r: 0, g: 0, b: 0 };
+      x.n++;
+      x.r += r;
+      x.g += gg;
+      x.b += b;
+      baldes.set(balde, x);
+    }
+    const top = [...baldes.values()].sort((a, b) => b.n - a.n)[0];
+    if (!top || top.n < 20) return padrao;
+    let cor: [number, number, number] = [top.r / top.n, top.g / top.n, top.b / top.n];
+    // Escurece até o contraste servir para texto sobre branco (luminância <= 0,25).
+    const lum = (x: [number, number, number]) => 0.2126 * x[0] + 0.7152 * x[1] + 0.0722 * x[2];
+    for (let i = 0; i < 10 && lum(cor) > 0.25; i++) cor = cor.map((v) => v * 0.85) as [number, number, number];
+    return cor;
+  } catch {
+    return padrao;
+  }
+}
+
+/** Completa o timbre com o cadastro quando o Word da empresa não tem a caixa de texto do cabeçalho. */
+export function completarTimbre(
+  a: AtivosModelo,
+  e: { razaoSocial?: string; endereco?: string | null; cnpj?: string; crea?: string | null; email?: string | null; telefone?: string | null; regMapa?: string | null } | null,
+  rtNome?: string | null
+): AtivosModelo {
+  if (!e) return a;
+  return {
+    ...a,
+    nome: a.nome || e.razaoSocial || "",
+    linhas: a.linhas.length
+      ? a.linhas
+      : ([
+          [e.endereco ?? "", ""],
+          [e.cnpj ? `CNPJ: ${e.cnpj}` : "", e.crea ? `Reg. CREA: ${e.crea}` : ""],
+          [e.email ? `\u0001: ${e.email}` : "", e.telefone ? `\u0002: ${e.telefone}` : ""],
+        ].filter(([x, y]) => x || y) as [string, string][]),
+    registro: a.registro || (e.regMapa ? `REGISTRO MAPA ${e.regMapa}` : ""),
+    rt: a.rt.length ? a.rt : [...(rtNome ? [rtNome] : []), "Responsável Técnico"],
+  };
 }

@@ -4,14 +4,25 @@ import JSZip from "jszip";
 import { useEffect, useRef, useState } from "react";
 import { CAMPOS_REMESSA, dadosIniciais, linhaDoMestre, nomeArquivo, type DadosDeclaracao, type LinhaTratamento } from "@/lib/declaracao";
 import { CNPJ_LG, manualLg, montarDeclaracaoLg } from "@/lib/declaracaoLg";
-import { ativosDoModelo, baixarFontes, gerarPdfLg, gerarPdfLgB, type AtivosModelo, type FontesPdf } from "@/lib/declaracaoLgPdf";
+import {
+  ativosDoModelo,
+  baixarFontes,
+  completarTimbre,
+  corDoLogo,
+  gerarPdfLg,
+  gerarPdfLgB,
+  gerarPdfPadrao,
+  type AtivosModelo,
+  type FontesPdf,
+} from "@/lib/declaracaoLgPdf";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import { aplicar, regraLegivel, type Fonte } from "@/lib/aprenderRemessa";
 import type { CertificadoMestre } from "@/lib/certificadoMestre";
 import { aplicarPadrao, aprenderDoTexto, type PadraoDeclaracao } from "@/lib/modeloDeclaracao";
-import type { NotaFiscal } from "@/lib/notaFiscal";
+import type { CartaCorrecao, NotaFiscal } from "@/lib/notaFiscal";
 import { lerPlanilhaDR, type LinhaDR } from "@/lib/planilhaDR";
 import { preencherModelo, textoDoModelo } from "@/lib/preencherModelo";
+import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { hojeBR, soDigitos } from "@/lib/util";
 import { lerFonte, ModeloDeclaracao, type ModeloSalvo } from "./ModeloDeclaracao";
@@ -28,6 +39,8 @@ interface Item {
   dados: DadosDeclaracao | null;
   avisos: string[];
   arquivo: string;
+  /** A nota como veio (sem a carta de correção), para refazer quando a carta chegar depois. */
+  original?: NotaFiscal;
 }
 
 const LINHA_VAZIA: LinhaTratamento = { certificado: "", ciclo: "", lote: "", inicio: "", fim: "", tipo: "HT", temperatura: "56", duracao: "32 min", quantidade: "" };
@@ -188,6 +201,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   const [editandoModelo, setEditandoModelo] = useState(false);
   const [versaoModelo, setVersaoModelo] = useState(0);
   const [modeloSolto, setModeloSolto] = useState<File | null>(null);
+  // Cartas de correção lidas (pelo nº da nota).
+  const [cartas, setCartas] = useState<Map<string, CartaCorrecao>>(new Map());
 
   useEffect(() => {
     fetch("/api/madeireiras", { headers: cabecalhoSenha(senha), cache: "no-store" })
@@ -250,6 +265,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     setDr(null);
     setDrArquivo(null);
     setErro(null);
+    setCartas(new Map());
   }
 
   /** Documentos de uma remessa (empresa com regras aprendidas): uma declaração preenchida por eles. */
@@ -310,7 +326,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
       setDr(m);
       setDrArquivo(`${f.name} · ${m.size} lotes`);
       // Declarações já montadas: refaz o tratamento com a DR nova.
-      setItens((xs) => xs.map((x) => (x.nf ? { ...x, ...montarDeclaracaoLg(x.nf, m, empresa, x.dados?.data ?? hojeBR()) } : x)));
+      setItens((xs) => xs.map((x) => (x.original ? montarItem(x.arquivoNf.replace(/ \+ carta de correção$/, ""), x.original, m, cartas.get(x.original.numero ?? ""), x.dados?.data ?? hojeBR()) : x)));
       return m;
     } catch (e) {
       setToast(e instanceof Error ? e.message : "Não foi possível ler a planilha DR.");
@@ -332,33 +348,61 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     if (notas.length) await montar(notas, drUsar);
   }
 
-  async function montar(notas: File[], drUsar: Map<string, LinhaDR> | null) {
-    if (!notas.length) return;
+  /** Nota com a carta de correção aplicada: os lotes da carta valem no lugar dos da nota. */
+  function comCarta(nf: NotaFiscal, cc: CartaCorrecao | undefined): { nf: NotaFiscal; aviso: string | null } {
+    if (!cc) return { nf, aviso: null };
+    const aviso = cc.lotes.length
+      ? `Lotes da carta de correção${cc.sequencia ? ` nº ${cc.sequencia}` : ""}: ${cc.lotes.map((l) => `${l.quantidade ?? "?"} un. lote ${l.lote}`).join(", ")}.`
+      : `A carta de correção desta nota não fala de lote (“${cc.correcao.slice(0, 120)}”): confira.`;
+    return { nf: cc.lotes.length ? { ...nf, lotes: cc.lotes } : nf, aviso };
+  }
+
+  function montarItem(arquivoNf: string, nf: NotaFiscal, drUsar: Map<string, LinhaDR> | null, cc: CartaCorrecao | undefined, data: string): Item {
+    const c = comCarta(nf, cc);
+    const m = montarDeclaracaoLg(c.nf, drUsar, empresa, data);
+    return { arquivoNf: cc ? `${arquivoNf} + carta de correção` : arquivoNf, nf: c.nf, ...m, avisos: c.aviso ? [c.aviso, ...m.avisos] : m.avisos, original: nf };
+  }
+
+  async function montar(arquivos: File[], drUsar: Map<string, LinhaDR> | null) {
+    if (!arquivos.length) return;
     setCarregando(true);
     setErro(null);
     const hoje = hojeBR();
-    const out: Item[] = [];
-    for (const f of notas) {
+    const lidas: { f: File; nf: NotaFiscal }[] = [];
+    const erros: Item[] = [];
+    const novasCartas = new Map(cartas);
+    for (const f of arquivos) {
       try {
         const form = new FormData();
         form.append("arquivo", f);
         const res = await fetch("/api/declaracoes/nf", { method: "POST", headers: cabecalhoSenha(senha), body: form });
         if (res.status === 401) return sair();
         const j = await res.json();
-        if (!res.ok || !j.nf) {
-          out.push({ arquivoNf: f.name, nf: null, erro: j.error ?? "Não reconheci a nota fiscal (DANFE) neste PDF.", dados: null, avisos: [], arquivo: "" });
-          continue;
-        }
-        out.push({ arquivoNf: f.name, nf: j.nf, ...montarDeclaracaoLg(j.nf, drUsar, empresa, hoje) });
+        if (res.ok && j.cc?.numeroNf) novasCartas.set(j.cc.numeroNf, j.cc);
+        else if (res.ok && j.nf) lidas.push({ f, nf: j.nf });
+        else erros.push({ arquivoNf: f.name, nf: null, erro: j.error ?? "Não reconheci a nota fiscal (DANFE) neste PDF.", dados: null, avisos: [], arquivo: "" });
       } catch {
-        out.push({ arquivoNf: f.name, nf: null, erro: "Falha de conexão.", dados: null, avisos: [], arquivo: "" });
+        erros.push({ arquivoNf: f.name, nf: null, erro: "Falha de conexão.", dados: null, avisos: [], arquivo: "" });
       }
     }
-    // Soma às que já estão na lista; a mesma nota de novo troca a anterior.
+    setCartas(novasCartas);
+    const out = lidas.map(({ f, nf }) => montarItem(f.name, nf, drUsar, novasCartas.get(nf.numero ?? ""), hoje));
+    // Soma às que já estão na lista; a mesma nota de novo troca a anterior. Carta que chegou depois
+    // da nota: refaz a declaração daquela nota com os lotes corrigidos.
     const numeros = new Set(out.map((x) => x.nf?.numero).filter(Boolean));
-    const ficam = itens.filter((x) => !(x.nf?.numero && numeros.has(x.nf.numero)) && !x.erro);
-    setItens([...ficam, ...out]);
-    setNfs((xs) => [...xs.filter((x) => !notas.some((n) => n.name === x.name)), ...notas]);
+    const ficam = itens
+      .filter((x) => !(x.nf?.numero && numeros.has(x.nf.numero)) && !x.erro)
+      .map((x) => {
+        const cc = x.original?.numero ? novasCartas.get(x.original.numero) : undefined;
+        return cc && cc !== cartas.get(x.original!.numero!) ? montarItem(x.arquivoNf, x.original!, drUsar, cc, x.dados?.data ?? hoje) : x;
+      });
+    // Carta sem a nota: avisa.
+    const comNota = new Set([...ficam, ...out].map((x) => x.original?.numero).filter(Boolean));
+    const soltas = [...novasCartas.values()]
+      .filter((cc) => !comNota.has(cc.numeroNf ?? "") && !cartas.has(cc.numeroNf ?? ""))
+      .map((cc) => ({ arquivoNf: `carta de correção da NF ${cc.numeroNf}`, nf: null, erro: `Solte também a NF ${cc.numeroNf}`, dados: null, avisos: [], arquivo: "" }));
+    setItens([...ficam, ...out, ...erros, ...soltas]);
+    setNfs((xs) => [...xs.filter((x) => !arquivos.some((n) => n.name === x.name)), ...arquivos]);
     setSel(ficam.length + Math.max(0, out.findIndex((x) => x.dados)));
     setCarregando(false);
   }
@@ -379,7 +423,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
 
   // PDF direto (LG): layout do Word dela desenhado pelo site, com o logo, a marca-d'água e a
   // assinatura tirados do Word modelo. Fontes e imagens carregadas uma vez.
-  const cachePdf = useRef<{ bytes: Uint8Array; ativos: AtivosModelo; fontes: FontesPdf } | null>(null);
+  const cachePdf = useRef<{ bytes: Uint8Array; ativos: AtivosModelo; fontes: FontesPdf; cor: [number, number, number] } | null>(null);
   // Layout do PDF da LG: "classico" (igual ao Word dela) ou "novo" (versão B). Fica neste navegador.
   const [layoutPdf, setLayoutPdf] = useState<"classico" | "novo">(() => {
     try {
@@ -399,9 +443,14 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   async function pdfDe(d: DadosDeclaracao): Promise<Uint8Array> {
     if (!modelo?.bytes) throw new Error("Sem o Word modelo da empresa.");
     if (cachePdf.current?.bytes !== modelo.bytes) {
-      cachePdf.current = { bytes: modelo.bytes, ativos: await ativosDoModelo(modelo.bytes), fontes: await baixarFontes() };
+      // Logo, marca-d'água, assinatura e timbre do Word modelo; o que faltar vem do cadastro.
+      const ativos = completarTimbre(await ativosDoModelo(modelo.bytes), empresa, rtCompleto(empresa?.rt));
+      cachePdf.current = { bytes: modelo.bytes, ativos, fontes: await baixarFontes(), cor: await corDoLogo(ativos.logo) };
     }
-    return layoutPdf === "novo" ? gerarPdfLgB(d, cachePdf.current.ativos, cachePdf.current.fontes) : gerarPdfLg(d, cachePdf.current.ativos, cachePdf.current.fontes);
+    const c = cachePdf.current;
+    // LG: o layout clássico (igual ao Word dela) ou o novo; as outras empresas: o novo, na cor do logo.
+    if (automatico) return layoutPdf === "novo" ? gerarPdfLgB(d, c.ativos, c.fontes) : gerarPdfLg(d, c.ativos, c.fontes);
+    return gerarPdfPadrao(d, c.ativos, c.fontes, { cor: c.cor, geral: true });
   }
 
   async function baixarPdf(i: number) {
@@ -438,7 +487,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   // Prévia em PDF (LG): o próprio PDF que será baixado.
   const [previaPdf, setPreviaPdf] = useState<string | null>(null);
   useEffect(() => {
-    if (!automatico || !atual?.dados || !modelo?.bytes) return;
+    if (!atual?.dados || !modelo?.bytes) return;
     let vivo = true;
     let url: string | null = null;
     const t = setTimeout(() => {
@@ -634,7 +683,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                           Word
                         </button>
                       )}{" "}
-                      {it.dados && automatico && (
+                      {it.dados && (
                         <button
                           type="button"
                           className="btn btn-sm"
@@ -666,7 +715,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
           </div>
           <div className="toolbar">
             <div className="spacer" />
-            <button type="button" className={`btn${automatico ? "" : " primary lg"}`} disabled={!prontos || !modelo?.bytes} onClick={() => void baixarTodas("docx")}>
+            <button type="button" className="btn" disabled={!prontos || !modelo?.bytes} onClick={() => void baixarTodas("docx")}>
               Todas em Word (.zip)
             </button>
             {automatico && (
@@ -675,11 +724,9 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                 <option value="novo">PDF: layout novo</option>
               </select>
             )}
-            {automatico && (
-              <button type="button" className="btn primary lg" disabled={!prontos || !modelo?.bytes} onClick={() => void baixarTodas("pdf")}>
-                Todas em PDF (.zip)
-              </button>
-            )}
+            <button type="button" className="btn primary lg" disabled={!prontos || !modelo?.bytes} onClick={() => void baixarTodas("pdf")}>
+              Todas em PDF (.zip)
+            </button>
           </div>
 
           {atual?.dados && (
@@ -701,24 +748,22 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
               <Editor d={atual.dados} onChange={(d) => setItens((xs) => xs.map((x, j) => (j === sel ? { ...x, dados: d } : x)))} />
               <div className="toolbar">
                 <div className="spacer" />
-                <button type="button" className={`btn${automatico ? "" : " primary"}`} disabled={!modelo?.bytes} onClick={() => void baixar(sel)}>
+                <button type="button" className="btn" disabled={!modelo?.bytes} onClick={() => void baixar(sel)}>
                   Baixar Word
                 </button>
-                {automatico && (
-                  <button type="button" className="btn primary" disabled={!modelo?.bytes} onClick={() => void baixarPdf(sel)}>
-                    Baixar PDF
-                  </button>
-                )}
+                <button type="button" className="btn primary" disabled={!modelo?.bytes} onClick={() => void baixarPdf(sel)}>
+                  Baixar PDF
+                </button>
               </div>
               <div className="section-title">
                 <h2>Prévia</h2>
                 <p>
                   {automatico
                     ? "O PDF que será baixado (layout da declaração da LG)."
-                    : "O Word modelo da empresa com os dados trocados (prévia aproximada; o Word baixado é o fiel)."}
+                    : "O PDF que será baixado: layout padrão, na cor do logo da empresa (o Word continua no modelo dela)."}
                 </p>
               </div>
-              {automatico ? (
+              {modelo?.bytes ? (
                 previaPdf ? (
                   <iframe title="Prévia do PDF" src={`${previaPdf}#navpanes=0&view=FitH`} style={{ width: "100%", height: 1100, border: "1px solid var(--border)", borderRadius: 8, background: "#fff" }} />
                 ) : (
