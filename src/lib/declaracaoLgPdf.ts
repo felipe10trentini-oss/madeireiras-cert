@@ -627,15 +627,20 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
   if (assin) {
     const rot = ((a.rotAssinatura % 360) + 360) % 360;
     const { l, t, r: rr, b: bb } = a.recorte;
-    const W = a.quadro.w / Math.max(0.05, 1 - l - rr);
-    const H = a.quadro.h / Math.max(0.05, 1 - t - bb);
     const deitada = rot === 90 || rot === 270;
-    const largPag = deitada ? a.quadro.h : a.quadro.w;
-    const altPag = deitada ? a.quadro.w : a.quadro.h;
+    // A assinatura ia até o nome do RT: limita a altura (Mann: 90 x 120 pt em pé) e assenta o pé
+    // da imagem logo acima da linha.
+    const esc = Math.min(1, 80 / (deitada ? a.quadro.w : a.quadro.h));
+    const qw = a.quadro.w * esc;
+    const qh = a.quadro.h * esc;
+    const W = qw / Math.max(0.05, 1 - l - rr);
+    const H = qh / Math.max(0.05, 1 - t - bb);
+    const largPag = deitada ? qh : qw;
+    const altPag = deitada ? qw : qh;
     const esq = cxAss - largPag / 2;
-    const base = A4.h - yLinha - altPag * 0.12;
+    const base = A4.h - yLinha + 2;
     if (rot === 270) pg.drawImage(assin, { x: esq + H - t * H, y: base - l * W, width: W, height: H, rotate: degrees(90) });
-    else if (rot === 90) pg.drawImage(assin, { x: esq - (H - t * H - a.quadro.h), y: base + W - l * W, width: W, height: H, rotate: degrees(-90) });
+    else if (rot === 90) pg.drawImage(assin, { x: esq - (H - t * H - qh), y: base + W - l * W, width: W, height: H, rotate: degrees(-90) });
     else pg.drawImage(assin, { x: esq - l * W, y: base - (H - t * H - altPag), width: W, height: H });
   }
   linhaH(pg, cxAss - 90, cxAss + 90, yLinha, 0.7, TINTA);
