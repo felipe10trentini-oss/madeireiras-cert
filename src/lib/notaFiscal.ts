@@ -27,6 +27,10 @@ export interface NotaFiscal {
   itens: ItemNota[];
   lotes: LoteNota[];
   observacao: string | null;
+  /** Quem emitiu a nota (o cliente da Mann Unidade Volante é o exportador). */
+  emitente?: { razao: string | null; cnpj: string | null };
+  /** Ciclos escritos na nota ("CICLO MANN 0249" na observação ou na descrição do item). */
+  ciclos?: string[];
 }
 
 const num = (s: string) => parseFloat(s.replace(/\./g, "").replace(",", "."));
@@ -69,6 +73,14 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
   for (const m of blocoItens.matchAll(/(?:^|\s)\d{1,8}\s+(.+?)\s+(\d{8})\s+\d{3}\s+\d\.\d{3}\s+([A-Z]{1,4}\.?)\s+([\d.]+,\d{2,4})/g)) {
     itens.push({ descricao: m[1].replace(/\s*\|\s*/g, " ").trim(), quantidade: num(m[4]), unidade: m[3].replace(".", "") });
   }
+  // Outro layout: código, NCM, CST, CFOP (sem ponto), unidade, quantidade… e a descrição no fim da linha
+  // ("2940-014 44152000 051 5101 PC 100,0000 68,33 … 19.50 Pallet 1000 x 1200 HT Ped 4551417535").
+  if (!itens.length) {
+    for (const l of t.split("\n")) {
+      const m = l.match(/\b(\d{8})\s+\d{3}\s+\d{4}\s+([A-Z]{1,4})\.?\s+([\d.]+,\d{2,4})\s+((?:[\d.,]+\s+)*)(.*)$/);
+      if (m && m[5].trim()) itens.push({ descricao: m[5].trim(), quantidade: num(m[3]), unidade: m[2] });
+    }
+  }
 
   return {
     numero: plano.match(/N[º°o]\.?:?\s*(\d{1,9})\s+S[ée]rie/i)?.[1] ?? null,
@@ -85,6 +97,8 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
     itens,
     lotes: obs ? lotesDaObservacao(obs) : [],
     observacao: obs,
+    emitente: { razao: plano.match(/RECEBEMOS DE\s+(.+?)\s+OS PRODUTOS/i)?.[1]?.trim() ?? null, cnpj: null },
+    ciclos: ciclosDoTexto(`${obs ?? ""} ${itens.map((i) => i.descricao).join(" ")}`),
   };
 }
 
@@ -116,5 +130,34 @@ export function lerCartaCorrecao(texto: string): CartaCorrecao | null {
     sequencia: t.match(/N[ÚU]MERO CORRE[ÇC][ÃA]O:\s*(\d+)/i)?.[1] ?? null,
     correcao,
     lotes: lotesDaObservacao(correcao),
+  };
+}
+
+/** Ciclos escritos no texto: "CICLO MANN 0249", "Ciclo 249", "CICLO: 870" (sem os zeros da frente). */
+export function ciclosDoTexto(texto: string): string[] {
+  const out: string[] = [];
+  for (const m of texto.matchAll(/\bCICLOS?\s*(?:MANN)?\s*[:#nNº°.]*\s*(\d{1,5}(?:\s*(?:[,/e]|\be\b)\s*\d{1,5})*)/gi)) {
+    for (const n of m[1].split(/\s*(?:[,/]|\be\b)\s*/)) {
+      const c = String(parseInt(n, 10));
+      if (n && c !== "NaN" && !out.includes(c)) out.push(c);
+    }
+  }
+  return out;
+}
+
+/** Junta a leitura por posição (DANFE em caixas) com a do texto: a da posição vale quando achou. */
+export function juntarDanfe(
+  nf: NotaFiscal,
+  pos: { numero: string | null; emitente: { razao: string | null; cnpj: string | null }; destinatario: NotaFiscal["destinatario"] } | null
+): NotaFiscal {
+  if (!pos) return nf;
+  const d = Object.fromEntries(
+    Object.entries(nf.destinatario).map(([k, v]) => [k, (pos.destinatario as Record<string, string | null>)[k]?.replace(/\s+-\s*\.?\s*$/, "") || v])
+  ) as NotaFiscal["destinatario"];
+  return {
+    ...nf,
+    numero: nf.numero ?? pos.numero,
+    destinatario: d,
+    emitente: { razao: pos.emitente.razao ?? nf.emitente?.razao ?? null, cnpj: pos.emitente.cnpj ?? nf.emitente?.cnpj ?? null },
   };
 }

@@ -53,7 +53,7 @@ const ROTULOS: [Campo, RegExp][] = [
   ["lote", new RegExp(`N[ºo°]?\\s*do lote${S}Lot number\\s*:`)],
   ["navio", new RegExp(`Navio${S}Vessel\\s*:`)],
   ["fatura", /\bFatura(?:\s*\/\s*Invoice)?\s*:|\bInvoice(?:\s*#)?\s*:/],
-  ["nfe", /\bNF-?e\s*:|\bNf[’']s\s*:/],
+  ["nfe", /\bNF-?e\s*:|\bNf[’']s\s*:|\bNF\s*:/],
   ["booking", /\bBooking\s*:/],
   ["bl", /\bB\/L\s*:/],
   ["container", /\bContainer\s*:/],
@@ -555,6 +555,15 @@ export async function preencherModelo(
           novo = antigo.replace(/\d[\d.]*(?=\D*$)/, v.nfe);
         if (r.campo === "duracao" && novo && /\d/.test(antigo))
           novo = antigo.replace(/\d+/g, novo.match(/\d+/)![0]);
+        // Certificado mestre na ordem do modelo: "Ciclo 249 - 1606/2026" (Mann) ou "203/2026 Ciclo 769".
+        if (r.campo === "master" && v.linhas.some((l) => l.ciclo || l.certificado)) {
+          const sep = /;/.test(antigo) ? "; " : " / ";
+          const ciclo = (/^\s*ciclo/.test(antigo) ? "ciclo" : "Ciclo");
+          const pares = [...new Map(v.linhas.map((l) => [`${l.ciclo}|${l.certificado}`, l])).values()];
+          novo = /^\s*ciclo/i.test(antigo)
+            ? pares.map((l) => [l.ciclo && `${ciclo} ${l.ciclo}`, l.certificado].filter(Boolean).join(" - ")).join(sep)
+            : pares.map((l) => [l.certificado, l.ciclo && `${ciclo} ${l.ciclo}`].filter(Boolean).join(" ")).join(sep);
+        }
         // Em branco: os campos de cada remessa ficam vazios (o modelo é uma declaração antiga e o
         // dado dela não pode ir para a nova); os fixos da empresa ficam como no modelo.
         if (novo == null || novo === "") {

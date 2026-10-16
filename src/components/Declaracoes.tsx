@@ -4,12 +4,12 @@ import JSZip from "jszip";
 import { useEffect, useRef, useState } from "react";
 import { CAMPOS_REMESSA, dadosIniciais, linhaDoMestre, nomeArquivo, type DadosDeclaracao, type LinhaTratamento } from "@/lib/declaracao";
 import { CNPJ_LG, manualLg, montarDeclaracaoLg } from "@/lib/declaracaoLg";
+import { CNPJ_MANN_VOLANTE, lerBL, montarDeclaracaoMann, type DadosBL, type MestreLido } from "@/lib/declaracaoMann";
 import {
   ativosDoModelo,
   baixarFontes,
   completarTimbre,
   corDoLogo,
-  gerarPdfLg,
   gerarPdfLgB,
   gerarPdfPadrao,
   type AtivosModelo,
@@ -41,6 +41,8 @@ interface Item {
   arquivo: string;
   /** A nota como veio (sem a carta de correção), para refazer quando a carta chegar depois. */
   original?: NotaFiscal;
+  /** Mann Unidade Volante: a nota e/ou os BLs desta declaração (para refazer quando chegar o mestre). */
+  mann?: { nf: NotaFiscal | null; bls: DadosBL[] };
 }
 
 const LINHA_VAZIA: LinhaTratamento = { certificado: "", ciclo: "", lote: "", inicio: "", fim: "", tipo: "HT", temperatura: "56", duracao: "32 min", quantidade: "" };
@@ -177,6 +179,10 @@ function baixarBlob(bytes: Uint8Array, nome: string, tipo: string) {
 function manualDe(e: MadeireiraSalva | null, padrao?: PadraoDeclaracao): DadosDeclaracao {
   if (e && soDigitos(e.cnpj) === CNPJ_LG) return aplicarPadrao(manualLg(e, hojeBR()), padrao);
   const base = dadosIniciais([], e, hojeBR());
+  // Mann Unidade Volante: o tratamento é na casa do cliente (vem do mestre); emite em Curitiba.
+  if (e && soDigitos(e.cnpj) === CNPJ_MANN_VOLANTE) {
+    return aplicarPadrao({ ...base, exportador: "", destinatario: "", localTratamento: "", localEmissao: "Curitiba - PR", linhas: [{ ...LINHA_VAZIA }] }, padrao);
+  }
   return aplicarPadrao({ ...base, exportador: "", destinatario: "", localTratamento: e?.endereco ?? "", linhas: [{ ...LINHA_VAZIA }] }, padrao);
 }
 
@@ -203,6 +209,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   const [modeloSolto, setModeloSolto] = useState<File | null>(null);
   // Cartas de correção lidas (pelo nº da nota).
   const [cartas, setCartas] = useState<Map<string, CartaCorrecao>>(new Map());
+  // Mann Unidade Volante: certificados mestres soltos (valem para as notas/BLs que vierem depois).
+  const [mestresMann, setMestresMann] = useState<MestreLido[]>([]);
 
   useEffect(() => {
     fetch("/api/madeireiras", { headers: cabecalhoSenha(senha), cache: "no-store" })
@@ -219,6 +227,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   const empresa = empresas?.find((e) => soDigitos(e.cnpj) === soDigitos(cnpj)) ?? null;
   // Empresas com o preenchimento automático (nota fiscal + DR). As outras: declaração manual.
   const automatico = soDigitos(cnpj) === CNPJ_LG;
+  // Mann Unidade Volante: nota fiscal do cliente (ou BL) + certificado mestre do ciclo.
+  const mann = soDigitos(cnpj) === CNPJ_MANN_VOLANTE;
 
   // Word modelo da empresa (pasta privada do Supabase).
   useEffect(() => {
@@ -266,6 +276,74 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     setDrArquivo(null);
     setErro(null);
     setCartas(new Map());
+    setMestresMann([]);
+  }
+
+  /**
+   * Mann Unidade Volante: notas fiscais do cliente, BLs/bookings e certificados mestres, juntos ou
+   * em levas. Uma declaração por nota (ou por BL, quando não vem nota); o ciclo escrito na nota/BL
+   * escolhe o mestre. Mestre que chega depois completa as declarações que estavam esperando por ele.
+   */
+  async function soltarMann(files: File[]) {
+    const word = files.find((f) => /\.docx$/i.test(f.name));
+    if (word) {
+      setModeloSolto(word);
+      setEditandoModelo(true);
+    }
+    const pdfs = files.filter((f) => /\.pdf$/i.test(f.name));
+    if (!pdfs.length) return;
+    setCarregando(true);
+    setErro(null);
+    const notas: { f: File; nf: NotaFiscal }[] = [];
+    const bls: { f: File; bl: DadosBL }[] = [];
+    const novosMestres: MestreLido[] = [];
+    const erros: Item[] = [];
+    for (const f of pdfs) {
+      try {
+        const form = new FormData();
+        form.append("arquivo", f);
+        const res = await fetch("/api/declaracoes/nf", { method: "POST", headers: cabecalhoSenha(senha), body: form });
+        if (res.status === 401) return sair();
+        const j = await res.json();
+        if (!res.ok) erros.push({ arquivoNf: f.name, nf: null, erro: j.error ?? "Não consegui ler este PDF.", dados: null, avisos: [], arquivo: "" });
+        else if (j.nf) notas.push({ f, nf: j.nf });
+        else if (j.mestre) novosMestres.push({ mestre: j.mestre, texto: j.texto ?? "" });
+        else bls.push({ f, bl: lerBL(j.texto ?? "") });
+      } catch {
+        erros.push({ arquivoNf: f.name, nf: null, erro: "Falha de conexão.", dados: null, avisos: [], arquivo: "" });
+      }
+    }
+    // O mesmo mestre de novo troca o anterior.
+    const mestres = [...mestresMann.filter((m) => !novosMestres.some((n) => n.mestre.numero === m.mestre.numero)), ...novosMestres];
+    setMestresMann(mestres);
+    const hoje = hojeBR();
+    const montarMann = (arquivoNf: string, nf: NotaFiscal | null, b: DadosBL[], data: string): Item => ({
+      arquivoNf,
+      nf,
+      ...montarDeclaracaoMann(nf, b, mestres, empresa, data),
+      mann: { nf, bls: b },
+    });
+    const out: Item[] = [];
+    if (notas.length) {
+      // BL junto com a nota: vai para a nota do mesmo ciclo (ou para a única nota da leva).
+      for (const { f, nf } of notas) {
+        const doCiclo = bls.filter(({ bl }) => notas.length === 1 || bl.ciclos.some((c) => nf.ciclos?.includes(c)));
+        out.push(montarMann([f.name, ...doCiclo.map((x) => x.f.name)].join(" + "), nf, doCiclo.map((x) => x.bl), hoje));
+      }
+    } else {
+      for (const { f, bl } of bls) out.push(montarMann(f.name, null, [bl], hoje));
+    }
+    // As que já estavam: a mesma nota de novo troca a anterior; com mestre novo, refaz as automáticas.
+    const numeros = new Set(out.map((x) => x.nf?.numero).filter(Boolean));
+    const ficam = itens
+      .filter((x) => !(x.nf?.numero && numeros.has(x.nf.numero)) && !x.erro)
+      .map((x) => (x.mann && novosMestres.length ? montarMann(x.arquivoNf, x.mann.nf, x.mann.bls, x.dados?.data ?? hoje) : x));
+    if (!out.length && novosMestres.length && !ficam.some((x) => x.mann)) {
+      setToast(`${novosMestres.length} certificado(s) mestre(s) lido(s): solte agora a nota fiscal ou o BL do cliente.`);
+    }
+    setItens([...ficam, ...out, ...erros]);
+    setSel(ficam.length + Math.max(0, out.findIndex((x) => x.dados)));
+    setCarregando(false);
   }
 
   /** Documentos de uma remessa (empresa com regras aprendidas): uma declaração preenchida por eles. */
@@ -424,22 +502,6 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   // PDF direto (LG): layout do Word dela desenhado pelo site, com o logo, a marca-d'água e a
   // assinatura tirados do Word modelo. Fontes e imagens carregadas uma vez.
   const cachePdf = useRef<{ bytes: Uint8Array; ativos: AtivosModelo; fontes: FontesPdf; cor: [number, number, number] } | null>(null);
-  // Layout do PDF da LG: "classico" (igual ao Word dela) ou "novo" (versão B). Fica neste navegador.
-  const [layoutPdf, setLayoutPdf] = useState<"classico" | "novo">(() => {
-    try {
-      return localStorage.getItem("layoutPdfLg") === "novo" ? "novo" : "classico";
-    } catch {
-      return "classico";
-    }
-  });
-  function trocarLayout(l: "classico" | "novo") {
-    setLayoutPdf(l);
-    try {
-      localStorage.setItem("layoutPdfLg", l);
-    } catch {
-      // sem localStorage: vale só nesta página
-    }
-  }
   async function pdfDe(d: DadosDeclaracao): Promise<Uint8Array> {
     if (!modelo?.bytes) throw new Error("Sem o Word modelo da empresa.");
     if (cachePdf.current?.bytes !== modelo.bytes) {
@@ -448,8 +510,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
       cachePdf.current = { bytes: modelo.bytes, ativos, fontes: await baixarFontes(), cor: await corDoLogo(ativos.logo) };
     }
     const c = cachePdf.current;
-    // LG: o layout clássico (igual ao Word dela) ou o novo; as outras empresas: o novo, na cor do logo.
-    if (automatico) return layoutPdf === "novo" ? gerarPdfLgB(d, c.ativos, c.fontes) : gerarPdfLg(d, c.ativos, c.fontes);
+    // LG: o layout novo na cor dela; as outras empresas: o mesmo layout, na cor do logo.
+    if (automatico) return gerarPdfLgB(d, c.ativos, c.fontes);
     return gerarPdfPadrao(d, c.ativos, c.fontes, { cor: c.cor, geral: true });
   }
 
@@ -506,7 +568,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     };
     // pdfDe usa o modelo atual (dependência já listada)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [automatico, atual?.dados, modelo?.bytes, layoutPdf]);
+  }, [automatico, atual?.dados, modelo?.bytes]);
 
   const prontos = itens.filter((x) => x.dados).length;
   const semModelo = !!cnpj && !!modelo && !modelo.salvo;
@@ -524,7 +586,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
             .map((e) => (
               <option key={e.cnpj} value={e.cnpj}>
                 {e.apelido}
-                {soDigitos(e.cnpj) === CNPJ_LG ? " · automática (nota fiscal + DR)" : ""}
+                {soDigitos(e.cnpj) === CNPJ_LG ? " · automática (nota fiscal + DR)" : soDigitos(e.cnpj) === CNPJ_MANN_VOLANTE ? " · automática (nota/BL + mestre)" : ""}
               </option>
             ))}
         </select>
@@ -533,6 +595,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
             ? "Escolha a empresa para fazer a declaração."
             : automatico
               ? "Automática: a nota fiscal traz o cliente e os lotes, a DR traz o tratamento. Também dá para fazer à mão."
+              : mann
+                ? "Automática: a nota fiscal do cliente (ou o BL) traz o ciclo, o certificado mestre traz o tratamento. Também dá para fazer à mão."
               : "Declaração manual: você preenche os dados e o site coloca no Word modelo da empresa."}
         </div>
       </div>
@@ -603,7 +667,35 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
         </>
       )}
 
-      {cnpj && !semModelo && !automatico && modelo && Object.keys(modelo.regras).length > 0 && (
+      {cnpj && !semModelo && mann && (
+        <>
+          <SoltarArquivos
+            titulo={carregando ? "Lendo os documentos…" : "Arraste a nota fiscal (ou o BL) e o certificado mestre"}
+            dica={
+              <>
+                Solte aqui a <b>nota fiscal do cliente</b> e/ou o <b>BL/booking</b> junto com o <b>certificado mestre</b> do ciclo (PDF), ou clique
+                para escolher. O ciclo escrito na nota (ex.: “CICLO MANN 0249”) escolhe o mestre. Várias notas de uma vez: uma declaração por nota.
+              </>
+            }
+            accept=".pdf,.docx"
+            ocupado={carregando}
+            onArquivos={(fs) => void soltarMann(fs)}
+          />
+          <div className="actions" style={{ marginTop: 0 }}>
+            <span className={`badge ${mestresMann.length ? "pago" : "pendente"}`}>
+              {mestresMann.length
+                ? `Mestres: ${mestresMann.map((m) => `${m.mestre.numero}${m.mestre.ciclo ? ` (ciclo ${parseInt(m.mestre.ciclo, 10) || m.mestre.ciclo})` : ""}`).join(", ")}`
+                : "Nenhum certificado mestre ainda"}
+            </span>
+            <div className="spacer" />
+            <button type="button" className="btn" onClick={novaManual}>
+              Fazer manualmente
+            </button>
+          </div>
+        </>
+      )}
+
+      {cnpj && !semModelo && !automatico && !mann && modelo && Object.keys(modelo.regras).length > 0 && (
         <SoltarArquivos
           titulo={carregando ? "Lendo os documentos…" : "Arraste os documentos da remessa"}
           dica={
@@ -617,7 +709,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
           onArquivos={(fs) => void soltarRemessa(fs)}
         />
       )}
-      {cnpj && !semModelo && !automatico && modelo && (
+      {cnpj && !semModelo && !automatico && !mann && modelo && (
         <div className="actions">
           <button type="button" className={`btn${Object.keys(modelo.regras).length ? "" : " primary lg"}`} onClick={novaManual}>
             Nova declaração manual
@@ -651,7 +743,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
               <tbody>
                 {itens.map((it, i) => (
                   <tr key={i} onClick={() => it.dados && setSel(i)} style={{ cursor: it.dados ? "pointer" : undefined, background: i === sel ? "var(--surface-2)" : undefined }}>
-                    <td className="mono">{it.nf?.numero ?? (it.erro ? "—" : "manual")}</td>
+                    <td className="mono">{it.nf?.numero ?? (it.erro ? "—" : it.mann ? "BL" : "manual")}</td>
                     <td>{it.nf ? `${it.nf.destinatario.razao ?? ""} · ${it.nf.destinatario.municipio ?? ""}` : it.dados?.exportador || it.arquivoNf}</td>
                     <td className="mono">
                       {it.dados?.linhas
@@ -718,12 +810,6 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
             <button type="button" className="btn" disabled={!prontos || !modelo?.bytes} onClick={() => void baixarTodas("docx")}>
               Todas em Word (.zip)
             </button>
-            {automatico && (
-              <select value={layoutPdf} onChange={(e) => trocarLayout(e.target.value as "classico" | "novo")} aria-label="Layout do PDF" style={{ width: "auto" }}>
-                <option value="classico">PDF: layout clássico (igual ao Word)</option>
-                <option value="novo">PDF: layout novo</option>
-              </select>
-            )}
             <button type="button" className="btn primary lg" disabled={!prontos || !modelo?.bytes} onClick={() => void baixarTodas("pdf")}>
               Todas em PDF (.zip)
             </button>
@@ -732,7 +818,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
           {atual?.dados && (
             <>
               <div className="section-title">
-                <h2>{atual.nf ? `NF ${atual.nf.numero} · ${atual.nf.destinatario.razao}` : "Declaração manual"}</h2>
+                <h2>{atual.nf ? `NF ${atual.nf.numero} · ${atual.nf.destinatario.razao}` : atual.mann ? `BL · ${atual.dados.exportador || atual.arquivoNf}` : "Declaração manual"}</h2>
                 <p>{nomeDe(atual)}</p>
               </div>
               {atual.avisos.length > 0 && (
@@ -759,7 +845,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                 <h2>Prévia</h2>
                 <p>
                   {automatico
-                    ? "O PDF que será baixado (layout da declaração da LG)."
+                    ? "O PDF que será baixado."
                     : "O PDF que será baixado: layout padrão, na cor do logo da empresa (o Word continua no modelo dela)."}
                 </p>
               </div>
