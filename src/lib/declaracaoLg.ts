@@ -66,7 +66,7 @@ const primeiraPalavra = (razao: string) =>
 export function nomeArquivoLg(nf: NotaFiscal): string {
   const filial = !/\/0001-/.test(nf.destinatario.cnpj ?? "/0001-");
   const cidade = filial && nf.destinatario.municipio ? ` ${nf.destinatario.municipio.toUpperCase()}` : "";
-  return `DECL. ${primeiraPalavra(nf.destinatario.razao ?? "CLIENTE")}${cidade} NFE ${nf.numero ?? ""}`.replace(/[\\/:*?"<>|]/g, "-").trim() + ".pdf";
+  return `DECL. ${primeiraPalavra(nf.destinatario.razao ?? "CLIENTE")}${cidade} NFE ${nf.numero ?? ""}`.replace(/[\\/:*?"<>|]/g, "-").trim() + ".docx";
 }
 
 export function montarDeclaracaoLg(nf: NotaFiscal, dr: Map<string, LinhaDR> | null, empresa: Madeireira | null, hoje: string): DeclaracaoMontada {
@@ -122,7 +122,8 @@ export function montarDeclaracaoLg(nf: NotaFiscal, dr: Map<string, LinhaDR> | nu
     dados: {
       ...base,
       exportador: [d.razao, d.cnpj ? `CNPJ ${d.cnpj}` : ""].filter(Boolean).join(" – "),
-      enderecoExportador: [d.endereco, cidadeUf].filter(Boolean).join(" – "),
+      // Endereço e cidade em linhas separadas, como no modelo da LG.
+      enderecoExportador: [d.endereco, cidadeUf].filter(Boolean).join("\n"),
       destinatario: "Nihil",
       volumes,
       produto: "Madeira de eucalipto / Eucalyptus wood",

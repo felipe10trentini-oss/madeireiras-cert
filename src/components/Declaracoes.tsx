@@ -2,47 +2,19 @@
 
 import JSZip from "jszip";
 import { useEffect, useState } from "react";
-import {
-  CAMPOS_REMESSA,
-  dadosIniciais,
-  dataExtenso,
-  INTRO,
-  linhasRemessa,
-  linhasTratamento,
-  mostrarLote,
-  nomeArquivo,
-  OPCOES_SUJEITO,
-  textoTratamento,
-  type DadosDeclaracao,
-  type ItemTabela,
-  type LinhaTratamento,
-  type Sujeito,
-} from "@/lib/declaracao";
-import { gerarDeclaracaoPdf, type Timbre } from "@/lib/declaracaoPdf";
+import { CAMPOS_REMESSA, dadosIniciais, nomeArquivo, type DadosDeclaracao, type LinhaTratamento } from "@/lib/declaracao";
 import { CNPJ_LG, manualLg, montarDeclaracaoLg } from "@/lib/declaracaoLg";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
+import { aplicarPadrao, aprenderDoTexto, type PadraoDeclaracao } from "@/lib/modeloDeclaracao";
 import type { NotaFiscal } from "@/lib/notaFiscal";
 import { lerPlanilhaDR, type LinhaDR } from "@/lib/planilhaDR";
-import { ModeloDeclaracao, type ModeloSalvo } from "./ModeloDeclaracao";
-import { aplicarPadrao, type PadraoDeclaracao } from "@/lib/modeloDeclaracao";
-import { rtCompleto } from "@/lib/responsaveis";
+import { preencherModelo, textoDoModelo } from "@/lib/preencherModelo";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { hojeBR, soDigitos } from "@/lib/util";
+import { ModeloDeclaracao, type ModeloSalvo } from "./ModeloDeclaracao";
+import { PreviaWord } from "./PreviaWord";
 
-const PDF = "application/pdf";
-
-/** Timbre do PDF: dados do cadastro + logo, assinatura e linhas do RT (pasta privada do Supabase). */
-function montarTimbre(e: MadeireiraSalva | null, ativos: { logo: string | null; assinatura: string | null; rt: string[] } | null): Timbre {
-  const rt = rtCompleto(e?.rt);
-  return {
-    razao: e?.razaoSocial ?? "",
-    linhas: [e?.endereco ?? "", [e?.cnpj ? `CNPJ ${e.cnpj}` : "", e?.crea ? `Reg. CREA ${e.crea}` : ""].filter(Boolean).join("  ·  "), [e?.email, e?.telefone].filter(Boolean).join("  ·  ")],
-    regMapa: e?.regMapa ?? "",
-    logo: ativos?.logo,
-    assinatura: ativos?.assinatura,
-    rt: ativos?.rt?.length ? ativos.rt : [...(rt ? [rt] : []), "Responsável Técnico"],
-  };
-}
+const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 interface Item {
   arquivoNf: string;
@@ -55,129 +27,14 @@ interface Item {
 
 const LINHA_VAZIA: LinhaTratamento = { certificado: "", ciclo: "", lote: "", inicio: "", fim: "", tipo: "HT", temperatura: "56", duracao: "32 min", quantidade: "" };
 
-function Tabela({ titulo, grupos }: { titulo: [string, string]; grupos: ItemTabela[][] }) {
-  if (!grupos.length) return null;
-  const rot = (l: ItemTabela) => (
-    <th>
-      {l.pt}
-      {l.en.toLowerCase() !== l.pt.toLowerCase() && <i> / {l.en}</i>}
-    </th>
-  );
-  const val = (l: ItemTabela) => l.v.split("\n").map((t, i) => <div key={i}>{t}</div>);
-  return (
-    <table className="decl-tab">
-      <thead>
-        <tr>
-          <td colSpan={4} className="faixa">
-            {titulo[0].toUpperCase()} <i>· {titulo[1].toUpperCase()}</i>
-          </td>
-        </tr>
-      </thead>
-      <tbody>
-        {grupos.map((g, i) => (
-          <tr key={i}>
-            {rot(g[0])}
-            <td colSpan={g.length === 1 ? 3 : 1}>{val(g[0])}</td>
-            {g[1] && (
-              <>
-                {rot(g[1])}
-                <td>{val(g[1])}</td>
-              </>
-            )}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-/** Prévia da declaração (o PDF sai com o timbre, o logo e a assinatura da empresa). */
-function Previa({ d }: { d: DadosDeclaracao }) {
-  const trat = textoTratamento(d);
-  const data = dataExtenso(d.data);
-  const kd = d.linhas.some((l) => l.tipo === "KD");
-  const lote = mostrarLote(d.linhas);
-  const qtd = d.linhas.some((l) => l.quantidade);
-  const cols: [string, string][] = [
-    ["Ciclo", "Cycle"],
-    ...(lote ? ([["Lote", "Batch"]] as [string, string][]) : []),
-    ["Início", "Start"], ["Término", "End"], ["Trat.", "Treat."], ["Temp. mín.", "Min. temp."], ["Duração", "Duration"],
-    ...(kd ? ([["Umid. máx.", "Max. moist."]] as [string, string][]) : []),
-    ...(qtd ? ([["Qtd.", "Qty."]] as [string, string][]) : []),
-  ];
-  return (
-    <div className="decl-doc">
-      <div className="decl-timbre">Timbre da empresa (logo e dados do cadastro)</div>
-      <h3>DECLARAÇÃO DE TRATAMENTO FITOSSANITÁRIO</h3>
-      <p className="sub">Declaration of Phytosanitary Treatment</p>
-      <p className="just">{INTRO.pt}</p>
-      <p className="just en">{INTRO.en}</p>
-      <Tabela titulo={["1. Dados da remessa", "Consignment details"]} grupos={linhasRemessa(d)} />
-      <Tabela titulo={["2. Dados do tratamento", "Treatment details"]} grupos={linhasTratamento(d)} />
-      {d.linhas.length > 0 && (
-        <table className="decl-tab ciclos">
-          <thead>
-            <tr>
-              <td colSpan={cols.length} className="faixa">
-                CICLOS DE TRATAMENTO <i>· TREATMENT CYCLES</i>
-              </td>
-            </tr>
-            <tr>
-              {cols.map(([a, b]) => (
-                <th key={a}>
-                  {a} <i>/ {b}</i>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {d.linhas.map((l, i) => (
-              <tr key={i}>
-                <td>{l.ciclo || "—"}</td>
-                {lote && <td>{l.lote || "—"}</td>}
-                <td>{l.inicio || "—"}</td>
-                <td>{l.fim || "—"}</td>
-                <td>{l.tipo}</td>
-                <td>{l.temperatura ? `${l.temperatura} °C` : "—"}</td>
-                <td>{l.duracao || "—"}</td>
-                {kd && <td>{l.tipo === "KD" ? d.umidade : "—"}</td>}
-                {qtd && <td>{l.quantidade || "—"}</td>}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      <p className="just">
-        <b>Tratamento:</b> {trat.pt}
-      </p>
-      <p className="just en">
-        <b>Treatment:</b> {trat.en}
-      </p>
-      {d.observacao.trim() && (
-        <p>
-          <b>Observações</b> / <i>Remarks:</i> {d.observacao}
-        </p>
-      )}
-      <p className="dir">
-        {d.localEmissao ? `${d.localEmissao}, ` : ""}
-        {data.pt} <i>/ {data.en}</i>
-      </p>
-      <div className="decl-assinatura">
-        <span>assinatura do RT</span>
-      </div>
-    </div>
-  );
-}
-
 /** Edição de uma declaração (dados da nota e da DR já preenchidos). */
 function Editor({ d, onChange }: { d: DadosDeclaracao; onChange: (d: DadosDeclaracao) => void }) {
   const set = <K extends keyof DadosDeclaracao>(k: K, v: DadosDeclaracao[K]) => onChange({ ...d, [k]: v });
   const setLinha = (i: number, k: keyof LinhaTratamento, v: string) => onChange({ ...d, linhas: d.linhas.map((l, j) => (j === i ? { ...l, [k]: v } : l)) });
-  const [texto, setTexto] = useState(false);
   return (
     <>
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="kpi-label">Remessa (da nota fiscal)</div>
+        <div className="kpi-label">Remessa</div>
         <div className="form-grid tres">
           {CAMPOS_REMESSA.map((c) =>
             c.k === "volumes" ? (
@@ -197,22 +54,12 @@ function Editor({ d, onChange }: { d: DadosDeclaracao; onChange: (d: DadosDeclar
             )
           )}
         </div>
-        <p className="hint">Campo em branco não aparece na declaração.</p>
+        <p className="hint">Só entram os campos que existem no Word da empresa; em branco, fica o texto do modelo.</p>
       </div>
 
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="kpi-label">Tratamento (da DR)</div>
+        <div className="kpi-label">Tratamento</div>
         <div className="form-grid tres">
-          <div className="field">
-            <label htmlFor="d-suj">Material tratado (frase do tratamento)</label>
-            <select id="d-suj" value={d.sujeito} onChange={(e) => set("sujeito", e.target.value as Sujeito)}>
-              {OPCOES_SUJEITO.map((o) => (
-                <option key={o.k} value={o.k}>
-                  {o.rotulo}
-                </option>
-              ))}
-            </select>
-          </div>
           <div className="field">
             <label htmlFor="d-com">Programação / comunicado</label>
             <input id="d-com" value={d.comunicado} onChange={(e) => set("comunicado", e.target.value)} />
@@ -293,23 +140,6 @@ function Editor({ d, onChange }: { d: DadosDeclaracao; onChange: (d: DadosDeclar
             <input id="d-obs" value={d.observacao} onChange={(e) => set("observacao", e.target.value)} />
           </div>
         </div>
-        <div className="toolbar" style={{ marginTop: 8 }}>
-          <button type="button" className="btn btn-sm" onClick={() => setTexto((v) => !v)}>
-            {texto ? "Fechar edição do texto" : "Editar o texto do tratamento"}
-          </button>
-        </div>
-        {texto && (
-          <div className="form-grid">
-            <div className="field full">
-              <label htmlFor="d-tpt">Tratamento (português) — em branco = automático</label>
-              <textarea id="d-tpt" rows={3} value={d.textoPt} placeholder={textoTratamento({ ...d, textoPt: "" }).pt} onChange={(e) => set("textoPt", e.target.value)} />
-            </div>
-            <div className="field full">
-              <label htmlFor="d-ten">Treatment (inglês) — em branco = automático</label>
-              <textarea id="d-ten" rows={3} value={d.textoEn} placeholder={textoTratamento({ ...d, textoEn: "" }).en} onChange={(e) => set("textoEn", e.target.value)} />
-            </div>
-          </div>
-        )}
       </div>
     </>
   );
@@ -324,15 +154,17 @@ function baixarBlob(bytes: Uint8Array, nome: string, tipo: string) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-/** Declaração em branco para preencher à mão (qualquer empresa). */
+
+/** Declaração em branco para preencher à mão: os campos fixos vêm do Word modelo da empresa. */
 function manualDe(e: MadeireiraSalva | null, padrao?: PadraoDeclaracao): DadosDeclaracao {
   if (e && soDigitos(e.cnpj) === CNPJ_LG) return aplicarPadrao(manualLg(e, hojeBR()), padrao);
   const base = dadosIniciais([], e, hojeBR());
-  // Campos fixos aprendidos do modelo da empresa (aba "Modelo da declaração").
   return aplicarPadrao({ ...base, exportador: "", destinatario: "", localTratamento: e?.endereco ?? "", linhas: [{ ...LINHA_VAZIA }] }, padrao);
 }
 
-type Ativos = ModeloSalvo;
+function deBase64(b64: string): Uint8Array {
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
 
 export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }) {
   const [empresas, setEmpresas] = useState<MadeireiraSalva[] | null>(null);
@@ -340,9 +172,11 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   const [nfs, setNfs] = useState<File[]>([]);
   const [drArquivo, setDrArquivo] = useState<string | null>(null);
   const [dr, setDr] = useState<Map<string, LinhaDR> | null>(null);
-  const [ativos, setAtivos] = useState<Ativos | null>(null);
+  const [modelo, setModelo] = useState<ModeloSalvo | null>(null);
+  const [padrao, setPadrao] = useState<PadraoDeclaracao | undefined>(undefined);
   const [itens, setItens] = useState<Item[]>([]);
   const [sel, setSel] = useState(0);
+  const [previa, setPrevia] = useState<Uint8Array | null>(null);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -362,32 +196,48 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   }, [toast]);
 
   const empresa = empresas?.find((e) => soDigitos(e.cnpj) === soDigitos(cnpj)) ?? null;
-  // Empresas com o modelo automático (nota fiscal + DR). As outras: declaração manual.
+  // Empresas com o preenchimento automático (nota fiscal + DR). As outras: declaração manual.
   const automatico = soDigitos(cnpj) === CNPJ_LG;
 
-  // Logo, assinatura e linhas do RT da empresa escolhida (pasta privada do Supabase).
+  // Word modelo da empresa (pasta privada do Supabase).
   useEffect(() => {
     if (!cnpj) return;
     let vivo = true;
-    fetch(`/api/declaracoes/ativos?cnpj=${soDigitos(cnpj)}`, { headers: cabecalhoSenha(senha), cache: "no-store" })
+    fetch(`/api/declaracoes/modelo?cnpj=${soDigitos(cnpj)}`, { headers: cabecalhoSenha(senha), cache: "no-store" })
       .then(async (r) => {
-        const j = r.ok ? ((await r.json()) as Ativos) : null;
+        const j = r.ok ? await r.json() : null;
         if (!vivo) return;
-        setAtivos(j);
-        // Empresa sem modelo salvo (e sem o automático): abre a edição do modelo.
-        if (j && !j.salvo && soDigitos(cnpj) !== CNPJ_LG) setEditandoModelo(true);
+        const bytes = j?.modelo ? deBase64(j.modelo) : null;
+        setModelo(j ? { salvo: !!j.salvo, nomeModelo: j.nomeModelo, atualizado: j.atualizado, bytes } : null);
+        setPadrao(bytes ? aprenderDoTexto(await textoDoModelo(bytes)).padrao : undefined);
+        // Empresa sem modelo: abre a edição para carregar o Word.
+        if (j && !j.salvo) setEditandoModelo(true);
       })
-      .catch(() => {
-        if (vivo) setAtivos(null);
-      });
+      .catch(() => vivo && setModelo(null));
     return () => {
       vivo = false;
     };
   }, [cnpj, senha, versaoModelo]);
 
+  const atual = itens[sel];
+
+  // Prévia do Word preenchido da declaração aberta.
+  useEffect(() => {
+    if (!atual?.dados || !modelo?.bytes) return;
+    let vivo = true;
+    const t = setTimeout(() => {
+      void preencherModelo(modelo.bytes!, atual.dados!).then((r) => vivo && setPrevia(r.bytes));
+    }, 400);
+    return () => {
+      vivo = false;
+      clearTimeout(t);
+    };
+  }, [atual?.dados, modelo?.bytes]);
+
   function escolherEmpresa(c: string) {
     setCnpj(c);
-    setAtivos(null);
+    setModelo(null);
+    setPadrao(undefined);
     setEditandoModelo(false);
     setItens([]);
     setNfs([]);
@@ -397,7 +247,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   }
 
   function novaManual() {
-    setItens((xs) => [...xs, { arquivoNf: "manual", nf: null, dados: manualDe(empresa, ativos?.padrao), avisos: [], arquivo: "" }]);
+    setItens((xs) => [...xs, { arquivoNf: "manual", nf: null, dados: manualDe(empresa, padrao), avisos: [], arquivo: "" }]);
     setSel(itens.length);
   }
 
@@ -444,36 +294,38 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     setCarregando(false);
   }
 
-  const timbre = () => montarTimbre(empresa, ativos);
-  const nomeDe = (it: Item) => it.arquivo || (it.dados ? nomeArquivo(it.dados) : "declaracao.pdf");
+  const nomeDe = (it: Item) => it.arquivo || (it.dados ? nomeArquivo(it.dados) : "declaracao.docx");
 
   async function baixar(i: number) {
     const it = itens[i];
-    if (!it?.dados) return;
+    if (!it?.dados || !modelo?.bytes) return;
     try {
-      baixarBlob(await gerarDeclaracaoPdf(it.dados, timbre()), nomeDe(it), PDF);
+      const r = await preencherModelo(modelo.bytes, it.dados);
+      baixarBlob(r.bytes, nomeDe(it), DOCX);
+      if (r.avisos.length) setToast(r.avisos.join(" "));
     } catch (e) {
-      setToast(e instanceof Error ? e.message : "Não foi possível gerar o PDF.");
+      setToast(e instanceof Error ? e.message : "Não foi possível gerar o Word.");
     }
   }
 
   async function baixarTodas() {
+    if (!modelo?.bytes) return;
     const zip = new JSZip();
     const usados = new Set<string>();
     for (const it of itens) {
       if (!it.dados) continue;
       let nome = nomeDe(it);
-      for (let n = 2; usados.has(nome); n++) nome = nomeDe(it).replace(/\.pdf$/, ` (${n}).pdf`);
+      for (let n = 2; usados.has(nome); n++) nome = nomeDe(it).replace(/\.docx$/, ` (${n}).docx`);
       usados.add(nome);
-      zip.file(nome, await gerarDeclaracaoPdf(it.dados, timbre()));
+      zip.file(nome, (await preencherModelo(modelo.bytes, it.dados)).bytes);
     }
     const nomeZip = `Declarações ${empresa?.apelido ?? ""} ${hojeBR().replace(/\//g, "-")}.zip`.replace(/\s+/g, " ");
     baixarBlob(await zip.generateAsync({ type: "uint8array" }), nomeZip, "application/zip");
     setToast("Arquivo .zip gerado: extraia na pasta Declarações do mês.");
   }
 
-  const atual = itens[sel];
   const prontos = itens.filter((x) => x.dados).length;
+  const semModelo = !!cnpj && !!modelo && !modelo.salvo;
 
   return (
     <div className="view">
@@ -496,18 +348,18 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
           {!cnpj
             ? "Escolha a empresa para fazer a declaração."
             : automatico
-              ? "Modelo automático: a nota fiscal traz o cliente e os lotes, a DR traz o tratamento. Também dá para fazer à mão."
-              : "Esta empresa ainda não tem o modelo automático: faça a declaração à mão (o timbre vem do cadastro)."}
+              ? "Automática: a nota fiscal traz o cliente e os lotes, a DR traz o tratamento. Também dá para fazer à mão."
+              : "Declaração manual: você preenche os dados e o site coloca no Word modelo da empresa."}
         </div>
       </div>
 
-      {cnpj && ativos && !editandoModelo && (
+      {cnpj && modelo && !editandoModelo && (
         <div className="toolbar" style={{ marginBottom: 10 }}>
           <span className="hint">
-            Modelo: {ativos.salvo ? `logo ${ativos.logo ? "✓" : "—"} · assinatura ${ativos.assinatura ? "✓" : "—"} · ${ativos.rt.length} linha(s) do RT` : "ainda não salvo"}
+            Modelo (Word): {modelo.salvo ? `“${modelo.nomeModelo ?? "modelo.docx"}”` : "ainda não carregado"}
           </span>
           <button type="button" className="btn btn-sm" onClick={() => setEditandoModelo(true)}>
-            {ativos.salvo ? "Editar modelo" : "Criar modelo"}
+            {modelo.salvo ? "Editar modelo" : "Carregar modelo"}
           </button>
         </div>
       )}
@@ -517,12 +369,12 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
           senha={senha}
           cnpj={cnpj}
           nome={empresa?.apelido ?? cnpj}
-          atual={ativos}
+          atual={modelo}
           onFechar={() => setEditandoModelo(false)}
           onSalvo={() => {
             setEditandoModelo(false);
             setVersaoModelo((v) => v + 1);
-            setToast("Modelo salvo: as próximas declarações desta empresa já saem nesse padrão.");
+            setToast("Modelo salvo: as próximas declarações desta empresa saem neste Word.");
           }}
         />
       )}
@@ -536,7 +388,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
         </div>
       )}
 
-      {cnpj && automatico && (
+      {cnpj && !semModelo && automatico && (
         <>
           <div className="grid kpis">
             <div className="card">
@@ -568,12 +420,11 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
         </>
       )}
 
-      {cnpj && !automatico && (
+      {cnpj && !semModelo && !automatico && modelo && (
         <div className="actions">
           <button type="button" className="btn primary lg" onClick={novaManual}>
             Nova declaração manual
           </button>
-          {ativos && !ativos.salvo && <span className="hint">Sem modelo salvo: o PDF sai com o timbre em texto (crie o modelo acima).</span>}
         </div>
       )}
 
@@ -623,12 +474,13 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                         <button
                           type="button"
                           className="btn btn-sm"
+                          disabled={!modelo?.bytes}
                           onClick={(e) => {
                             e.stopPropagation();
                             void baixar(i);
                           }}
                         >
-                          PDF
+                          Word
                         </button>
                       )}{" "}
                       <button
@@ -650,7 +502,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
           </div>
           <div className="toolbar">
             <div className="spacer" />
-            <button type="button" className="btn primary lg" disabled={!prontos} onClick={() => void baixarTodas()}>
+            <button type="button" className="btn primary lg" disabled={!prontos || !modelo?.bytes} onClick={() => void baixarTodas()}>
               Baixar todas (.zip)
             </button>
           </div>
@@ -674,17 +526,15 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
               <Editor d={atual.dados} onChange={(d) => setItens((xs) => xs.map((x, j) => (j === sel ? { ...x, dados: d } : x)))} />
               <div className="toolbar">
                 <div className="spacer" />
-                <button type="button" className="btn primary" onClick={() => void baixar(sel)}>
-                  Baixar PDF desta declaração
+                <button type="button" className="btn primary" disabled={!modelo?.bytes} onClick={() => void baixar(sel)}>
+                  Baixar Word desta declaração
                 </button>
               </div>
               <div className="section-title">
                 <h2>Prévia</h2>
-                <p>O PDF tem o mesmo conteúdo, com o timbre da empresa.</p>
+                <p>O Word modelo da empresa com os dados trocados (prévia aproximada; o Word baixado é o fiel).</p>
               </div>
-              <div className="paper-wrap">
-                <Previa d={atual.dados} />
-              </div>
+              <PreviaWord bytes={modelo?.bytes ? previa : null} />
             </>
           )}
         </>

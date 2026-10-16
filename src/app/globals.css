@@ -203,31 +203,6 @@ select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent-2); 
 .sei-doc table { width: 100%; table-layout: fixed; border: 2px solid #000; border-collapse: separate; border-spacing: 1px; }
 .sei-doc td { border: 1px solid #000; padding: 1px; vertical-align: middle; overflow-wrap: anywhere; }
 
-/* ---------- Prévia da declaração de tratamento ---------- */
-.decl-doc {
-  background: #fff; color: #1d2733; font-family: Arial, Helvetica, sans-serif; font-size: 9.5pt; line-height: 1.35;
-  width: 100%; max-width: 794px; min-width: 640px; margin: 0 auto; padding: 28px 48px 36px; box-sizing: border-box;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15), 0 6px 24px rgba(0, 0, 0, 0.12);
-}
-.decl-doc i { color: #5b6573; }
-.decl-doc .decl-timbre { border: 1px dashed #c9d1da; color: #8a94a3; text-align: center; padding: 18px; font-size: 9pt; margin-bottom: 12px; }
-.decl-doc h3 { font-family: Arial, Helvetica, sans-serif; color: #1f3b57; text-align: center; font-size: 14pt; margin: 4px 0 0; letter-spacing: 0.01em; }
-.decl-doc .sub { text-align: center; font-style: italic; color: #5b6573; font-size: 11pt; margin: 0 0 10px; }
-.decl-doc p { margin: 0 0 4px; }
-.decl-doc .just { text-align: justify; }
-.decl-doc .en { font-style: italic; color: #5b6573; font-size: 9pt; margin-bottom: 8px; }
-.decl-doc .dir { text-align: right; margin-top: 10px; }
-.decl-doc .reg { margin-top: 10px; font-size: 8.5pt; color: #1f3b57; }
-.decl-tab { width: 100%; border-collapse: collapse; margin: 0 0 8px; font-size: 9pt; table-layout: fixed; }
-.decl-tab td, .decl-tab th { border-bottom: 1px solid #c9d1da; padding: 2px 6px; text-align: left; vertical-align: middle; overflow-wrap: anywhere; }
-.decl-tab th { font-weight: 700; width: 19%; font-size: 8.5pt; }
-.decl-tab th i { font-weight: 400; font-size: 7.5pt; }
-.decl-tab .faixa { background: #eef2f6; color: #1f3b57; font-weight: 700; font-size: 8.5pt; border-top: 1px solid #c9d1da; }
-.decl-tab.ciclos th, .decl-tab.ciclos td { text-align: center; width: auto; }
-.decl-assinatura { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; margin-top: 6px; min-height: 64px; }
-.decl-assinatura span { color: #8a94a3; font-size: 8pt; border: 1px dashed #c9d1da; padding: 10px 26px; margin-bottom: 4px; }
-.decl-assinatura small { font-size: 8pt; }
-
 /* ---------- Toast e rodapé ---------- */
 #toast-host { position: fixed; bottom: 18px; right: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 80; }
 .toast { background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 13.5px; box-shadow: var(--shadow); animation: toastin 0.2s ease; }
@@ -321,9 +296,6 @@ table.dados tbody tr:hover { background: var(--surface-2); }
 .luz.on { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2); }
 .luz.off { background: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15); }
 
-/* ---------- Modelo da declaração (imagens do arquivo enviado) ---------- */
-.modelo-galeria { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
-.modelo-miniatura { border: 1px solid var(--border); border-radius: 8px; padding: 6px; background: #fff; display: flex; flex-direction: column; gap: 6px; align-items: center; }
-.modelo-miniatura img { max-width: 140px; max-height: 90px; object-fit: contain; }
-.modelo-img-caixa { background: #fff; border: 1px dashed var(--border); border-radius: 8px; min-height: 90px; display: flex; align-items: center; justify-content: center; padding: 6px; margin: 6px 0; }
-.modelo-img-caixa img { max-width: 100%; max-height: 110px; object-fit: contain; }
+/* ---------- Prévia do Word da declaração (docx-preview) ---------- */
+.previa-word { padding: 0; overflow-x: auto; }
+.previa-word .docx-wrapper { background: var(--surface-2); padding: 16px; }

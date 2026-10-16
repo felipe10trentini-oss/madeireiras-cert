@@ -1,7 +1,5 @@
-// Modelo de declaração de cada empresa, aprendido de uma declaração que ela já usa (PDF ou Word):
-// campos fixos (destinatário, natureza do produto, local do tratamento…), linhas do RT, logo e
-// assinatura. Fica na pasta privada "declaracoes/<cnpj>/" do Supabase (config.json + PNGs).
-import JSZip from "jszip";
+// Campos fixos do modelo (Word) da empresa — destinatário, natureza do produto, local do tratamento…
+// — lidos do texto do próprio modelo para já virem preenchidos na declaração manual.
 import type { DadosDeclaracao, Sujeito } from "./declaracao";
 
 export interface PadraoDeclaracao {
@@ -134,32 +132,4 @@ export function aplicarPadrao(d: DadosDeclaracao, p: PadraoDeclaracao | undefine
     sujeito: p.sujeito ?? d.sujeito,
     linhas,
   };
-}
-
-// ---------- Word (no navegador) ----------
-
-const desescapar = (s: string) =>
-  s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
-
-function textoDoXml(xml: string): string {
-  // Caixas de texto vêm duas vezes (mc:Choice e mc:Fallback): fica só a primeira.
-  const x = xml.replace(/<mc:Fallback>[\s\S]*?<\/mc:Fallback>/g, "");
-  return [...x.matchAll(/<w:p[ >][\s\S]*?<\/w:p>/g)]
-    .map((p) => desescapar([...p[0].matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map((t) => t[1]).join("")))
-    .join("\n");
-}
-
-/** Texto (cabeçalho + corpo) e imagens de um .docx. */
-export async function lerModeloWord(bytes: ArrayBuffer): Promise<{ texto: string; imagens: string[] }> {
-  const zip = await JSZip.loadAsync(bytes);
-  const nomes = Object.keys(zip.files);
-  const xmls = nomes.filter((n) => /^word\/(header\d*|document|footer\d*)\.xml$/.test(n)).sort((a, b) => (a.includes("header") ? -1 : b.includes("header") ? 1 : 0));
-  const texto = (await Promise.all(xmls.map(async (n) => textoDoXml(await zip.file(n)!.async("string"))))).join("\n");
-  const imagens: string[] = [];
-  for (const n of nomes.filter((x) => /^word\/media\/.+\.(png|jpe?g|gif)$/i.test(x))) {
-    const ext = n.split(".").pop()!.toLowerCase();
-    const mime = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : "image/jpeg";
-    imagens.push(`data:${mime};base64,${await zip.file(n)!.async("base64")}`);
-  }
-  return { texto, imagens };
 }

@@ -292,11 +292,11 @@ export function linhasTratamento(d: DadosDeclaracao): ItemTabela[][] {
     .filter((g) => g.length);
 }
 
-/** Nome sugerido do arquivo, no padrão das pastas ("DECL. EXPORTADOR NFE 123.pdf"). */
+/** Nome sugerido do arquivo, no padrão das pastas ("DECL. EXPORTADOR NFE 123.docx"). */
 export function nomeArquivo(d: DadosDeclaracao): string {
   const curto = d.exportador.replace(/\b(ltda|s\.?\/?a\.?|eireli|me|epp|ind[úu]stria|com[ée]rcio|de|do|da|e)\b\.?/gi, " ").replace(/\s+/g, " ").trim().split(" ").slice(0, 2).join(" ");
   const ref = d.nfe ? `NFE ${d.nfe}` : d.fatura ? d.fatura : d.booking || d.bl || d.linhas[0]?.certificado || "";
-  return `DECL. ${curto.toUpperCase() || "DECLARACAO"}${ref ? ` ${ref}` : ""}`.replace(/[\\/:*?"<>|]/g, "-").trim() + ".pdf";
+  return `DECL. ${curto.toUpperCase() || "DECLARACAO"}${ref ? ` ${ref}` : ""}`.replace(/[\\/:*?"<>|]/g, "-").trim() + ".docx";
 }
 
 /** Coluna "Lote" só quando difere do ciclo (na LG o lote é o próprio ciclo). */
