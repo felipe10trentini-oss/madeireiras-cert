@@ -1,9 +1,10 @@
 "use client";
 
 import JSZip from "jszip";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CAMPOS_REMESSA, dadosIniciais, linhaDoMestre, nomeArquivo, type DadosDeclaracao, type LinhaTratamento } from "@/lib/declaracao";
 import { CNPJ_LG, manualLg, montarDeclaracaoLg } from "@/lib/declaracaoLg";
+import { ativosDoModelo, baixarFontes, gerarPdfLg, type AtivosModelo, type FontesPdf } from "@/lib/declaracaoLgPdf";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import { aplicar, regraLegivel, type Fonte } from "@/lib/aprenderRemessa";
 import type { CertificadoMestre } from "@/lib/certificadoMestre";
@@ -18,6 +19,7 @@ import { PreviaWord } from "./PreviaWord";
 import { SoltarArquivos } from "./SoltarArquivos";
 
 const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const PDF = "application/pdf";
 
 interface Item {
   arquivoNf: string;
@@ -40,12 +42,12 @@ function Editor({ d, onChange }: { d: DadosDeclaracao; onChange: (d: DadosDeclar
         <div className="kpi-label">Remessa</div>
         <div className="form-grid tres">
           {CAMPOS_REMESSA.map((c) =>
-            c.k === "volumes" ? (
+            c.k === "volumes" || c.k === "enderecoExportador" ? (
               <div className="field full" key={c.k}>
                 <label htmlFor={`d-${c.k}`}>
-                  {c.pt} / {c.en} (uma linha por item)
+                  {c.pt} / {c.en} ({c.k === "volumes" ? "uma linha por item" : "rua na 1ª linha, cidade - UF na 2ª"})
                 </label>
-                <textarea id={`d-${c.k}`} rows={2} value={d.volumes} onChange={(e) => set("volumes", e.target.value)} />
+                <textarea id={`d-${c.k}`} rows={2} value={String(d[c.k] ?? "")} onChange={(e) => set(c.k, e.target.value as never)} />
               </div>
             ) : (
               <div className={`field${["exportador", "enderecoExportador", "importador", "produto"].includes(c.k) ? " full" : ""}`} key={c.k}>
@@ -375,21 +377,71 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     }
   }
 
-  async function baixarTodas() {
-    if (!modelo?.bytes) return;
-    const zip = new JSZip();
-    const usados = new Set<string>();
-    for (const it of itens) {
-      if (!it.dados) continue;
-      let nome = nomeDe(it);
-      for (let n = 2; usados.has(nome); n++) nome = nomeDe(it).replace(/\.docx$/, ` (${n}).docx`);
-      usados.add(nome);
-      zip.file(nome, (await preencherModelo(modelo.bytes, it.dados)).bytes);
+  // PDF direto (LG): layout do Word dela desenhado pelo site, com o logo, a marca-d'água e a
+  // assinatura tirados do Word modelo. Fontes e imagens carregadas uma vez.
+  const cachePdf = useRef<{ bytes: Uint8Array; ativos: AtivosModelo; fontes: FontesPdf } | null>(null);
+  async function pdfDe(d: DadosDeclaracao): Promise<Uint8Array> {
+    if (!modelo?.bytes) throw new Error("Sem o Word modelo da empresa.");
+    if (cachePdf.current?.bytes !== modelo.bytes) {
+      cachePdf.current = { bytes: modelo.bytes, ativos: await ativosDoModelo(modelo.bytes), fontes: await baixarFontes() };
     }
-    const nomeZip = `Declarações ${empresa?.apelido ?? ""} ${hojeBR().replace(/\//g, "-")}.zip`.replace(/\s+/g, " ");
-    baixarBlob(await zip.generateAsync({ type: "uint8array" }), nomeZip, "application/zip");
-    setToast("Arquivo .zip gerado: extraia na pasta Declarações do mês.");
+    return gerarPdfLg(d, cachePdf.current.ativos, cachePdf.current.fontes);
   }
+
+  async function baixarPdf(i: number) {
+    const it = itens[i];
+    if (!it?.dados) return;
+    try {
+      baixarBlob(await pdfDe(it.dados), nomeDe(it).replace(/\.docx$/, ".pdf"), PDF);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Não foi possível gerar o PDF.");
+    }
+  }
+
+  async function baixarTodas(formato: "docx" | "pdf") {
+    if (!modelo?.bytes) return;
+    try {
+      const zip = new JSZip();
+      const usados = new Set<string>();
+      for (const it of itens) {
+        if (!it.dados) continue;
+        const base = nomeDe(it).replace(/\.docx$/, `.${formato}`);
+        let nome = base;
+        for (let n = 2; usados.has(nome); n++) nome = base.replace(/\.(docx|pdf)$/, ` (${n}).$1`);
+        usados.add(nome);
+        zip.file(nome, formato === "pdf" ? await pdfDe(it.dados) : (await preencherModelo(modelo.bytes, it.dados)).bytes);
+      }
+      const nomeZip = `Declarações ${empresa?.apelido ?? ""} ${hojeBR().replace(/\//g, "-")}${formato === "pdf" ? " PDF" : ""}.zip`.replace(/\s+/g, " ");
+      baixarBlob(await zip.generateAsync({ type: "uint8array" }), nomeZip, "application/zip");
+      setToast("Arquivo .zip gerado: extraia na pasta Declarações do mês.");
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Não foi possível gerar os arquivos.");
+    }
+  }
+
+  // Prévia em PDF (LG): o próprio PDF que será baixado.
+  const [previaPdf, setPreviaPdf] = useState<string | null>(null);
+  useEffect(() => {
+    if (!automatico || !atual?.dados || !modelo?.bytes) return;
+    let vivo = true;
+    let url: string | null = null;
+    const t = setTimeout(() => {
+      void pdfDe(atual.dados!)
+        .then((b) => {
+          if (!vivo) return;
+          url = URL.createObjectURL(new Blob([b as BlobPart], { type: PDF }));
+          setPreviaPdf(url);
+        })
+        .catch(() => undefined);
+    }, 400);
+    return () => {
+      vivo = false;
+      clearTimeout(t);
+      if (url) URL.revokeObjectURL(url);
+    };
+    // pdfDe usa o modelo atual (dependência já listada)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [automatico, atual?.dados, modelo?.bytes]);
 
   const prontos = itens.filter((x) => x.dados).length;
   const semModelo = !!cnpj && !!modelo && !modelo.salvo;
@@ -566,6 +618,19 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                           Word
                         </button>
                       )}{" "}
+                      {it.dados && automatico && (
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          disabled={!modelo?.bytes}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void baixarPdf(i);
+                          }}
+                        >
+                          PDF
+                        </button>
+                      )}{" "}
                       <button
                         type="button"
                         className="btn btn-sm danger"
@@ -585,9 +650,14 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
           </div>
           <div className="toolbar">
             <div className="spacer" />
-            <button type="button" className="btn primary lg" disabled={!prontos || !modelo?.bytes} onClick={() => void baixarTodas()}>
-              Baixar todas (.zip)
+            <button type="button" className={`btn${automatico ? "" : " primary lg"}`} disabled={!prontos || !modelo?.bytes} onClick={() => void baixarTodas("docx")}>
+              Todas em Word (.zip)
             </button>
+            {automatico && (
+              <button type="button" className="btn primary lg" disabled={!prontos || !modelo?.bytes} onClick={() => void baixarTodas("pdf")}>
+                Todas em PDF (.zip)
+              </button>
+            )}
           </div>
 
           {atual?.dados && (
@@ -609,15 +679,32 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
               <Editor d={atual.dados} onChange={(d) => setItens((xs) => xs.map((x, j) => (j === sel ? { ...x, dados: d } : x)))} />
               <div className="toolbar">
                 <div className="spacer" />
-                <button type="button" className="btn primary" disabled={!modelo?.bytes} onClick={() => void baixar(sel)}>
-                  Baixar Word desta declaração
+                <button type="button" className={`btn${automatico ? "" : " primary"}`} disabled={!modelo?.bytes} onClick={() => void baixar(sel)}>
+                  Baixar Word
                 </button>
+                {automatico && (
+                  <button type="button" className="btn primary" disabled={!modelo?.bytes} onClick={() => void baixarPdf(sel)}>
+                    Baixar PDF
+                  </button>
+                )}
               </div>
               <div className="section-title">
                 <h2>Prévia</h2>
-                <p>O Word modelo da empresa com os dados trocados (prévia aproximada; o Word baixado é o fiel).</p>
+                <p>
+                  {automatico
+                    ? "O PDF que será baixado (layout da declaração da LG)."
+                    : "O Word modelo da empresa com os dados trocados (prévia aproximada; o Word baixado é o fiel)."}
+                </p>
               </div>
-              <PreviaWord bytes={modelo?.bytes ? previa : null} />
+              {automatico ? (
+                previaPdf ? (
+                  <iframe title="Prévia do PDF" src={`${previaPdf}#navpanes=0&view=FitH`} style={{ width: "100%", height: 1100, border: "1px solid var(--border)", borderRadius: 8, background: "#fff" }} />
+                ) : (
+                  <p className="hint">Gerando a prévia…</p>
+                )
+              ) : (
+                <PreviaWord bytes={modelo?.bytes ? previa : null} />
+              )}
             </>
           )}
         </>

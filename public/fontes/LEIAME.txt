@@ -1,0 +1,2 @@
+Arimo e Tinos (Google, SIL Open Font License 1.1) — medidas iguais às da Arial e da Times New Roman.
+Usadas no PDF da declaração (declaracaoLgPdf.ts).
