@@ -13,6 +13,7 @@ import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { hojeBR, soDigitos } from "@/lib/util";
 import { ModeloDeclaracao, type ModeloSalvo } from "./ModeloDeclaracao";
 import { PreviaWord } from "./PreviaWord";
+import { SoltarArquivos } from "./SoltarArquivos";
 
 const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
@@ -182,6 +183,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   const [toast, setToast] = useState<string | null>(null);
   const [editandoModelo, setEditandoModelo] = useState(false);
   const [versaoModelo, setVersaoModelo] = useState(0);
+  const [modeloSolto, setModeloSolto] = useState<File | null>(null);
 
   useEffect(() => {
     fetch("/api/madeireiras", { headers: cabecalhoSenha(senha), cache: "no-store" })
@@ -251,27 +253,45 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     setSel(itens.length);
   }
 
-  async function escolherDR(f: File | null) {
-    if (!f) return;
+  async function escolherDR(f: File): Promise<Map<string, LinhaDR> | null> {
     try {
       const m = await lerPlanilhaDR(await f.arrayBuffer());
-      if (!m.size) return setToast("Não achei lotes na aba DADOS da planilha.");
+      if (!m.size) {
+        setToast("Não achei lotes na aba DADOS da planilha.");
+        return null;
+      }
       setDr(m);
       setDrArquivo(`${f.name} · ${m.size} lotes`);
       // Declarações já montadas: refaz o tratamento com a DR nova.
       setItens((xs) => xs.map((x) => (x.nf ? { ...x, ...montarDeclaracaoLg(x.nf, m, empresa, x.dados?.data ?? hojeBR()) } : x)));
+      return m;
     } catch (e) {
       setToast(e instanceof Error ? e.message : "Não foi possível ler a planilha DR.");
+      return null;
     }
   }
 
-  async function montar() {
-    if (!nfs.length) return;
+  /** Arquivos soltos na área: .xlsx = DR, .pdf = notas fiscais (já monta), .docx = modelo. */
+  async function soltar(files: File[]) {
+    const planilha = files.find((f) => /\.xlsx$/i.test(f.name));
+    const word = files.find((f) => /\.docx$/i.test(f.name));
+    const notas = files.filter((f) => /\.pdf$/i.test(f.name));
+    let drUsar = dr;
+    if (planilha) drUsar = (await escolherDR(planilha)) ?? dr;
+    if (word) {
+      setModeloSolto(word);
+      setEditandoModelo(true);
+    }
+    if (notas.length) await montar(notas, drUsar);
+  }
+
+  async function montar(notas: File[], drUsar: Map<string, LinhaDR> | null) {
+    if (!notas.length) return;
     setCarregando(true);
     setErro(null);
     const hoje = hojeBR();
     const out: Item[] = [];
-    for (const f of nfs) {
+    for (const f of notas) {
       try {
         const form = new FormData();
         form.append("arquivo", f);
@@ -282,15 +302,17 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
           out.push({ arquivoNf: f.name, nf: null, erro: j.error ?? "Não foi possível ler.", dados: null, avisos: [], arquivo: "" });
           continue;
         }
-        out.push({ arquivoNf: f.name, nf: j.nf, ...montarDeclaracaoLg(j.nf, dr, empresa, hoje) });
+        out.push({ arquivoNf: f.name, nf: j.nf, ...montarDeclaracaoLg(j.nf, drUsar, empresa, hoje) });
       } catch {
         out.push({ arquivoNf: f.name, nf: null, erro: "Falha de conexão.", dados: null, avisos: [], arquivo: "" });
       }
     }
-    // As manuais ficam; as da leitura anterior são trocadas pelas novas.
-    const manuais = itens.filter((x) => !x.nf && !x.erro);
-    setItens([...manuais, ...out]);
-    setSel(manuais.length + Math.max(0, out.findIndex((x) => x.dados)));
+    // Soma às que já estão na lista; a mesma nota de novo troca a anterior.
+    const numeros = new Set(out.map((x) => x.nf?.numero).filter(Boolean));
+    const ficam = itens.filter((x) => !(x.nf?.numero && numeros.has(x.nf.numero)) && !x.erro);
+    setItens([...ficam, ...out]);
+    setNfs((xs) => [...xs.filter((x) => !notas.some((n) => n.name === x.name)), ...notas]);
+    setSel(ficam.length + Math.max(0, out.findIndex((x) => x.dados)));
     setCarregando(false);
   }
 
@@ -370,9 +392,14 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
           cnpj={cnpj}
           nome={empresa?.apelido ?? cnpj}
           atual={modelo}
-          onFechar={() => setEditandoModelo(false)}
+          arquivoInicial={modeloSolto}
+          onFechar={() => {
+            setEditandoModelo(false);
+            setModeloSolto(null);
+          }}
           onSalvo={() => {
             setEditandoModelo(false);
+            setModeloSolto(null);
             setVersaoModelo((v) => v + 1);
             setToast("Modelo salvo: as próximas declarações desta empresa saem neste Word.");
           }}
@@ -390,32 +417,26 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
 
       {cnpj && !semModelo && automatico && (
         <>
-          <div className="grid kpis">
-            <div className="card">
-              <div className="kpi-label">1. Notas fiscais (PDF)</div>
-              <label className="btn" style={{ display: "inline-block", cursor: "pointer" }}>
-                {nfs.length ? "Trocar notas" : "Escolher notas"}
-                <input type="file" accept="application/pdf" multiple hidden onChange={(e) => setNfs([...(e.target.files ?? [])])} />
-              </label>
-              <div className="kpi-sub">{nfs.length ? `${nfs.length} nota(s): ${nfs.map((f) => f.name).join(", ")}` : "pode escolher várias de uma vez"}</div>
-            </div>
-            <div className="card">
-              <div className="kpi-label">2. Planilha DR (xlsx)</div>
-              <label className="btn" style={{ display: "inline-block", cursor: "pointer" }}>
-                {dr ? "Trocar DR" : "Escolher DR"}
-                <input type="file" accept=".xlsx" hidden onChange={(e) => void escolherDR(e.target.files?.[0] ?? null)} />
-              </label>
-              <div className="kpi-sub">{drArquivo ?? "planilha DR da empresa (aba DADOS)"}</div>
-            </div>
-          </div>
-          <div className="actions">
-            <button type="button" className="btn primary lg" disabled={!nfs.length || carregando} onClick={() => void montar()}>
-              {carregando ? "Lendo as notas…" : `Montar ${nfs.length || ""} declaração(ões)`}
-            </button>
+          <SoltarArquivos
+            titulo={carregando ? "Lendo as notas…" : "Arraste as notas fiscais e a DR"}
+            dica={
+              <>
+                Solte aqui as <b>notas fiscais (PDF)</b> e a <b>planilha DR (xlsx)</b>, juntas ou separadas, ou clique para escolher. O site já
+                monta as declarações.
+              </>
+            }
+            accept=".pdf,.xlsx,.docx"
+            ocupado={carregando}
+            onArquivos={(fs) => void soltar(fs)}
+          />
+          <div className="actions" style={{ marginTop: 0 }}>
+            <span className={`badge ${dr ? "pago" : "pendente"}`}>{drArquivo ? `DR: ${drArquivo}` : "DR ainda não carregada"}</span>
+            {nfs.length > 0 && <span className="hint">{nfs.length} nota(s) lida(s)</span>}
+            {!dr && nfs.length > 0 && <span className="hint">Sem a DR, as linhas do tratamento ficam em branco: solte a DR e elas se completam.</span>}
+            <div className="spacer" />
             <button type="button" className="btn" onClick={novaManual}>
               Fazer manualmente
             </button>
-            {!dr && nfs.length > 0 && <span className="hint">Sem a DR, as linhas do tratamento ficam em branco.</span>}
           </div>
         </>
       )}

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { analisarModelo } from "@/lib/preencherModelo";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { PreviaWord } from "./PreviaWord";
+import { SoltarArquivos } from "./SoltarArquivos";
 
 export interface ModeloSalvo {
   salvo: boolean;
@@ -27,6 +28,7 @@ export function ModeloDeclaracao({
   cnpj,
   nome,
   atual,
+  arquivoInicial,
   onSalvo,
   onFechar,
 }: {
@@ -34,6 +36,8 @@ export function ModeloDeclaracao({
   cnpj: string;
   nome: string;
   atual: ModeloSalvo | null;
+  /** Word solto na área principal da aba: já entra aqui. */
+  arquivoInicial?: File | null;
   onSalvo: () => void;
   onFechar: () => void;
 }) {
@@ -55,6 +59,15 @@ export function ModeloDeclaracao({
       setMsg("Não consegui abrir este Word.");
     }
   }
+
+  // Word que veio solto na área principal: lê uma vez ao abrir.
+  const lido = useRef<File | null>(null);
+  useEffect(() => {
+    if (arquivoInicial && lido.current !== arquivoInicial) {
+      lido.current = arquivoInicial;
+      void escolher(arquivoInicial);
+    }
+  });
 
   async function salvar() {
     if (!arquivo) return;
@@ -84,12 +97,14 @@ export function ModeloDeclaracao({
         só troca os dados (cliente, lotes, quantidade, datas, NF). Mudou o layout? Carregue o Word novo aqui.
         {atual?.salvo && ` Modelo atual: “${atual.nomeModelo ?? "modelo.docx"}”${atual.atualizado ? ` (${new Date(atual.atualizado).toLocaleDateString("pt-BR")})` : ""}.`}
       </p>
-      <div className="actions" style={{ marginTop: 8 }}>
-        <label className="btn primary" style={{ cursor: "pointer" }}>
-          {arquivo ? "Trocar o Word" : "Carregar o Word (.docx)"}
-          <input type="file" accept=".docx" hidden onChange={(e) => void escolher(e.target.files?.[0] ?? null)} />
-        </label>
-        {arquivo && <span className="hint">{arquivo.nome}</span>}
+      <div style={{ marginTop: 8 }}>
+        <SoltarArquivos
+          titulo={arquivo ? "Trocar o Word" : "Arraste o Word do modelo"}
+          dica={arquivo ? arquivo.nome : "Solte aqui o .docx da declaração (ou clique para escolher)."}
+          accept=".docx"
+          multiplos={false}
+          onArquivos={(fs) => void escolher(fs[0] ?? null)}
+        />
       </div>
       {msg && <p className="hint">{msg}</p>}
 

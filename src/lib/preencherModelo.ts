@@ -503,13 +503,14 @@ export async function preencherModelo(
       if (!achados.length) {
         // Linha de continuação (endereço do exportador, 2º item da quantidade).
         if (continuar && texto.trim()) {
-          const linha = continuar.resto.shift() ?? "";
-          novos[i] = trocarTrecho(
-            novos[i],
-            texto.search(/\S/),
-            texto.trimEnd().length,
-            linha,
-          );
+          // O parágrafo pode ter várias linhas com quebra ("AV …, 600" ↵ "CHAPECO - SC"): as
+          // quebras antigas saem e as linhas novas entram com quebras novas (sem linha em branco).
+          const quebras = (novos[i].match(/<w:br\/>/g) ?? []).length;
+          const linhas = continuar.resto.splice(0, quebras + 1);
+          let xml = novos[i].replace(/<w:br\/>/g, "");
+          const t = textoDe(xml).texto;
+          xml = trocarTrecho(xml, Math.max(0, t.search(/\S/)), t.trimEnd().length, linhas[0] ?? "");
+          novos[i] = linhas.slice(1).reduce(acrescentarLinha, xml);
           continuar.ultimo = i;
           return;
         }
@@ -578,7 +579,8 @@ export async function preencherModelo(
             )
         )
           continue;
-        const linhasValor = novo.split("\n");
+        // Espaços repetidos dos dados (endereço da nota, descrição do item) saem: um espaço só.
+        const linhasValor = novo.split("\n").map((l) => l.replace(/[ \t]{2,}/g, " ").trim());
         xml = trocarTrecho(xml, ini, fim, caixa(antigo, linhasValor[0]));
         preenchidos.push(r.campo);
         // Exportador / quantidade: as próximas linhas vão nos parágrafos seguintes do modelo (as
