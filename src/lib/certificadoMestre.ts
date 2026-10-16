@@ -54,7 +54,10 @@ function campo(t: string, rotulo: RegExp, desde = 0): string | null {
 export function lerCertificadoMestre(texto: string): CertificadoMestre | null {
   const t = achatar(texto);
   // "089/2026" ou, na Pinustan, o próprio lote ("11-298").
-  const numero = t.match(/Quarenten[áa]rios:\s*(\d[\w./-]*)/i)?.[1] ?? null;
+  // Mestre retificado: "174/2025 - Retificado" ou "055/2026-Retificado" -> "174/2025-Retificado"
+  // (o desdobrado fica "174/2025-Retificado-36"); "Retificado2" mantém o número. O "1." depois é a seção.
+  const mNum = t.match(/Quarenten[áa]rios:\s*(\d[\w./-]*?)(\s*[-–]?\s*Retificad[oa](?:[-\s]?(\d+)(?!\s*\.))?)?(?=\s|$)/i);
+  const numero = mNum ? `${mNum[1]}${mNum[2] ? `-Retificado${mNum[3] ?? ""}` : ""}` : null;
   if (!numero && !/Certificado de Tratamento Fitossanit/i.test(t)) return null;
   // Seção do tomador e do tratamento começam depois dos dados da empresa.
   const iTrat = Math.max(0, t.search(/Dados do Tratamento Fitossanit/i));
