@@ -206,9 +206,10 @@ export async function gerarPdfLg(d: DadosDeclaracao, a: AtivosModelo, fontes?: F
 
   // Marca-d'água: o "LG" verde bem claro no meio da página.
   if (marca) {
-    const w = 330;
+    // Como no Word: 566,9 x 389,9 pt, centralizada na página.
+    const w = 566.9;
     const h = (marca.height / marca.width) * w;
-    pg.drawImage(marca, { x: (A4.w - w) / 2 + 10, y: A4.h - 300 - h, width: w, height: h, opacity: 0.16 });
+    pg.drawImage(marca, { x: (A4.w - w) / 2, y: (A4.h - h) / 2, width: w, height: h, opacity: 0.16 });
   }
 
   // ---------- timbre ----------
@@ -392,17 +393,19 @@ export async function gerarPdfLgB(d: DadosDeclaracao, a: AtivosModelo, fontes: F
   const LARG = MD - ME;
 
   if (marca) {
-    const w = 300;
+    // Tamanho do Word (566,9 x 389,9 pt), centralizada; um pouco mais clara que no clássico.
+    const w = 566.9;
     const h = (marca.height / marca.width) * w;
-    pg.drawImage(marca, { x: (A4.w - w) / 2, y: A4.h - 360 - h, width: w, height: h, opacity: 0.07 });
+    pg.drawImage(marca, { x: (A4.w - w) / 2, y: (A4.h - h) / 2, width: w, height: h, opacity: 0.1 });
   }
 
   // ---------- cabeçalho ----------
   let xTxt = ME;
   if (logo) {
-    const h = 56;
+    // Do topo do nome até a última linha do cabeçalho.
+    const h = 66;
     const w = (logo.width / logo.height) * h;
-    pg.drawImage(logo, { x: ME, y: A4.h - 34 - h, width: w, height: h });
+    pg.drawImage(logo, { x: ME, y: A4.h - 33 - h, width: w, height: h });
     xTxt = ME + w + 16;
   }
   texto(pg, a.nome, xTxt, 36, b, 13.5, VERDE);
