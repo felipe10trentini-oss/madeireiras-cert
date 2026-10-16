@@ -144,6 +144,7 @@ export function montarDeclaracaoMann(
     linhas,
     localEmissao: "Curitiba - PR",
   };
+  if (!dados.volumes.trim()) avisos.push("Não achei a quantidade de material na nota/BL: preencha em “Editar campos” (Cubagem/Volume).");
   if (!certs.length && mestres.length) avisos.push("Os certificados mestres soltos não são do ciclo da nota: confira.");
   // Nome no padrão da pasta: "Declaração HT - Renascer NFe 7376 - Novozymes" / "Declaração HT - Marine ONEYSAOG54885400".
   const curto = (s: string) => s.split(/\s+/)[0] ?? "";

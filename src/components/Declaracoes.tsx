@@ -62,7 +62,16 @@ function Editor({ d, onChange }: { d: DadosDeclaracao; onChange: (d: DadosDeclar
                 <label htmlFor={`d-${c.k}`}>
                   {c.pt} / {c.en} ({c.k === "volumes" ? "uma linha por item" : "rua na 1ª linha, cidade - UF na 2ª"})
                 </label>
-                <textarea id={`d-${c.k}`} rows={2} value={String(d[c.k] ?? "")} onChange={(e) => set(c.k, e.target.value as never)} />
+                <textarea
+                  id={`d-${c.k}`}
+                  rows={2}
+                  value={String(d[c.k] ?? "")}
+                  aria-invalid={c.k === "volumes" && !String(d.volumes ?? "").trim()}
+                  placeholder={c.k === "volumes" ? "Ex.: 100 paletes de madeira/ wooden pallets" : undefined}
+                  style={c.k === "volumes" && !String(d.volumes ?? "").trim() ? { borderColor: "var(--bad)", background: "var(--bad-bg)" } : undefined}
+                  onChange={(e) => set(c.k, e.target.value as never)}
+                />
+                {c.k === "volumes" && !String(d.volumes ?? "").trim() && <span className="hint" style={{ color: "var(--bad)" }}>Quantidade não encontrada nos documentos: preencha.</span>}
               </div>
             ) : (
               <div className={`field${["exportador", "enderecoExportador", "importador", "produto"].includes(c.k) ? " full" : ""}`} key={c.k}>
@@ -211,6 +220,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   const [cartas, setCartas] = useState<Map<string, CartaCorrecao>>(new Map());
   // Mann Unidade Volante: certificados mestres soltos (valem para as notas/BLs que vierem depois).
   const [mestresMann, setMestresMann] = useState<MestreLido[]>([]);
+  // Editor dos campos da declaração aberta (abre sozinho quando falta a quantidade).
+  const [editando, setEditando] = useState(false);
 
   useEffect(() => {
     fetch("/api/madeireiras", { headers: cabecalhoSenha(senha), cache: "no-store" })
@@ -251,6 +262,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   }, [cnpj, senha, versaoModelo]);
 
   const atual = itens[sel];
+  const faltaCampo = !!atual?.dados && !atual.dados.volumes.trim();
+  const editorAberto = editando || faltaCampo;
 
   // Prévia do Word preenchido da declaração aberta.
   useEffect(() => {
@@ -766,6 +779,19 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                         <button
                           type="button"
                           className="btn btn-sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSel(i);
+                            setEditando(true);
+                          }}
+                        >
+                          Editar
+                        </button>
+                      )}{" "}
+                      {it.dados && (
+                        <button
+                          type="button"
+                          className="btn btn-sm"
                           disabled={!modelo?.bytes}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -831,8 +857,20 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                   </ul>
                 </div>
               )}
-              <Editor d={atual.dados} onChange={(d) => setItens((xs) => xs.map((x, j) => (j === sel ? { ...x, dados: d } : x)))} />
+              {editorAberto && (
+                <Editor
+                  d={atual.dados}
+                  onChange={(d) => {
+                    // Editando: fica aberto mesmo depois de preencher a quantidade.
+                    setEditando(true);
+                    setItens((xs) => xs.map((x, j) => (j === sel ? { ...x, dados: d } : x)));
+                  }}
+                />
+              )}
               <div className="toolbar">
+                <button type="button" className="btn" disabled={faltaCampo} onClick={() => setEditando((v) => !v)}>
+                  {editorAberto ? (faltaCampo ? "Preencha a quantidade (em vermelho)" : "Fechar edição") : "Editar campos da declaração"}
+                </button>
                 <div className="spacer" />
                 <button type="button" className="btn" disabled={!modelo?.bytes} onClick={() => void baixar(sel)}>
                   Baixar Word
