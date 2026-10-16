@@ -2,16 +2,18 @@
 
 import JSZip from "jszip";
 import { useEffect, useState } from "react";
-import { CAMPOS_REMESSA, dadosIniciais, nomeArquivo, type DadosDeclaracao, type LinhaTratamento } from "@/lib/declaracao";
+import { CAMPOS_REMESSA, dadosIniciais, linhaDoMestre, nomeArquivo, type DadosDeclaracao, type LinhaTratamento } from "@/lib/declaracao";
 import { CNPJ_LG, manualLg, montarDeclaracaoLg } from "@/lib/declaracaoLg";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
+import { aplicar, regraLegivel, type Fonte } from "@/lib/aprenderRemessa";
+import type { CertificadoMestre } from "@/lib/certificadoMestre";
 import { aplicarPadrao, aprenderDoTexto, type PadraoDeclaracao } from "@/lib/modeloDeclaracao";
 import type { NotaFiscal } from "@/lib/notaFiscal";
 import { lerPlanilhaDR, type LinhaDR } from "@/lib/planilhaDR";
 import { preencherModelo, textoDoModelo } from "@/lib/preencherModelo";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { hojeBR, soDigitos } from "@/lib/util";
-import { ModeloDeclaracao, type ModeloSalvo } from "./ModeloDeclaracao";
+import { lerFonte, ModeloDeclaracao, type ModeloSalvo } from "./ModeloDeclaracao";
 import { PreviaWord } from "./PreviaWord";
 import { SoltarArquivos } from "./SoltarArquivos";
 
@@ -210,7 +212,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
         const j = r.ok ? await r.json() : null;
         if (!vivo) return;
         const bytes = j?.modelo ? deBase64(j.modelo) : null;
-        setModelo(j ? { salvo: !!j.salvo, nomeModelo: j.nomeModelo, atualizado: j.atualizado, bytes } : null);
+        setModelo(j ? { salvo: !!j.salvo, nomeModelo: j.nomeModelo, atualizado: j.atualizado, bytes, regras: j.regras ?? {}, documentos: j.documentos ?? [] } : null);
         setPadrao(bytes ? aprenderDoTexto(await textoDoModelo(bytes)).padrao : undefined);
         // Empresa sem modelo: abre a edição para carregar o Word.
         if (j && !j.salvo) setEditandoModelo(true);
@@ -246,6 +248,49 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     setDr(null);
     setDrArquivo(null);
     setErro(null);
+  }
+
+  /** Documentos de uma remessa (empresa com regras aprendidas): uma declaração preenchida por eles. */
+  async function soltarRemessa(files: File[]) {
+    if (!modelo) return;
+    setCarregando(true);
+    try {
+      const lidos = await Promise.all(files.map((f) => lerFonte(f, senha)));
+      const fontes: Fonte[] = lidos.filter((f) => !f.erro && !f.mestre);
+      const mestres = lidos.map((f) => f.mestre as CertificadoMestre | undefined).filter((m): m is CertificadoMestre => !!m);
+      const { valores, faltando } = aplicar(modelo.regras, fontes);
+      const d = manualDe(empresa, padrao);
+      const [exp, ...end] = (valores.exportador ?? "").split("\n");
+      const dados: DadosDeclaracao = {
+        ...d,
+        exportador: exp ?? "",
+        enderecoExportador: end.join("\n"),
+        importador: valores.importador ?? d.importador,
+        navio: valores.navio ?? d.navio,
+        fatura: valores.fatura ?? d.fatura,
+        nfe: valores.nfe ?? d.nfe,
+        booking: valores.booking ?? d.booking,
+        bl: valores.bl ?? d.bl,
+        container: valores.container ?? d.container,
+        marcas: valores.marcas ?? d.marcas,
+        volumes: valores.volumes ?? d.volumes,
+        pesoLiquido: valores.pesoLiquido ?? d.pesoLiquido,
+        pesoBruto: valores.pesoBruto ?? d.pesoBruto,
+        comunicado: valores.programacao ?? d.comunicado,
+        observacao: valores.observacao ?? d.observacao,
+        linhas: mestres.length ? mestres.map(linhaDoMestre) : d.linhas,
+      };
+      const avisos = [
+        ...lidos.filter((f) => f.erro).map((f) => `${f.nome}: ${f.erro}`),
+        ...faltando.map((k) => `Não achei ${regraLegivel(`{${k}}`)} nos documentos: confira o campo.`),
+        ...(mestres.length ? [] : ["Sem certificado mestre entre os arquivos: preencha as linhas do tratamento (ou solte o PDF do mestre junto)."]),
+      ];
+      const nf = fontes.find((f) => f.nf)?.nf ?? null;
+      setItens((xs) => [...xs, { arquivoNf: files.map((f) => f.name).join(", "), nf, dados, avisos, arquivo: "" }]);
+      setSel(itens.length);
+    } finally {
+      setCarregando(false);
+    }
   }
 
   function novaManual() {
@@ -298,8 +343,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
         const res = await fetch("/api/declaracoes/nf", { method: "POST", headers: cabecalhoSenha(senha), body: form });
         if (res.status === 401) return sair();
         const j = await res.json();
-        if (!res.ok) {
-          out.push({ arquivoNf: f.name, nf: null, erro: j.error ?? "Não foi possível ler.", dados: null, avisos: [], arquivo: "" });
+        if (!res.ok || !j.nf) {
+          out.push({ arquivoNf: f.name, nf: null, erro: j.error ?? "Não reconheci a nota fiscal (DANFE) neste PDF.", dados: null, avisos: [], arquivo: "" });
           continue;
         }
         out.push({ arquivoNf: f.name, nf: j.nf, ...montarDeclaracaoLg(j.nf, drUsar, empresa, hoje) });
@@ -441,11 +486,28 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
         </>
       )}
 
+      {cnpj && !semModelo && !automatico && modelo && Object.keys(modelo.regras).length > 0 && (
+        <SoltarArquivos
+          titulo={carregando ? "Lendo os documentos…" : "Arraste os documentos da remessa"}
+          dica={
+            <>
+              Solte juntos os documentos de <b>uma remessa</b> (NF-e, BL, booking, invoice e o certificado mestre, em PDF): sai uma declaração
+              preenchida com o que o site aprendeu no modelo.
+            </>
+          }
+          accept=".pdf"
+          ocupado={carregando}
+          onArquivos={(fs) => void soltarRemessa(fs)}
+        />
+      )}
       {cnpj && !semModelo && !automatico && modelo && (
         <div className="actions">
-          <button type="button" className="btn primary lg" onClick={novaManual}>
+          <button type="button" className={`btn${Object.keys(modelo.regras).length ? "" : " primary lg"}`} onClick={novaManual}>
             Nova declaração manual
           </button>
+          {!Object.keys(modelo.regras).length && (
+            <span className="hint">Para preencher sozinho a partir dos documentos, ensine o site em “Editar modelo” (passo 2).</span>
+          )}
         </div>
       )}
 

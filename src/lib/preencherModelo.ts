@@ -94,7 +94,7 @@ const ROTULOS: [Campo, RegExp][] = [
 ];
 
 /** Campos que mudam a cada declaração (em branco = vazio, nunca o dado do modelo). */
-const VARIAVEIS = new Set<Campo>([
+export const VARIAVEIS = new Set<Campo>([
   "exportador", "importador", "master", "ciclo", "lote", "navio", "fatura", "nfe", "booking", "bl", "container", "marcas",
   "volumes", "pesoLiquido", "pesoBruto", "programacao", "dataTratamento", "observacao",
 ]);
@@ -688,4 +688,46 @@ export async function analisarModelo(modelo: ArrayBuffer | Uint8Array): Promise<
   const campos = ROTULOS.filter(([c, re]) => c !== "fixo" && new RegExp(re.source, "i").test(plano)).map(([c]) => NOMES_CAMPO[c] ?? c);
   const tabela = /In[íi]cio|Start/i.test(plano) && /T[ée]rmino|End of/i.test(plano);
   return { campos: [...new Set(campos)], tabela, texto };
+}
+
+export type CampoModelo = Campo;
+
+/**
+ * O que está escrito hoje no modelo em cada campo ("EXPORTADOR/SHIPPER: BRF S.A. …" + as linhas
+ * de endereço). É a base para aprender de onde vem cada dado (aprenderRemessa.ts).
+ */
+export async function valoresAtuaisDoModelo(modelo: ArrayBuffer | Uint8Array): Promise<Partial<Record<Campo, string>>> {
+  const zip = await JSZip.loadAsync(modelo);
+  let doc = (await zip.file("word/document.xml")?.async("string")) ?? "";
+  doc = doc.replace(/<mc:Fallback>[\s\S]*?<\/mc:Fallback>/g, "");
+  // Texto de cada parágrafo, com as quebras de linha (<w:br/>) como "\n".
+  const pars = [...doc.matchAll(RE_PARAGRAFO)].map((m) => {
+    let t = "";
+    for (const r of m[0].matchAll(/<w:br\/>|<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)) t += r[0] === "<w:br/>" ? "\n" : desescapar(r[1] ?? "");
+    return t;
+  });
+  const out: Partial<Record<Campo, string>> = {};
+  let multilinha = null as Campo | null; // (atribuído dentro do forEach)
+  for (const texto of pars) {
+    const plano = texto.replace(/\n/g, " ");
+    const achados = ROTULOS.flatMap(([campo, re]) => [...plano.matchAll(new RegExp(re.source, "gi"))].map((m) => ({ campo, ini: m.index!, fim: m.index! + m[0].length })))
+      .sort((a, b) => a.ini - b.ini)
+      .filter((r, k, arr) => !arr.some((o, j) => j !== k && o.ini <= r.ini && o.fim >= r.fim && o.fim - o.ini > r.fim - r.ini));
+    if (!achados.length) {
+      if (multilinha && texto.trim()) {
+        out[multilinha] = `${out[multilinha] ?? ""}\n${texto.split("\n").map((l) => l.trim()).filter(Boolean).join("\n")}`;
+        continue;
+      }
+      multilinha = null;
+      continue;
+    }
+    multilinha = null;
+    achados.forEach((r, k) => {
+      if (r.campo === "fixo") return;
+      const v = texto.slice(r.fim, k + 1 < achados.length ? achados[k + 1].ini : texto.length).split("\n").map((l) => l.trim()).filter(Boolean).join("\n");
+      if (out[r.campo] == null) out[r.campo] = v;
+      if (k === achados.length - 1 && MULTILINHA.has(r.campo)) multilinha = r.campo;
+    });
+  }
+  return out;
 }
