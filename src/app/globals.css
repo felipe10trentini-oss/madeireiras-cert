@@ -320,3 +320,10 @@ table.dados tbody tr:hover { background: var(--surface-2); }
 .luz { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; flex: none; }
 .luz.on { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2); }
 .luz.off { background: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15); }
+
+/* ---------- Modelo da declaração (imagens do arquivo enviado) ---------- */
+.modelo-galeria { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.modelo-miniatura { border: 1px solid var(--border); border-radius: 8px; padding: 6px; background: #fff; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.modelo-miniatura img { max-width: 140px; max-height: 90px; object-fit: contain; }
+.modelo-img-caixa { background: #fff; border: 1px dashed var(--border); border-radius: 8px; min-height: 90px; display: flex; align-items: center; justify-content: center; padding: 6px; margin: 6px 0; }
+.modelo-img-caixa img { max-width: 100%; max-height: 110px; object-fit: contain; }

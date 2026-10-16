@@ -23,6 +23,8 @@ import { CNPJ_LG, manualLg, montarDeclaracaoLg } from "@/lib/declaracaoLg";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import type { NotaFiscal } from "@/lib/notaFiscal";
 import { lerPlanilhaDR, type LinhaDR } from "@/lib/planilhaDR";
+import { ModeloDeclaracao, type ModeloSalvo } from "./ModeloDeclaracao";
+import { aplicarPadrao, type PadraoDeclaracao } from "@/lib/modeloDeclaracao";
 import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { hojeBR, soDigitos } from "@/lib/util";
@@ -323,13 +325,14 @@ function baixarBlob(bytes: Uint8Array, nome: string, tipo: string) {
 }
 
 /** Declaração em branco para preencher à mão (qualquer empresa). */
-function manualDe(e: MadeireiraSalva | null): DadosDeclaracao {
-  if (e && soDigitos(e.cnpj) === CNPJ_LG) return manualLg(e, hojeBR());
+function manualDe(e: MadeireiraSalva | null, padrao?: PadraoDeclaracao): DadosDeclaracao {
+  if (e && soDigitos(e.cnpj) === CNPJ_LG) return aplicarPadrao(manualLg(e, hojeBR()), padrao);
   const base = dadosIniciais([], e, hojeBR());
-  return { ...base, exportador: "", destinatario: "", localTratamento: e?.endereco ?? "", linhas: [{ ...LINHA_VAZIA }] };
+  // Campos fixos aprendidos do modelo da empresa (aba "Modelo da declaração").
+  return aplicarPadrao({ ...base, exportador: "", destinatario: "", localTratamento: e?.endereco ?? "", linhas: [{ ...LINHA_VAZIA }] }, padrao);
 }
 
-type Ativos = { logo: string | null; assinatura: string | null; rt: string[] };
+type Ativos = ModeloSalvo;
 
 export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }) {
   const [empresas, setEmpresas] = useState<MadeireiraSalva[] | null>(null);
@@ -343,6 +346,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [editandoModelo, setEditandoModelo] = useState(false);
+  const [versaoModelo, setVersaoModelo] = useState(0);
 
   useEffect(() => {
     fetch("/api/madeireiras", { headers: cabecalhoSenha(senha), cache: "no-store" })
@@ -367,7 +372,10 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     fetch(`/api/declaracoes/ativos?cnpj=${soDigitos(cnpj)}`, { headers: cabecalhoSenha(senha), cache: "no-store" })
       .then(async (r) => {
         const j = r.ok ? ((await r.json()) as Ativos) : null;
-        if (vivo) setAtivos(j);
+        if (!vivo) return;
+        setAtivos(j);
+        // Empresa sem modelo salvo (e sem o automático): abre a edição do modelo.
+        if (j && !j.salvo && soDigitos(cnpj) !== CNPJ_LG) setEditandoModelo(true);
       })
       .catch(() => {
         if (vivo) setAtivos(null);
@@ -375,11 +383,12 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     return () => {
       vivo = false;
     };
-  }, [cnpj, senha]);
+  }, [cnpj, senha, versaoModelo]);
 
   function escolherEmpresa(c: string) {
     setCnpj(c);
     setAtivos(null);
+    setEditandoModelo(false);
     setItens([]);
     setNfs([]);
     setDr(null);
@@ -388,7 +397,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   }
 
   function novaManual() {
-    setItens((xs) => [...xs, { arquivoNf: "manual", nf: null, dados: manualDe(empresa), avisos: [], arquivo: "" }]);
+    setItens((xs) => [...xs, { arquivoNf: "manual", nf: null, dados: manualDe(empresa, ativos?.padrao), avisos: [], arquivo: "" }]);
     setSel(itens.length);
   }
 
@@ -492,6 +501,32 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
         </div>
       </div>
 
+      {cnpj && ativos && !editandoModelo && (
+        <div className="toolbar" style={{ marginBottom: 10 }}>
+          <span className="hint">
+            Modelo: {ativos.salvo ? `logo ${ativos.logo ? "✓" : "—"} · assinatura ${ativos.assinatura ? "✓" : "—"} · ${ativos.rt.length} linha(s) do RT` : "ainda não salvo"}
+          </span>
+          <button type="button" className="btn btn-sm" onClick={() => setEditandoModelo(true)}>
+            {ativos.salvo ? "Editar modelo" : "Criar modelo"}
+          </button>
+        </div>
+      )}
+      {cnpj && editandoModelo && (
+        <ModeloDeclaracao
+          key={`${cnpj}-${versaoModelo}`}
+          senha={senha}
+          cnpj={cnpj}
+          nome={empresa?.apelido ?? cnpj}
+          atual={ativos}
+          onFechar={() => setEditandoModelo(false)}
+          onSalvo={() => {
+            setEditandoModelo(false);
+            setVersaoModelo((v) => v + 1);
+            setToast("Modelo salvo: as próximas declarações desta empresa já saem nesse padrão.");
+          }}
+        />
+      )}
+
       {erro && (
         <div className="alert-box critical" role="alert">
           <h4>Não foi possível continuar</h4>
@@ -538,7 +573,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
           <button type="button" className="btn primary lg" onClick={novaManual}>
             Nova declaração manual
           </button>
-          {ativos && !ativos.logo && <span className="hint">Sem logo e assinatura guardados para esta empresa: o PDF sai com o timbre em texto.</span>}
+          {ativos && !ativos.salvo && <span className="hint">Sem modelo salvo: o PDF sai com o timbre em texto (crie o modelo acima).</span>}
         </div>
       )}
 
