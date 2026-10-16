@@ -4,7 +4,7 @@ import JSZip from "jszip";
 import { useEffect, useRef, useState } from "react";
 import { CAMPOS_REMESSA, dadosIniciais, linhaDoMestre, nomeArquivo, type DadosDeclaracao, type LinhaTratamento } from "@/lib/declaracao";
 import { CNPJ_LG, manualLg, montarDeclaracaoLg } from "@/lib/declaracaoLg";
-import { ativosDoModelo, baixarFontes, gerarPdfLg, type AtivosModelo, type FontesPdf } from "@/lib/declaracaoLgPdf";
+import { ativosDoModelo, baixarFontes, gerarPdfLg, gerarPdfLgB, type AtivosModelo, type FontesPdf } from "@/lib/declaracaoLgPdf";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import { aplicar, regraLegivel, type Fonte } from "@/lib/aprenderRemessa";
 import type { CertificadoMestre } from "@/lib/certificadoMestre";
@@ -380,12 +380,28 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   // PDF direto (LG): layout do Word dela desenhado pelo site, com o logo, a marca-d'água e a
   // assinatura tirados do Word modelo. Fontes e imagens carregadas uma vez.
   const cachePdf = useRef<{ bytes: Uint8Array; ativos: AtivosModelo; fontes: FontesPdf } | null>(null);
+  // Layout do PDF da LG: "classico" (igual ao Word dela) ou "novo" (versão B). Fica neste navegador.
+  const [layoutPdf, setLayoutPdf] = useState<"classico" | "novo">(() => {
+    try {
+      return localStorage.getItem("layoutPdfLg") === "novo" ? "novo" : "classico";
+    } catch {
+      return "classico";
+    }
+  });
+  function trocarLayout(l: "classico" | "novo") {
+    setLayoutPdf(l);
+    try {
+      localStorage.setItem("layoutPdfLg", l);
+    } catch {
+      // sem localStorage: vale só nesta página
+    }
+  }
   async function pdfDe(d: DadosDeclaracao): Promise<Uint8Array> {
     if (!modelo?.bytes) throw new Error("Sem o Word modelo da empresa.");
     if (cachePdf.current?.bytes !== modelo.bytes) {
       cachePdf.current = { bytes: modelo.bytes, ativos: await ativosDoModelo(modelo.bytes), fontes: await baixarFontes() };
     }
-    return gerarPdfLg(d, cachePdf.current.ativos, cachePdf.current.fontes);
+    return layoutPdf === "novo" ? gerarPdfLgB(d, cachePdf.current.ativos, cachePdf.current.fontes) : gerarPdfLg(d, cachePdf.current.ativos, cachePdf.current.fontes);
   }
 
   async function baixarPdf(i: number) {
@@ -441,7 +457,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     };
     // pdfDe usa o modelo atual (dependência já listada)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [automatico, atual?.dados, modelo?.bytes]);
+  }, [automatico, atual?.dados, modelo?.bytes, layoutPdf]);
 
   const prontos = itens.filter((x) => x.dados).length;
   const semModelo = !!cnpj && !!modelo && !modelo.salvo;
@@ -653,6 +669,12 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
             <button type="button" className={`btn${automatico ? "" : " primary lg"}`} disabled={!prontos || !modelo?.bytes} onClick={() => void baixarTodas("docx")}>
               Todas em Word (.zip)
             </button>
+            {automatico && (
+              <select value={layoutPdf} onChange={(e) => trocarLayout(e.target.value as "classico" | "novo")} aria-label="Layout do PDF" style={{ width: "auto" }}>
+                <option value="classico">PDF: layout clássico (igual ao Word)</option>
+                <option value="novo">PDF: layout novo</option>
+              </select>
+            )}
             {automatico && (
               <button type="button" className="btn primary lg" disabled={!prontos || !modelo?.bytes} onClick={() => void baixarTodas("pdf")}>
                 Todas em PDF (.zip)
