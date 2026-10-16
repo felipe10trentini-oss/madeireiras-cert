@@ -127,6 +127,7 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "83951012000129": { ajusteFimMin: -1, madeiraEmRipas: true }, // Madeico
   "15705169000114": { relatorioAqfHM: true, minSemEspaco: true }, // AGK
   "12579164000102": { relatorioAqfHM: true }, // Madeval
+  "09146616000140": { relatorioAqfHM: true }, // Madepallete (relatório "00h32m")
   "52249461000104": { caixasEmKit: true }, // TLP
   // Madepar: programações protocoladas fora da sequência do mês (14/10/2026).
   "83418434000133": { programacaoDoMes: { "10/2026": "05/2026", "11/2026": "06/2026", "12/2026": "07/2026" } },

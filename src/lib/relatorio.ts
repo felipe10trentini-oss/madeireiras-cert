@@ -216,7 +216,7 @@ export function montarLinhaRelatorio(args: {
   // AQF: em minutos, como no certificado ("Duração: 32 min" -> 32). Secagem HT: minutos no
   // formato "00h75m" (75 min). Secagem KD: o formato da planilha da empresa.
   // Palletimber: o tratamento HT sai "00h40m" também no relatório, como no certificado.
-  // e Madeval/AGK/MD: o AQF sai "00h32m" no relatório (regra relatorioAqfHM).
+  // e Madeval/AGK/MD/Madepallete: o AQF sai "00h32m" no relatório (regra relatorioAqfHM).
   const regraEmp = REGRAS_EMPRESA[soDigitos(empresa.cnpj)];
   const emHM = !!(regraEmp?.duracaoHtEmHM || regraEmp?.relatorioAqfHM);
   if (tipo !== "KD") {
