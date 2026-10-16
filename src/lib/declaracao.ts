@@ -294,8 +294,9 @@ export function linhasTratamento(d: DadosDeclaracao): ItemTabela[][] {
 
 /** Nome sugerido do arquivo, no padrão das pastas ("DECL. EXPORTADOR NFE 123.docx"). */
 export function nomeArquivo(d: DadosDeclaracao): string {
-  const curto = d.exportador.replace(/\b(ltda|s\.?\/?a\.?|eireli|me|epp|ind[úu]stria|com[ée]rcio|de|do|da|e)\b\.?/gi, " ").replace(/\s+/g, " ").trim().split(" ").slice(0, 2).join(" ");
-  const ref = d.nfe ? `NFE ${d.nfe}` : d.fatura ? d.fatura : d.booking || d.bl || d.linhas[0]?.certificado || "";
+  const curto = d.exportador.split(/\s+[–-]\s+|\s*CNPJ/i)[0].replace(/\b(ltda|s\.?\/?a\.?|eireli|me|epp|ind[úu]stria|com[ée]rcio|de|do|da|e)\b\.?/gi, " ").replace(/\s+/g, " ").trim().split(" ").slice(0, 2).join(" ");
+  const nf = d.nfe || d.observacao.match(/(\d{3,})\s*$/)?.[1];
+  const ref = nf ? `NFE ${nf}` : d.fatura ? d.fatura : d.booking || d.bl || d.linhas[0]?.certificado || "";
   return `DECL. ${curto.toUpperCase() || "DECLARACAO"}${ref ? ` ${ref}` : ""}`.replace(/[\\/:*?"<>|]/g, "-").trim() + ".docx";
 }
 
