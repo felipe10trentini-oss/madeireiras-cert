@@ -1,11 +1,10 @@
 "use client";
 
-// Cadastro de terceiros: os tomadores do serviço das empresas que tratam para outras (credenciadas como
-// Madeval, Madepallete, DM, e prestadoras como a CJ). Ficam em relatorio.tomadores da empresa, pelo CNPJ;
+// Cadastro de terceiros: os tomadores do serviço das credenciadas que tratam para outras empresas
+// (Madeval, Madepallete, DM, CJ…). Ficam em relatorio.tomadores da empresa, pelo CNPJ;
 // na emissão, o comunicado traz o CNPJ do tomador e o certificado puxa razão, endereço, telefone e
 // e-mail daqui (2.1–2.5). Grava pela mesma rota do cadastro de clientes da móvel.
 import { useState, type FormEvent } from "react";
-import { regraDe } from "@/lib/certificado";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import type { Tomador } from "@/lib/relatorio";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
@@ -30,11 +29,10 @@ export function CadastroTerceiros({
   onSalvo: (msg: string) => void;
   onFechar: () => void;
 }) {
-  // Credenciadas e prestadoras primeiro (são as que tratam para terceiros); depois as outras.
-  const trata = (e: MadeireiraSalva) => e.modalidade === "Credenciada" || !!regraDe(e).prestadora;
+  // Só as credenciadas (são as que tratam para terceiros).
   const lista = (empresas ?? [])
-    .filter((e) => !e.config?.inativa)
-    .sort((a, b) => Number(trata(b)) - Number(trata(a)) || a.apelido.localeCompare(b.apelido, "pt-BR"));
+    .filter((e) => !e.config?.inativa && e.modalidade === "Credenciada")
+    .sort((a, b) => a.apelido.localeCompare(b.apelido, "pt-BR"));
   const [cnpjEmpresa, setCnpjEmpresa] = useState("");
   const empresa = lista.find((e) => e.cnpj === cnpjEmpresa) ?? null;
   const salvos = Object.values(empresa?.relatorio?.tomadores ?? {}).sort((a, b) => a.razao.localeCompare(b.razao, "pt-BR"));
@@ -130,7 +128,6 @@ export function CadastroTerceiros({
               return (
                 <option key={e.cnpj} value={e.cnpj}>
                   {e.apelido}
-                  {e.modalidade === "Credenciada" ? " · credenciada" : regraDe(e).prestadora ? " · prestadora" : ""}
                   {n ? ` · ${n} terceiro(s)` : ""}
                 </option>
               );
@@ -141,12 +138,6 @@ export function CadastroTerceiros({
 
       {empresa && (
         <>
-          {empresa.modalidade !== "Credenciada" && !regraDe(empresa).prestadora && (
-            <p className="hint">
-              {empresa.apelido} está como <b>{empresa.modalidade || "cadastrada"}</b>: o tomador cadastrado aqui vale quando o comunicado trouxer o
-              CNPJ dele.
-            </p>
-          )}
           {salvos.length > 0 ? (
             <div className="table-wrap" style={{ marginBottom: 14 }}>
               <table className="dados">

@@ -222,8 +222,8 @@ export interface ResumoTomadores {
 const CAMPOS_TOMADOR: (keyof Tomador)[] = ["razao", "cnpj", "endereco", "telefone", "email"];
 
 /**
- * Cadastra/atualiza (pelo CNPJ) os clientes tomadores de uma empresa (prestadoras como a Mann móvel e
- * credenciadas que tratam para terceiros, como Madeval e Madepallete), guardados em relatorio.tomadores. Com `aplicar` falso só devolve o que mudaria. Nunca apaga cliente.
+ * Cadastra/atualiza (pelo CNPJ) os clientes tomadores de uma credenciada (prestadoras como a Mann móvel
+ * e as que tratam para terceiros, como Madeval e Madepallete), guardados em relatorio.tomadores. Com `aplicar` falso só devolve o que mudaria. Nunca apaga cliente.
  */
 export async function sincronizarTomadores(
   cnpjPrestadora: string,
@@ -234,6 +234,9 @@ export async function sincronizarTomadores(
   const rows = await lerRows();
   const prestadora = rows.find((r) => soDigitos(r.cnpj) === soDigitos(cnpjPrestadora));
   if (!prestadora) throw new Error("Empresa não encontrada no cadastro.");
+  if (prestadora.modalidade !== "Credenciada" && !prestadora.config?.prestadora) {
+    throw new Error("Só as credenciadas têm terceiros (tomadores do serviço).");
+  }
 
   const antigos = prestadora.relatorio?.tomadores ?? {};
   const resumo: ResumoTomadores = {
