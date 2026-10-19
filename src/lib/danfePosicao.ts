@@ -1,8 +1,17 @@
 // Leitura do DANFE pela posição dos textos na página: o valor de cada campo é o que está logo abaixo
 // do rótulo, na mesma caixa. Serve para os DANFEs cujo texto sai embaralhado (rótulos todos juntos
 // e os valores depois), como o da Renascer. Só roda no servidor.
-import "pdf-parse/worker";
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+// O documento vem do pdf-parse (que fica fora do bundle e já roda na Vercel): importar o
+// pdfjs-dist direto empacotava o pdfjs na rota e ela caía na Vercel ("DOMMatrix is not defined").
+import { PDFParse } from "pdf-parse";
+
+interface PaginaPdf {
+  getViewport(o: { scale: number }): { height: number };
+  getTextContent(): Promise<{ items: unknown[] }>;
+}
+interface DocPdf {
+  getPage(n: number): Promise<PaginaPdf>;
+}
 
 interface Item {
   s: string;
@@ -18,8 +27,10 @@ export interface DanfePosicional {
 }
 
 async function itensDaPagina(buf: Uint8Array): Promise<Item[]> {
-  const doc = await getDocument({ data: buf, useSystemFonts: false, isEvalSupported: false, disableFontFace: true, verbosity: 0 }).promise;
+  const parser = new PDFParse({ data: buf, verbosity: 0 });
   try {
+    // load() é privado só no TypeScript: devolve o documento do pdfjs.
+    const doc = await (parser as unknown as { load(): Promise<DocPdf> }).load();
     const pg = await doc.getPage(1);
     const alt = pg.getViewport({ scale: 1 }).height;
     const tc = await pg.getTextContent();
@@ -28,7 +39,7 @@ async function itensDaPagina(buf: Uint8Array): Promise<Item[]> {
       .filter((it) => it.str?.trim())
       .map((it) => ({ s: it.str.replace(/\s+/g, " ").trim(), x: it.transform[4], y: alt - it.transform[5], w: it.width }));
   } finally {
-    await doc.destroy();
+    await parser.destroy();
   }
 }
 

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { lerSessao, respostaNaoAutorizado } from "@/lib/auth";
 import { lerCertificadoMestre } from "@/lib/certificadoMestre";
-import { lerDanfePosicional } from "@/lib/danfePosicao";
 import { juntarDanfe, lerCartaCorrecao, lerNotaFiscal } from "@/lib/notaFiscal";
 import { extractPdf } from "@/lib/pdfText";
 
@@ -26,7 +25,13 @@ export async function POST(req: Request) {
     if (cc) return NextResponse.json({ nf: null, mestre: null, cc, texto: text.slice(0, 200_000) });
     // DANFE: o texto às vezes sai embaralhado (layout em caixas); a leitura pela posição completa.
     const lida = lerNotaFiscal(text);
-    const nf = lida ? juntarDanfe(lida, await lerDanfePosicional(new Uint8Array(buf), text).catch(() => null)) : null;
+    // Import dinâmico: se a leitura por posição falhar ao carregar, a nota sai só pelo texto.
+    const pos = lida
+      ? await import("@/lib/danfePosicao")
+          .then((m) => m.lerDanfePosicional(new Uint8Array(buf), text))
+          .catch((e) => (console.error("Leitura do DANFE por posição falhou", e), null))
+      : null;
+    const nf = lida ? juntarDanfe(lida, pos) : null;
     const mestre = nf?.numero ? null : lerCertificadoMestre(text);
     return NextResponse.json({ nf: nf?.numero ? nf : null, mestre: mestre?.numero ? mestre : null, texto: text.slice(0, 200_000) });
   } catch (err) {
