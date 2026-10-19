@@ -575,9 +575,10 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
   if (regra.loteEhNumero && numero) lote = numero;
   if (!numero) avisos.push("Informe o número do certificado (não veio no nome do arquivo da curva).");
 
-  // Credenciada: tomador "Nihil", a não ser que o comunicado traga outra empresa.
+  // Credenciada: tomador "Nihil", a não ser que o comunicado traga outra empresa. Empresa com terceiros
+  // cadastrados (Cadastros > Cadastro de terceiros) também usa o tomador do comunicado.
   const tomadorOutro =
-    (empresa.modalidade === "Credenciada" || regra.prestadora) &&
+    (empresa.modalidade === "Credenciada" || regra.prestadora || !!(comunicado?.tomadorCnpj && e.tomadores?.[soDigitos(comunicado.tomadorCnpj)])) &&
     comunicado?.tomadorCnpj &&
     soDigitos(comunicado.tomadorCnpj) !== soDigitos(empresa.cnpj);
   const salvo = tomadorOutro ? e.tomadores?.[soDigitos(comunicado!.tomadorCnpj)] : undefined;

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FormClienteMovel, prestadorasDe } from "@/components/CadastroClienteMovel";
+import { CadastroTerceiros } from "@/components/CadastroTerceiros";
 import { CompradoresFrequentes } from "@/components/CompradoresFrequentes";
 import { FormEmpresa, FormRt, ListaRts, type Rt } from "@/components/CadastroMadeireiras";
 import { ClientesPrestadora } from "@/components/ClientesPrestadora";
@@ -14,7 +15,7 @@ import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { soDigitos, ufDoMapa } from "@/lib/util";
 
-type Aba = "planilha" | "empresa" | "rt" | "cliente" | "comprador";
+type Aba = "planilha" | "empresa" | "rt" | "cliente" | "terceiro" | "comprador";
 
 /** "2026-10-06" para o nome dos arquivos de backup. */
 const hojeIso = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
@@ -249,6 +250,9 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
         <button type="button" className={`btn${aba === "cliente" ? " primary" : ""}`} onClick={() => abrir("cliente")}>
           Cadastrar cliente móvel
         </button>
+        <button type="button" className={`btn${aba === "terceiro" ? " primary" : ""}`} onClick={() => abrir("terceiro")}>
+          Cadastro de terceiros
+        </button>
         <button type="button" className={`btn${aba === "comprador" ? " primary" : ""}`} onClick={() => abrir("comprador")}>
           Cadastrar comprador
         </button>
@@ -301,6 +305,18 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
       )}
 
       {aba === "comprador" && <CompradoresFrequentes senha={senha} onToast={setToast} onFechar={() => setAba("planilha")} />}
+
+      {aba === "terceiro" && (
+        <CadastroTerceiros
+          senha={senha}
+          empresas={lista}
+          onSalvo={(msg) => {
+            setToast(msg);
+            void carregar();
+          }}
+          onFechar={() => setAba("planilha")}
+        />
+      )}
 
       {aba === "cliente" && (
         <FormClienteMovel

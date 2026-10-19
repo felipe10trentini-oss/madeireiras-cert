@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { podeAcessar, respostaNaoAutorizado } from "@/lib/auth";
-import { sincronizarTomadores } from "@/lib/madeireirasDb";
+import { removerTomador, sincronizarTomadores } from "@/lib/madeireirasDb";
 import type { Tomador } from "@/lib/relatorio";
 import { soDigitos } from "@/lib/util";
 
@@ -51,5 +51,20 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error("Falha ao sincronizar clientes", err instanceof Error ? err.message : "erro");
     return NextResponse.json({ error: err instanceof Error ? err.message : "Erro ao salvar." }, { status: 422 });
+  }
+}
+
+/** Remove um tomador (terceiro) da empresa: `{ cnpj: empresa, tomador: cnpj do tomador }`. */
+export async function DELETE(req: Request) {
+  if (!podeAcessar(req, "madeireiras")) return respostaNaoAutorizado("Sem permissão para a aba Cadastros.");
+  const corpo = (await req.json().catch(() => null)) as { cnpj?: unknown; tomador?: unknown } | null;
+  if (typeof corpo?.cnpj !== "string" || typeof corpo.tomador !== "string" || soDigitos(corpo.tomador).length !== 14) {
+    return NextResponse.json({ error: "Envie o CNPJ da empresa e o do tomador." }, { status: 400 });
+  }
+  try {
+    return NextResponse.json({ removido: await removerTomador(corpo.cnpj, corpo.tomador) });
+  } catch (err) {
+    console.error("Falha ao remover tomador", err instanceof Error ? err.message : "erro");
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Erro ao remover." }, { status: 422 });
   }
 }

@@ -1,4 +1,3 @@
-import { REGRAS_EMPRESA } from "./certificado";
 import type { EstiloRelatorio } from "./estiloRelatorio";
 import { lerTratamentos, type ConfigEmpresa, type Madeireira } from "./madeireiras";
 import type { PadraoRelatorio, Tomador } from "./relatorio";
@@ -223,8 +222,8 @@ export interface ResumoTomadores {
 const CAMPOS_TOMADOR: (keyof Tomador)[] = ["razao", "cnpj", "endereco", "telefone", "email"];
 
 /**
- * Cadastra/atualiza (pelo CNPJ) os clientes tomadores de uma prestadora de serviço (Mann móvel, Exata),
- * guardados em relatorio.tomadores. Com `aplicar` falso só devolve o que mudaria. Nunca apaga cliente.
+ * Cadastra/atualiza (pelo CNPJ) os clientes tomadores de uma empresa (prestadoras como a Mann móvel e
+ * credenciadas que tratam para terceiros, como Madeval e Madepallete), guardados em relatorio.tomadores. Com `aplicar` falso só devolve o que mudaria. Nunca apaga cliente.
  */
 export async function sincronizarTomadores(
   cnpjPrestadora: string,
@@ -235,9 +234,6 @@ export async function sincronizarTomadores(
   const rows = await lerRows();
   const prestadora = rows.find((r) => soDigitos(r.cnpj) === soDigitos(cnpjPrestadora));
   if (!prestadora) throw new Error("Empresa não encontrada no cadastro.");
-  if (!REGRAS_EMPRESA[soDigitos(prestadora.cnpj)]?.prestadora && !prestadora.config?.prestadora) {
-    throw new Error("Só as prestadoras de serviço (Mann móvel, Exata) têm clientes tomadores.");
-  }
 
   const antigos = prestadora.relatorio?.tomadores ?? {};
   const resumo: ResumoTomadores = {
@@ -282,6 +278,23 @@ export async function sincronizarTomadores(
     if (error) throw new Error(`Falha ao salvar os clientes: ${error.message}`);
   }
   return resumo;
+}
+
+/** Tira um tomador (pelo CNPJ) da lista de terceiros da empresa. */
+export async function removerTomador(cnpjEmpresa: string, cnpjTomador: string): Promise<boolean> {
+  const rows = await lerRows();
+  const emp = rows.find((r) => soDigitos(r.cnpj) === soDigitos(cnpjEmpresa));
+  if (!emp) throw new Error("Empresa não encontrada no cadastro.");
+  const tomadores = { ...(emp.relatorio?.tomadores ?? {}) };
+  const chave = soDigitos(cnpjTomador);
+  if (!tomadores[chave]) return false;
+  delete tomadores[chave];
+  const { error } = await getSupabaseServerClient()
+    .from(TABELA)
+    .update({ relatorio: { ...(emp.relatorio ?? {}), tomadores }, updated_at: new Date().toISOString() })
+    .eq("id", emp.id);
+  if (error) throw new Error(`Falha ao remover: ${error.message}`);
+  return true;
 }
 
 /** Grava o estilo do relatório de cada empresa (chave: CNPJ só com dígitos) em relatorio.estilo. */
