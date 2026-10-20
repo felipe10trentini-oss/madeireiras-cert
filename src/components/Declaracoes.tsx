@@ -4,7 +4,7 @@ import JSZip from "jszip";
 import { useEffect, useRef, useState } from "react";
 import { CAMPOS_REMESSA, dadosIniciais, linhaDoMestre, nomeArquivo, type DadosDeclaracao, type LinhaTratamento } from "@/lib/declaracao";
 import { CNPJ_LG, manualLg, montarDeclaracaoLg } from "@/lib/declaracaoLg";
-import { CNPJ_MANN_VOLANTE, lerBL, montarDeclaracaoMann, type DadosBL, type MestreLido } from "@/lib/declaracaoMann";
+import { CNPJ_MANN_VOLANTE, lerBL, montarDeclaracaoPadrao, type DadosBL, type MestreLido } from "@/lib/declaracaoMann";
 import {
   ativosDoModelo,
   baixarFontes,
@@ -41,7 +41,7 @@ interface Item {
   arquivo: string;
   /** A nota como veio (sem a carta de correção), para refazer quando a carta chegar depois. */
   original?: NotaFiscal;
-  /** Mann Unidade Volante: a nota e/ou os BLs desta declaração (para refazer quando chegar o mestre). */
+  /** Modelo padrão (todas menos a LG): a nota e/ou os BLs desta declaração (para refazer quando chegar o mestre). */
   mann?: { nf: NotaFiscal | null; bls: DadosBL[] };
 }
 
@@ -218,7 +218,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   const [modeloSolto, setModeloSolto] = useState<File | null>(null);
   // Cartas de correção lidas (pelo nº da nota).
   const [cartas, setCartas] = useState<Map<string, CartaCorrecao>>(new Map());
-  // Mann Unidade Volante: certificados mestres soltos (valem para as notas/BLs que vierem depois).
+  // Modelo padrão: certificados mestres soltos (valem para as notas/BLs que vierem depois).
   const [mestresMann, setMestresMann] = useState<MestreLido[]>([]);
   // Editor dos campos da declaração aberta (abre sozinho quando falta a quantidade).
   const [editando, setEditando] = useState(false);
@@ -238,8 +238,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   const empresa = empresas?.find((e) => soDigitos(e.cnpj) === soDigitos(cnpj)) ?? null;
   // Empresas com o preenchimento automático (nota fiscal + DR). As outras: declaração manual.
   const automatico = soDigitos(cnpj) === CNPJ_LG;
-  // Mann Unidade Volante: nota fiscal do cliente (ou BL) + certificado mestre do ciclo.
-  const mann = soDigitos(cnpj) === CNPJ_MANN_VOLANTE;
+  // Todas as empresas menos a LG (modelo padrão): nota fiscal (ou BL) + certificado mestre do ciclo.
+  const mann = !!cnpj && !automatico;
 
   // Word modelo da empresa (pasta privada do Supabase).
   useEffect(() => {
@@ -293,7 +293,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   }
 
   /**
-   * Mann Unidade Volante: notas fiscais do cliente, BLs/bookings e certificados mestres, juntos ou
+   * Modelo padrão (todas menos a LG): notas fiscais, BLs/bookings e certificados mestres, juntos ou
    * em levas. Uma declaração por nota (ou por BL, quando não vem nota); o ciclo escrito na nota/BL
    * escolhe o mestre. Mestre que chega depois completa as declarações que estavam esperando por ele.
    */
@@ -333,7 +333,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     const montarMann = (arquivoNf: string, nf: NotaFiscal | null, b: DadosBL[], data: string): Item => ({
       arquivoNf,
       nf,
-      ...montarDeclaracaoMann(nf, b, mestres, empresa, data),
+      ...montarDeclaracaoPadrao(nf, b, mestres, empresa, data),
       mann: { nf, bls: b },
     });
     const out: Item[] = [];
@@ -599,7 +599,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
             .map((e) => (
               <option key={e.cnpj} value={e.cnpj}>
                 {e.apelido}
-                {soDigitos(e.cnpj) === CNPJ_LG ? " · automática (nota fiscal + DR)" : soDigitos(e.cnpj) === CNPJ_MANN_VOLANTE ? " · automática (nota/BL + mestre)" : ""}
+                {soDigitos(e.cnpj) === CNPJ_LG ? " · automática (nota fiscal + DR)" : ""}
               </option>
             ))}
         </select>
@@ -686,8 +686,9 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
             titulo={carregando ? "Lendo os documentos…" : "Arraste a nota fiscal (ou o BL) e o certificado mestre"}
             dica={
               <>
-                Solte aqui a <b>nota fiscal do cliente</b> e/ou o <b>BL/booking</b> junto com o <b>certificado mestre</b> do ciclo (PDF), ou clique
-                para escolher. O ciclo escrito na nota (ex.: “CICLO MANN 0249”) escolhe o mestre. Várias notas de uma vez: uma declaração por nota.
+                Solte aqui a <b>nota fiscal</b> e/ou o <b>BL/booking</b> junto com o <b>certificado mestre</b> do ciclo (PDF), ou clique para
+                escolher. O ciclo escrito na nota (ex.: “CICLO MANN 0249”) escolhe o mestre; sem ciclo na nota, valem os mestres soltos juntos.
+                Várias notas de uma vez: uma declaração por nota.
               </>
             }
             accept=".pdf,.docx"
@@ -884,7 +885,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                 <p>
                   {automatico
                     ? "O PDF que será baixado."
-                    : "O PDF que será baixado: layout padrão, na cor do logo da empresa (o Word continua no modelo dela)."}
+                    : "O PDF que será baixado: modelo padrão (mês do tratamento, sem a tabela), na cor do logo da empresa. O Word continua no modelo dela."}
                 </p>
               </div>
               {modelo?.bytes ? (

@@ -5,7 +5,7 @@
 import fontkit from "@pdf-lib/fontkit";
 import JSZip from "jszip";
 import { degrees, PDFDocument, rgb, StandardFonts, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
-import { textoTratamento, type DadosDeclaracao } from "./declaracao";
+import { minutosDe, mostrarLote, periodoTratamento, textoTratamento, type DadosDeclaracao } from "./declaracao";
 
 export interface AtivosModelo {
   logo: Uint8Array | null;
@@ -556,12 +556,37 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
     um("NATUREZA DO PRODUTO", "Kind of product", ptDe(d.produto || ""));
     dois(["PESO LÍQUIDO", "Net weight", d.pesoLiquido], ["PESO BRUTO", "Gross weight", d.pesoBruto]);
     dois(["PROCEDÊNCIA", "Origin", ptDe(d.origem || "")], ["DESTINO", "Destination", d.destino]);
-    dois(["CERTIFICADO MESTRE", "Master certificate", [...new Set(d.linhas.map((l) => l.certificado).filter(Boolean))].join("; ")], ["CICLO", "Cycle", ciclos]);
     um("PROGRAMAÇÃO / COMUNICADO", "Treatment notice", d.comunicado.replace(/Programa[çc][ãa]o MAPA\s*/gi, ""));
   }
   y += 8;
 
-  // ---------- tabela do tratamento ----------
+  if (o.geral) {
+    // Modelo padrão das declarações (todas as empresas menos a LG): sem a tabela de início/término,
+    // só o certificado mestre (ciclo/lote), o mês do tratamento, a duração e o local.
+    secao("TRATAMENTO", "TREATMENT");
+    const comLote = mostrarLote(d.linhas);
+    const mestres = [
+      ...new Set(
+        d.linhas.map((l) => {
+          // Ciclo que é o código da curva (UR010972PR031026): "Lote 972 - UR010972PR031026" (Paletes Maringá).
+          const codigo = /^[A-Z]{2}\d{6,}[A-Z0-9]*$/i.test(l.ciclo);
+          const id = codigo
+            ? [l.lote && `Lote ${l.lote}`, l.ciclo]
+            : [l.ciclo && `Ciclo ${l.ciclo}`, comLote && l.lote && `Lote ${l.lote}`];
+          return [...id, l.certificado, l.quantidade].filter(Boolean).join(" - ");
+        })
+      ),
+    ].filter(Boolean);
+    linhaCampo("CERTIFICADO MESTRE", "Master HT certificate", mestres.join("\n"));
+    const per = periodoTratamento(d.linhas);
+    linhaCampo("DATA DO TRATAMENTO", "Time of treatment", per.pt ? `${per.pt} / ${per.en}` : "");
+    const mins = [...new Set(d.linhas.map((l) => minutosDe(l.duracao)).filter((n): n is number => n != null && n > 0))];
+    linhaCampo("DURAÇÃO DO TRATAMENTO", "Duration of treatment", mins.map((m) => `${m} minutos / ${m} minutes`).join("; "));
+    if (d.linhas.some((l) => l.tipo === "KD") && d.umidade.trim()) linhaCampo("UMIDADE CONTIDA", "Moisture", d.umidade);
+    linhaCampo("LOCAL DO TRATAMENTO", "Place of treatment", d.localTratamento);
+    y += 8;
+  } else {
+  // ---------- tabela do tratamento (LG) ----------
   const comCiclo = o.geral && d.linhas.some((l) => l.ciclo);
   const cols = (comCiclo ? [0, 0.13, 0.25, 0.38, 0.62, 0.86, 1] : [0, 0.16, 0.34, 0.6, 0.86, 1]).map((f) => ME + f * LARG);
   const topo = y;
@@ -602,6 +627,7 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
   texto(pg, d.localTratamento, ME + 8 + largura(b, "Local do tratamento / Place of treatment:", 7.6) + 5, yl + 5, r, 8.2, TINTA);
   caixa(pg, ME, topo, LARG, hTotal, 5, { borda: VERDE, esp: 0.9 });
   y = topo + hTotal + 16;
+  }
   if (o.geral) {
     const tt = textoTratamento(d);
     for (const [txt, f, cor, tam] of [

@@ -1,12 +1,14 @@
-// Declaração da Mann Unidade Volante: a Mann trata na casa do cliente, e a declaração sai da nota
-// fiscal do cliente (ou do BL/booking da exportação), que traz o nº do ciclo ("CICLO MANN 0249"),
-// e do certificado mestre desse ciclo (datas, temperatura, duração e local do tratamento).
-// Modelo: as declarações da pasta "Declaração" da Mann Caminhões Matriz 765.
+// Declaração no modelo padrão (todas as empresas menos a LG): sai da nota fiscal (ou do BL/booking da
+// exportação), que traz o nº do ciclo ("CICLO MANN 0249"), e do certificado mestre desse ciclo (mês,
+// temperatura, duração e local do tratamento). Mann Unidade Volante: a nota é a do cliente (o emitente é
+// o exportador); empresa que vende o palete (Paletes Maringá -> Avenorte): a nota é dela, e o exportador
+// é o destinatário da nota.
 import type { CertificadoMestre } from "./certificadoMestre";
 import { dadosIniciais, linhaDoMestre, type DadosDeclaracao } from "./declaracao";
 import type { DeclaracaoMontada } from "./declaracaoLg";
 import type { Madeireira } from "./madeireiras";
 import { ciclosDoTexto, type NotaFiscal } from "./notaFiscal";
+import { soDigitos } from "./util";
 
 export const CNPJ_MANN_VOLANTE = "00093600000141";
 
@@ -77,6 +79,13 @@ function tomadorDoMestre(texto: string): string | null {
 }
 
 const semZeros = (c: string | null | undefined) => (c ? String(parseInt(c, 10)) : "");
+/** 1ª palavra da razão social, para comparar ("PALETES MARINGA PBR LTDA" ~ "Paletes Maringá Pbr Ltda"). */
+const primeira = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .split(/\s+/)[0];
 
 /** "100 paletes de madeira/ wooden pallets" a partir dos itens da nota. */
 function volumesDaNota(nf: NotaFiscal): string {
@@ -95,7 +104,7 @@ function volumesDaNota(nf: NotaFiscal): string {
  * Monta a declaração de uma remessa: nota fiscal (ou BL/booking) + certificado(s) mestre(s) dos
  * ciclos. Os mestres são casados pelo ciclo escrito na nota/BL.
  */
-export function montarDeclaracaoMann(
+export function montarDeclaracaoPadrao(
   nf: NotaFiscal | null,
   bls: DadosBL[],
   mestres: MestreLido[],
@@ -109,7 +118,7 @@ export function montarDeclaracaoMann(
   const usados = ciclosDoc.length
     ? mestres.filter((m) => ciclosDoc.includes(semZeros(m.mestre.ciclo)) || ciclosDoc.includes(semZeros(m.mestre.lote)))
     : mestres;
-  if (!ciclosDoc.length) avisos.push(nf ? "A nota não traz o nº do ciclo (ex.: “CICLO MANN 0249”): confira se o certificado mestre é o desta remessa." : "O BL/booking não traz o nº do ciclo: confira o certificado mestre.");
+  if (!ciclosDoc.length) avisos.push(nf ? "A nota não traz o nº do ciclo: entraram os certificados mestres soltos junto — confira se são os desta remessa." : "O BL/booking não traz o nº do ciclo: confira o certificado mestre.");
   for (const c of ciclosDoc) {
     if (!usados.some((m) => semZeros(m.mestre.ciclo) === c || semZeros(m.mestre.lote) === c)) avisos.push(`Ciclo ${c}: solte também o certificado mestre dele.`);
   }
@@ -117,9 +126,25 @@ export function montarDeclaracaoMann(
 
   const base = dadosIniciais([], empresa, hoje);
   const m0 = usados[0];
-  const exportador = titulo(nf?.emitente?.razao) || titulo(bl?.exportador) || titulo(m0 ? tomadorDoMestre(m0.texto) : null);
-  const destinatario = titulo(nf?.destinatario.razao) || bl?.destinatario || "";
-  const linhas = usados.map((m) => linhaDoMestre(m.mestre));
+  // A nota é da própria empresa (venda do palete)? Então o exportador é quem comprou.
+  const notaPropria =
+    !!nf &&
+    !!empresa &&
+    ((!!nf.emitente?.cnpj && soDigitos(nf.emitente.cnpj) === soDigitos(empresa.cnpj)) ||
+      (!!nf.emitente?.razao && primeira(nf.emitente.razao) === primeira(empresa.razaoSocial)));
+  const exportador =
+    (notaPropria ? titulo(nf?.destinatario.razao) : titulo(nf?.emitente?.razao)) ||
+    titulo(bl?.exportador) ||
+    titulo(m0 ? tomadorDoMestre(m0.texto) : null);
+  const destinatario = (notaPropria ? "" : titulo(nf?.destinatario.razao)) || bl?.destinatario || "";
+  // Quantidade do mestre ("200 paletes") vai na linha do certificado mestre (Paletes Maringá). Duração:
+  // a 56 °C as declarações levam 32 minutos (a curva às vezes fecha 31); mais longas ficam como estão.
+  const linhas = usados.map((m) => {
+    const l = linhaDoMestre(m.mestre);
+    const min = parseInt(l.duracao, 10);
+    const t = parseFloat(l.temperatura.replace(",", "."));
+    return { ...l, quantidade: l.quantidade || m.mestre.quantidade || "", duracao: t <= 56 && min > 0 && min < 32 ? "32 min" : l.duracao };
+  });
   const certs = [...new Set(linhas.map((l) => l.certificado).filter(Boolean))];
   if (!exportador) avisos.push("Não achei o exportador (emitente da nota / shipper do BL): preencha.");
   const locais = [...new Set(usados.map((m) => m.mestre.enderecoTrat).filter(Boolean))] as string[];
@@ -142,13 +167,19 @@ export function montarDeclaracaoMann(
     localTratamento: locais.join("; ").replace(/\s*-\s*[A-Z]{2}\s*$/, ""),
     sujeito: nf?.itens.every((i) => /palet|pallet/i.test(i.descricao)) ? "paletes" : nf?.itens.every((i) => /suporte|skid/i.test(i.descricao)) ? "suportes" : "material",
     linhas,
-    localEmissao: "Curitiba - PR",
+    // Mann Unidade Volante emite em Curitiba; as outras, na cidade delas (cadastro).
+    localEmissao: empresa && soDigitos(empresa.cnpj) === CNPJ_MANN_VOLANTE ? "Curitiba - PR" : base.localEmissao,
   };
   if (!dados.volumes.trim()) avisos.push("Não achei a quantidade de material na nota/BL: preencha em “Editar campos” (Cubagem/Volume).");
   if (!certs.length && mestres.length) avisos.push("Os certificados mestres soltos não são do ciclo da nota: confira.");
-  // Nome no padrão da pasta: "Declaração HT - Renascer NFe 7376 - Novozymes" / "Declaração HT - Marine ONEYSAOG54885400".
+  // Nome no padrão das pastas: Mann "Declaração HT - Renascer NFe 7376 - Novozymes" / "Declaração HT - Marine
+  // ONEYSAOG54885400"; as outras "DECL. KTR NFe 11336".
   const curto = (s: string) => s.split(/\s+/)[0] ?? "";
-  const ref = nf?.numero ? `NFe ${nf.numero}${destinatario ? ` - ${curto(destinatario)}` : ""}` : bl?.bl || bl?.booking || certs[0] || "";
-  const arquivo = `Declaração HT - ${curto(exportador) || "Cliente"} ${ref}`.replace(/[\\/:*?"<>|]/g, "-").trim() + ".docx";
+  const mann = !!empresa && soDigitos(empresa.cnpj) === CNPJ_MANN_VOLANTE;
+  const ref = nf?.numero ? `NFe ${nf.numero}${mann && destinatario ? ` - ${curto(destinatario)}` : ""}` : bl?.bl || bl?.booking || certs[0] || "";
+  const arquivo = `${mann ? "Declaração HT -" : "DECL."} ${curto(exportador) || "Cliente"} ${ref}`.replace(/[\\/:*?"<>|]/g, "-").trim() + ".docx";
   return { dados, avisos, arquivo };
 }
+
+/** Nome antigo (só a Mann Unidade Volante usava). */
+export const montarDeclaracaoMann = montarDeclaracaoPadrao;

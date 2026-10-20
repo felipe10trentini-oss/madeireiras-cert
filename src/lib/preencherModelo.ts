@@ -99,7 +99,46 @@ export const VARIAVEIS = new Set<Campo>([
   "volumes", "pesoLiquido", "pesoBruto", "programacao", "dataTratamento", "observacao",
 ]);
 /** Campos que continuam nos parágrafos seguintes do modelo (endereço do exportador, itens). */
-const MULTILINHA = new Set<Campo>(["exportador", "volumes"]);
+const MULTILINHA = new Set<Campo>(["exportador", "volumes", "master"]);
+
+/**
+ * Certificado mestre no formato do modelo da empresa: a 1ª entrada do modelo vira o molde e cada
+ * pedaço é trocado pelo dado do mestre, na mesma ordem e com as mesmas palavras.
+ *   "Lote 972 - UR010972PR031026 - 200 paletes" (Paletes Maringá, uma por linha)
+ *   "Ciclo 249 - 1606/2026" (Mann) · "051/2026 - Ciclo 189" · "203/2026 Ciclo 769" · "Ciclo 788"
+ */
+export function mestreComoModelo(antigo: string, linhas: LinhaTratamento[]): string {
+  const entradas = antigo.split(/\s+\/\s+(?=\S)|\s*;\s*/).filter((e) => e.trim());
+  const molde = (entradas[0] ?? "").trim();
+  const codigo = (s: string) => /^[A-Z]{2}\d{6,}[A-Z0-9]*$/i.test(s.trim());
+  const pecas = molde.split(/(\s+-\s+|\s+(?=(?:Ciclo|Lote)\b))/i);
+  const uma = (l: LinhaTratamento) => {
+    // Ciclo "curto": quando o ciclo é o código da curva (UR010972PR031026), o nº é o do lote.
+    const cicloCurto = codigo(l.ciclo) ? l.lote || l.ciclo : l.ciclo;
+    const out = pecas.map((p, i) => {
+      if (i % 2 === 1) return p; // separador
+      const t = p.trim();
+      if (/^ciclo\b/i.test(t)) return cicloCurto ? `${t.match(/^ciclo/i)![0]} ${cicloCurto}` : "";
+      if (/^lote\b/i.test(t)) return l.lote || cicloCurto ? `${t.match(/^lote/i)![0]} ${l.lote || cicloCurto}` : "";
+      if (/^\d{1,5}\/\d{4}/.test(t)) return l.certificado;
+      if (codigo(t)) return codigo(l.ciclo) ? l.ciclo : "";
+      if (/^\d[\d.]*\s+\D/.test(t)) return l.quantidade ?? "";
+      return t;
+    });
+    // Pedaço sem dado: sai junto com o separador da frente.
+    let s = "";
+    for (let i = 0; i < out.length; i += 2) {
+      if (!out[i]) continue;
+      s += (s && i > 0 ? out[i - 1] : "") + out[i];
+    }
+    return s.trim() || [l.ciclo && `Ciclo ${cicloCurto}`, l.certificado].filter(Boolean).join(" - ");
+  };
+  const unicas = [...new Map(linhas.map((l) => [`${l.ciclo}|${l.lote}|${l.certificado}`, l])).values()];
+  const textos = [...new Set(unicas.map(uma))];
+  // Várias no modelo numa linha ("… / …" ou "…; …"): junta igual; uma só com quantidade/lote: uma por linha.
+  const sep = /;/.test(antigo) ? "; " : entradas.length > 1 || pecas.length < 5 ? " / " : "\n";
+  return textos.join(sep);
+}
 
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -556,14 +595,8 @@ export async function preencherModelo(
         if (r.campo === "duracao" && novo && /\d/.test(antigo))
           novo = antigo.replace(/\d+/g, novo.match(/\d+/)![0]);
         // Certificado mestre na ordem do modelo: "Ciclo 249 - 1606/2026" (Mann) ou "203/2026 Ciclo 769".
-        if (r.campo === "master" && v.linhas.some((l) => l.ciclo || l.certificado)) {
-          const sep = /;/.test(antigo) ? "; " : " / ";
-          const ciclo = (/^\s*ciclo/.test(antigo) ? "ciclo" : "Ciclo");
-          const pares = [...new Map(v.linhas.map((l) => [`${l.ciclo}|${l.certificado}`, l])).values()];
-          novo = /^\s*ciclo/i.test(antigo)
-            ? pares.map((l) => [l.ciclo && `${ciclo} ${l.ciclo}`, l.certificado].filter(Boolean).join(" - ")).join(sep)
-            : pares.map((l) => [l.certificado, l.ciclo && `${ciclo} ${l.ciclo}`].filter(Boolean).join(" ")).join(sep);
-        }
+        if (r.campo === "master" && v.linhas.some((l) => l.ciclo || l.certificado))
+          novo = mestreComoModelo(antigo, v.linhas);
         // Em branco: os campos de cada remessa ficam vazios (o modelo é uma declaração antiga e o
         // dado dela não pode ir para a nova); os fixos da empresa ficam como no modelo.
         if (novo == null || novo === "") {
