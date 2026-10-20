@@ -10,6 +10,7 @@ import type { Madeireira } from "./madeireiras";
 import { ciclosDoTexto, type NotaFiscal } from "./notaFiscal";
 import { regraDe } from "./certificado";
 import { escolherLinha, linhaDoRelatorio, linhasDoCiclo, type LinhaRelatorio } from "./relatorioMapa";
+import { completarComNihil } from "./preencherModelo";
 import { soDigitos } from "./util";
 
 export const CNPJ_MANN_VOLANTE = "00093600000141";
@@ -108,6 +109,8 @@ export interface OpcoesDeclaracao {
   relatorio?: LinhaRelatorio[] | null;
   /** Ciclos/lotes digitados (quando a nota não traz): valem no lugar dos da nota. */
   ciclos?: string[];
+  /** Campos que o Word da empresa tem: o que o documento base não trouxe vai "Nihil". */
+  campos?: Set<string> | null;
 }
 
 /**
@@ -216,7 +219,7 @@ export function montarDeclaracaoPadrao(
   const mann = !!empresa && soDigitos(empresa.cnpj) === CNPJ_MANN_VOLANTE;
   const ref = nf?.numero ? `NFe ${nf.numero}${mann && destinatario ? ` - ${curto(destinatario)}` : ""}` : bl?.bl || bl?.booking || certs[0] || "";
   const arquivo = `${mann ? "Declaração HT -" : "DECL."} ${curto(exportador) || "Cliente"} ${ref}`.replace(/[\\/:*?"<>|]/g, "-").trim() + ".docx";
-  return { dados, avisos, arquivo };
+  return { dados: completarComNihil(dados, op.campos as Parameters<typeof completarComNihil>[1]), avisos, arquivo };
 }
 
 /** Nome antigo (só a Mann Unidade Volante usava). */

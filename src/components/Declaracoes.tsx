@@ -22,7 +22,7 @@ import { aplicarPadrao, aprenderDoTexto, type PadraoDeclaracao } from "@/lib/mod
 import type { CartaCorrecao, NotaFiscal } from "@/lib/notaFiscal";
 import { lerPlanilhaDR, type LinhaDR } from "@/lib/planilhaDR";
 import { lerRelatorioTermico, type LinhaRelatorio } from "@/lib/relatorioMapa";
-import { preencherModelo, textoDoModelo } from "@/lib/preencherModelo";
+import { camposDoWord, completarComNihil, preencherModelo, textoDoModelo } from "@/lib/preencherModelo";
 import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { hojeBR, soDigitos } from "@/lib/util";
@@ -84,7 +84,10 @@ function Editor({ d, onChange }: { d: DadosDeclaracao; onChange: (d: DadosDeclar
             )
           )}
         </div>
-        <p className="hint">Só entram os campos que existem no Word da empresa; em branco, fica o texto do modelo.</p>
+        <p className="hint">
+          Só entram os campos que existem no Word da empresa. Modelo padrão (todas menos a LG): o que os documentos não trazem vai como <b>Nihil</b>; apague o campo (deixe
+          em branco) para ele sair da declaração.
+        </p>
       </div>
 
       <div className="card" style={{ marginBottom: 14 }}>
@@ -186,7 +189,13 @@ function baixarBlob(bytes: Uint8Array, nome: string, tipo: string) {
 
 
 /** Declaração em branco para preencher à mão: os campos fixos vêm do Word modelo da empresa. */
-function manualDe(e: MadeireiraSalva | null, padrao?: PadraoDeclaracao): DadosDeclaracao {
+function manualDe(e: MadeireiraSalva | null, padrao?: PadraoDeclaracao, campos?: Set<string> | null): DadosDeclaracao {
+  const d = manualSemNihil(e, padrao);
+  // Modelo padrão: os campos do Word começam "Nihil" (apagar = o campo sai da declaração).
+  return e && soDigitos(e.cnpj) !== CNPJ_LG ? completarComNihil(d, campos as Parameters<typeof completarComNihil>[1]) : d;
+}
+
+function manualSemNihil(e: MadeireiraSalva | null, padrao?: PadraoDeclaracao): DadosDeclaracao {
   if (e && soDigitos(e.cnpj) === CNPJ_LG) return aplicarPadrao(manualLg(e, hojeBR()), padrao);
   const base = dadosIniciais([], e, hojeBR());
   // Mann Unidade Volante: o tratamento é na casa do cliente (vem do mestre); emite em Curitiba.
@@ -223,6 +232,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   const [mestresMann, setMestresMann] = useState<MestreLido[]>([]);
   // Relatório do MAPA da empresa (aba TÉRMICO): o tratamento de cada ciclo, no lugar dos mestres.
   const [relatorio, setRelatorio] = useState<{ nome: string; linhas: LinhaRelatorio[] } | null>(null);
+  // Rótulos que o Word da empresa tem (o que faltar nos documentos vai "Nihil").
+  const [camposModelo, setCamposModelo] = useState<Set<string> | null>(null);
   // Editor dos campos da declaração aberta (abre sozinho quando falta a quantidade).
   const [editando, setEditando] = useState(false);
 
@@ -255,6 +266,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
         const bytes = j?.modelo ? deBase64(j.modelo) : null;
         setModelo(j ? { salvo: !!j.salvo, nomeModelo: j.nomeModelo, atualizado: j.atualizado, bytes, regras: j.regras ?? {}, documentos: j.documentos ?? [] } : null);
         setPadrao(bytes ? aprenderDoTexto(await textoDoModelo(bytes)).padrao : undefined);
+        setCamposModelo(bytes ? await camposDoWord(bytes) : null);
         // Empresa sem modelo: abre a edição para carregar o Word.
         if (j && !j.salvo) setEditandoModelo(true);
       })
@@ -273,13 +285,13 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     if (!atual?.dados || !modelo?.bytes) return;
     let vivo = true;
     const t = setTimeout(() => {
-      void preencherModelo(modelo.bytes!, atual.dados!).then((r) => vivo && setPrevia(r.bytes));
+      void preencherModelo(modelo.bytes!, atual.dados!, { removerVazios: !automatico }).then((r) => vivo && setPrevia(r.bytes));
     }, 400);
     return () => {
       vivo = false;
       clearTimeout(t);
     };
-  }, [atual?.dados, modelo?.bytes]);
+  }, [atual?.dados, modelo?.bytes, automatico]);
 
   function escolherEmpresa(c: string) {
     setCnpj(c);
@@ -358,7 +370,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     const montarMann = (arquivoNf: string, nf: NotaFiscal | null, b: DadosBL[], data: string): Item => ({
       arquivoNf,
       nf,
-      ...montarDeclaracaoPadrao(nf, b, mestres, empresa, data, { relatorio: rel?.linhas }),
+      ...montarDeclaracaoPadrao(nf, b, mestres, empresa, data, { relatorio: rel?.linhas, campos: camposModelo }),
       mann: { nf, bls: b },
     });
     const out: Item[] = [];
@@ -390,7 +402,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     const cs = ciclos ?? x.mann.ciclos;
     return {
       ...x,
-      ...montarDeclaracaoPadrao(x.mann.nf, x.mann.bls, mestres, empresa, x.dados?.data ?? hojeBR(), { relatorio: rel, ciclos: cs }),
+      ...montarDeclaracaoPadrao(x.mann.nf, x.mann.bls, mestres, empresa, x.dados?.data ?? hojeBR(), { relatorio: rel, ciclos: cs, campos: camposModelo }),
       mann: { ...x.mann, ciclos: cs },
     };
   }
@@ -410,7 +422,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
       const fontes: Fonte[] = lidos.filter((f) => !f.erro && !f.mestre);
       const mestres = lidos.map((f) => f.mestre as CertificadoMestre | undefined).filter((m): m is CertificadoMestre => !!m);
       const { valores, faltando } = aplicar(modelo.regras, fontes);
-      const d = manualDe(empresa, padrao);
+      const d = manualDe(empresa, padrao, camposModelo);
       const [exp, ...end] = (valores.exportador ?? "").split("\n");
       const dados: DadosDeclaracao = {
         ...d,
@@ -445,7 +457,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   }
 
   function novaManual() {
-    setItens((xs) => [...xs, { arquivoNf: "manual", nf: null, dados: manualDe(empresa, padrao), avisos: [], arquivo: "" }]);
+    setItens((xs) => [...xs, { arquivoNf: "manual", nf: null, dados: manualDe(empresa, padrao, camposModelo), avisos: [], arquivo: "" }]);
     setSel(itens.length);
   }
 
@@ -546,7 +558,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     const it = itens[i];
     if (!it?.dados || !modelo?.bytes) return;
     try {
-      const r = await preencherModelo(modelo.bytes, it.dados);
+      const r = await preencherModelo(modelo.bytes, it.dados, { removerVazios: !automatico });
       baixarBlob(r.bytes, nomeDe(it), DOCX);
       if (r.avisos.length) setToast(r.avisos.join(" "));
     } catch (e) {
@@ -591,7 +603,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
         let nome = base;
         for (let n = 2; usados.has(nome); n++) nome = base.replace(/\.(docx|pdf)$/, ` (${n}).$1`);
         usados.add(nome);
-        zip.file(nome, formato === "pdf" ? await pdfDe(it.dados) : (await preencherModelo(modelo.bytes, it.dados)).bytes);
+        zip.file(nome, formato === "pdf" ? await pdfDe(it.dados) : (await preencherModelo(modelo.bytes, it.dados, { removerVazios: !automatico })).bytes);
       }
       const nomeZip = `Declarações ${empresa?.apelido ?? ""} ${hojeBR().replace(/\//g, "-")}${formato === "pdf" ? " PDF" : ""}.zip`.replace(/\s+/g, " ");
       baixarBlob(await zip.generateAsync({ type: "uint8array" }), nomeZip, "application/zip");

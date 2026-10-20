@@ -98,6 +98,55 @@ export const VARIAVEIS = new Set<Campo>([
   "exportador", "importador", "master", "ciclo", "lote", "navio", "fatura", "nfe", "booking", "bl", "container", "marcas",
   "volumes", "pesoLiquido", "pesoBruto", "programacao", "dataTratamento", "observacao",
 ]);
+/**
+ * Campos da remessa que o documento base pode não trazer: entram como "Nihil"; apagados na edição
+ * (em branco), saem da declaração com o rótulo (modelo padrão). Os do tratamento nunca saem.
+ */
+export const REMOVIVEIS = new Set<Campo>([
+  "exportador", "importador", "destinatario", "navio", "fatura", "nfe", "booking", "bl", "container", "marcas",
+  "volumes", "produto", "pesoLiquido", "pesoBruto", "origem", "destino", "programacao", "observacao",
+]);
+const CHAVE_DADOS: Partial<Record<Campo, keyof DadosDeclaracao>> = { programacao: "comunicado" };
+
+/** Campos do modelo (os rótulos que o Word da empresa tem). */
+export async function camposDoWord(modelo: ArrayBuffer | Uint8Array): Promise<Set<Campo>> {
+  const plano = (await textoDoModelo(modelo)).replace(/\s+/g, " ");
+  return new Set(ROTULOS.filter(([c, re]) => c !== "fixo" && new RegExp(re.source, "i").test(plano)).map(([c]) => c));
+}
+
+/** O que o documento base não trouxe, dos campos que o modelo tem: "Nihil" (menos a observação). */
+export function completarComNihil(d: DadosDeclaracao, campos: Set<Campo> | null | undefined): DadosDeclaracao {
+  if (!campos) return d;
+  const out = { ...d } as DadosDeclaracao & Record<string, unknown>;
+  for (const c of campos) {
+    if (!REMOVIVEIS.has(c) || c === "observacao") continue;
+    const k = (CHAVE_DADOS[c] ?? c) as keyof DadosDeclaracao;
+    const v = out[k];
+    if (typeof v === "string" && !v.trim()) (out as Record<string, unknown>)[k] = "Nihil";
+  }
+  return out;
+}
+
+/** Tira as quebras de linha que sobraram vazias (no começo, no fim ou duas seguidas) depois de remover um campo. */
+function limparQuebras(p: string): string {
+  const toks = [...p.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>|<w:br\/>/g)];
+  const tirar: number[] = [];
+  let vazio = true;
+  let ultimoBr = -1;
+  for (const m of toks) {
+    if (m[0] === "<w:br/>") {
+      if (vazio) tirar.push(m.index!);
+      else ultimoBr = m.index!;
+      vazio = true;
+    } else if (m[1].trim()) {
+      vazio = false;
+      ultimoBr = -1;
+    }
+  }
+  if (vazio && ultimoBr >= 0) tirar.push(ultimoBr);
+  return tirar.sort((a, b) => b - a).reduce((x, i) => x.slice(0, i) + x.slice(i + "<w:br/>".length), p);
+}
+
 /** Campos que continuam nos parágrafos seguintes do modelo (endereço do exportador, itens). */
 const MULTILINHA = new Set<Campo>(["exportador", "volumes", "master"]);
 
@@ -185,7 +234,7 @@ function trocarTrecho(
   let out = "";
   let ultimo = 0;
   let colocado = false;
-  for (const t of ts) {
+  ts.forEach((t, n) => {
     const idx = t.m.index!;
     const original = desescapar(t.m[2]);
     let txt = original;
@@ -197,21 +246,22 @@ function trocarTrecho(
     } else if (!colocado && t.ini >= ini && ini === fim) {
       txt = novo + original;
       colocado = true;
+    } else if (!colocado && ini === fim && n === ts.length - 1 && t.fim <= ini) {
+      // Valor vazio no modelo (rótulo no fim do parágrafo): vai no fim do último run.
+      txt = original + novo;
+      colocado = true;
     }
     out +=
       p.slice(ultimo, idx) +
       `${t.m[1].replace(/<w:t(?![^>]*xml:space)/, '<w:t xml:space="preserve"')}${esc(txt)}${t.m[3]}`;
     ultimo = idx + t.m[0].length;
-  }
+  });
   out += p.slice(ultimo);
-  // Valor vazio no modelo (rótulo no fim do parágrafo): acrescenta no último run.
-  if (!colocado && novo && ts.length)
-    return trocarTrecho(
-      out,
-      textoDe(out).texto.length,
-      textoDe(out).texto.length,
-      novo,
-    );
+  // Ainda sem lugar (trecho fora do texto): acrescenta no último run.
+  if (!colocado && novo && ts.length) {
+    const tam = textoDe(out).texto.length;
+    if (ini !== tam || fim !== tam) return trocarTrecho(out, tam, tam, novo);
+  }
   return out;
 }
 
@@ -485,6 +535,7 @@ function preencherTabela(
 export async function preencherModelo(
   modelo: ArrayBuffer | Uint8Array,
   d: DadosDeclaracao,
+  op: { removerVazios?: boolean } = {},
 ): Promise<ResultadoModelo> {
   const zip = await JSZip.loadAsync(modelo);
   const arq = zip.file("word/document.xml");
@@ -515,8 +566,14 @@ export async function preencherModelo(
       ini: m.index!,
     }));
     const novos = pars.map((p) => p.xml);
-    let continuar: { campo: Campo; resto: string[]; ultimo: number } | null =
+    let continuar: { campo: Campo; resto: string[]; ultimo: number; remover?: boolean } | null =
       null;
+    // Parágrafo que ficou vazio depois de remover um campo sai inteiro (menos dentro de tabela, que
+    // precisa de um parágrafo por célula, e o único da caixa de texto).
+    const podeTirar = (i: number) => {
+      const antes = doc.slice(0, pars[i].ini);
+      return pars.length > 1 && antes.lastIndexOf("<w:tc>") <= antes.lastIndexOf("</w:tc>") && antes.lastIndexOf("<w:tc ") <= antes.lastIndexOf("</w:tc>");
+    };
 
     pars.forEach((p, i) => {
       const { texto } = textoDe(p.xml);
@@ -541,6 +598,11 @@ export async function preencherModelo(
 
       if (!achados.length) {
         // Linha de continuação (endereço do exportador, 2º item da quantidade).
+        if (continuar && texto.trim() && continuar.remover) {
+          // Continuação de um campo removido (2ª linha do endereço/itens antigos): sai também.
+          novos[i] = podeTirar(i) ? "" : trocarTrecho(novos[i].replace(/<w:br\/>/g, ""), 0, texto.length, "");
+          return;
+        }
         if (continuar && texto.trim()) {
           // O parágrafo pode ter várias linhas com quebra ("AV …, 600" ↵ "CHAPECO - SC"): as
           // quebras antigas saem e as linhas novas entram com quebras novas (sem linha em branco).
@@ -571,13 +633,17 @@ export async function preencherModelo(
 
       // Troca do fim para o começo (as posições do começo não mudam).
       let xml = novos[i];
+      let removeu = false;
       for (let k = achados.length - 1; k >= 0; k--) {
         const r = achados[k];
         const fimValor =
           k + 1 < achados.length ? achados[k + 1].ini : texto.length;
         const bruto = texto.slice(r.fim, fimValor);
-        const ini = r.fim + (bruto.length - bruto.trimStart().length);
-        const fim = r.fim + bruto.trimEnd().length;
+        // Sem valor no modelo ("Marca/Marks:" e espaços até o próximo rótulo): o novo entra logo
+        // depois do rótulo, com um espaço.
+        const semValor = !bruto.trim();
+        const ini = semValor ? r.fim : r.fim + (bruto.length - bruto.trimStart().length);
+        const fim = semValor ? r.fim : r.fim + bruto.trimEnd().length;
         const antigo = texto.slice(ini, Math.max(ini, fim));
         if (r.campo === "localEmissao") {
           const trocado = trocarData(antigo, v.data);
@@ -597,6 +663,13 @@ export async function preencherModelo(
         // Certificado mestre na ordem do modelo: "Ciclo 249 - 1606/2026" (Mann) ou "203/2026 Ciclo 769".
         if (r.campo === "master" && v.linhas.some((l) => l.ciclo || l.certificado))
           novo = mestreComoModelo(antigo, v.linhas);
+        // Modelo padrão: campo da remessa apagado na edição sai da declaração, com o rótulo.
+        if (op.removerVazios && REMOVIVEIS.has(r.campo) && !(novo ?? "").trim()) {
+          xml = trocarTrecho(xml, r.ini, fimValor, "");
+          removeu = true;
+          if (k === achados.length - 1 && MULTILINHA.has(r.campo)) continuar = { campo: r.campo, resto: [], ultimo: i, remover: true };
+          continue;
+        }
         // Em branco: os campos de cada remessa ficam vazios (o modelo é uma declaração antiga e o
         // dado dela não pode ir para a nova); os fixos da empresa ficam como no modelo.
         if (novo == null || novo === "") {
@@ -612,6 +685,7 @@ export async function preencherModelo(
             "destinatario",
             "localTratamento",
           ].includes(r.campo) &&
+          antigo.replace(/\W/g, "").length >= 3 &&
           novo
             .trim()
             .toLowerCase()
@@ -623,7 +697,7 @@ export async function preencherModelo(
           continue;
         // Espaços repetidos dos dados (endereço da nota, descrição do item) saem: um espaço só.
         const linhasValor = novo.split("\n").map((l) => l.replace(/[ \t]{2,}/g, " ").trim());
-        xml = trocarTrecho(xml, ini, fim, caixa(antigo, linhasValor[0]));
+        xml = trocarTrecho(xml, ini, fim, (semValor && linhasValor[0] ? " " : "") + caixa(antigo, linhasValor[0]));
         preenchidos.push(r.campo);
         // Exportador / quantidade: as próximas linhas vão nos parágrafos seguintes do modelo (as
         // linhas que sobram no modelo — endereço antigo, 2º item antigo — ficam vazias).
@@ -637,6 +711,10 @@ export async function preencherModelo(
           xml = linhasValor
             .slice(1)
             .reduce((acc, l) => acrescentarLinha(acc, caixa(antigo, l)), xml);
+      }
+      if (removeu) {
+        xml = limparQuebras(xml);
+        if (!textoDe(xml).texto.trim() && podeTirar(i)) xml = "";
       }
       novos[i] = xml;
     });
