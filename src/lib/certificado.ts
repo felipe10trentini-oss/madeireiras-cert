@@ -131,6 +131,11 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "52249461000104": { caixasEmKit: true }, // TLP
   // Madepar: programações protocoladas fora da sequência do mês (14/10/2026).
   "83418434000133": { programacaoDoMes: { "10/2026": "05/2026", "11/2026": "06/2026", "12/2026": "07/2026" } },
+  // Salamoni: as programações são numeradas a partir de julho/2026 (1. JULHO, 2. AGOSTO … 4. OUTUBRO
+  // = "REF: 04/2026 - OUTUBRO"), não pelo mês (20/10/2026).
+  "83054544000163": {
+    programacaoDoMes: { "07/2026": "01/2026", "08/2026": "02/2026", "09/2026": "03/2026", "10/2026": "04/2026", "11/2026": "05/2026", "12/2026": "06/2026" },
+  },
 };
 
 /** Páscoa (algoritmo de Meeus) — base dos feriados móveis. */
