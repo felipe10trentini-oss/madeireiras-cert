@@ -1,21 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FormClienteMovel, prestadorasDe } from "@/components/CadastroClienteMovel";
 import { CadastroTerceiros } from "@/components/CadastroTerceiros";
 import { CompradoresFrequentes } from "@/components/CompradoresFrequentes";
 import { FormEmpresa, FormRt, ListaRts, type Rt } from "@/components/CadastroMadeireiras";
 import { ClientesPrestadora } from "@/components/ClientesPrestadora";
 import { FileDrop } from "@/components/FileDrop";
 import { PortaoSenha } from "@/components/PortaoSenha";
+import { regraDe } from "@/lib/certificado";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import { baixarPlanilha, linhaDaEmpresa, montarPlanilhaCadastro, montarPlanilhaClientes, montarPlanilhaRts } from "@/lib/planilhaCadastro";
 import { lerAcessosSei, lerPlanilhaMadeireiras } from "@/lib/planilhaMadeireiras";
+import { CNPJ_MANN_MOVEL } from "@/lib/relatorioMannMovel";
 import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { soDigitos, ufDoMapa } from "@/lib/util";
 
-type Aba = "planilha" | "empresa" | "rt" | "cliente" | "terceiro" | "comprador";
+type Aba = "planilha" | "empresa" | "rt" | "terceiro" | "comprador";
+
+/** Prestadoras com clientes (Mann móvel primeiro): backup da planilha de clientes. */
+function prestadorasDe(empresas: MadeireiraSalva[] | null): MadeireiraSalva[] {
+  return (empresas ?? [])
+    .filter((e) => regraDe(e).prestadora)
+    .sort((a, b) => Number(soDigitos(b.cnpj) === CNPJ_MANN_MOVEL) - Number(soDigitos(a.cnpj) === CNPJ_MANN_MOVEL));
+}
 
 /** "2026-10-06" para o nome dos arquivos de backup. */
 const hojeIso = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
@@ -247,9 +255,6 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
         >
           Cadastrar RT
         </button>
-        <button type="button" className={`btn${aba === "cliente" ? " primary" : ""}`} onClick={() => abrir("cliente")}>
-          Cadastrar cliente móvel
-        </button>
         <button type="button" className={`btn${aba === "terceiro" ? " primary" : ""}`} onClick={() => abrir("terceiro")}>
           Cadastro de terceiros
         </button>
@@ -315,18 +320,6 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
             void carregar();
           }}
           onFechar={() => setAba("planilha")}
-        />
-      )}
-
-      {aba === "cliente" && (
-        <FormClienteMovel
-          senha={senha}
-          empresas={lista}
-          onSalvo={(msg) => {
-            setToast(msg);
-            void carregar();
-          }}
-          onCancelar={() => setAba("planilha")}
         />
       )}
 

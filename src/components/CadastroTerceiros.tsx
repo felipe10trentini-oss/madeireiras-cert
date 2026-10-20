@@ -1,7 +1,7 @@
 "use client";
 
 // Cadastro de terceiros: os tomadores do serviço das credenciadas que tratam para outras empresas
-// (Madeval, Madepallete, DM, CJ…). Ficam em relatorio.tomadores da empresa, pelo CNPJ;
+// (Madeval, Madepallete, DM, CJ…) e os clientes da Mann móvel (era a aba "Cadastrar cliente móvel"). Ficam em relatorio.tomadores da empresa, pelo CNPJ;
 // na emissão, o comunicado traz o CNPJ do tomador e o certificado puxa razão, endereço, telefone e
 // e-mail daqui (2.1–2.5). Grava pela mesma rota do cadastro de clientes da móvel.
 import { useState, type FormEvent } from "react";
@@ -40,6 +40,10 @@ export function CadastroTerceiros({
   const [c, setC] = useState<Tomador>(VAZIO);
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  // Busca na lista (a Mann móvel tem mais de 100 clientes).
+  const [busca, setBusca] = useState("");
+  const b = busca.trim().toLowerCase();
+  const visiveis = b ? salvos.filter((t) => `${t.razao} ${t.cnpj} ${soDigitos(t.cnpj)} ${t.endereco}`.toLowerCase().includes(b)) : salvos;
 
   function abrir(cnpj: string) {
     setEditando(cnpj);
@@ -105,7 +109,7 @@ export function CadastroTerceiros({
     <div className="card" style={{ marginBottom: 18 }}>
       <h3 style={{ margin: "0 0 4px", fontSize: 15 }}>Cadastro de terceiros (tomadores do serviço)</h3>
       <p className="hint" style={{ marginTop: 0 }}>
-        Para empresas que tratam para outras (Madeval, Madepallete, DM, CJ…). Quando o comunicado traz o CNPJ de um tomador cadastrado aqui,
+        Para empresas que tratam para outras (Madeval, Madepallete, DM, CJ…) e os clientes da Mann móvel. Quando o comunicado traz o CNPJ de um tomador cadastrado aqui,
         o certificado já sai com razão social, CNPJ, endereço, telefone e e-mail dele (2.1–2.5).
       </p>
 
@@ -117,6 +121,7 @@ export function CadastroTerceiros({
             value={cnpjEmpresa}
             onChange={(e) => {
               setCnpjEmpresa(e.target.value);
+              setBusca("");
               setEditando("");
               setC(VAZIO);
               setErro(null);
@@ -138,8 +143,14 @@ export function CadastroTerceiros({
 
       {empresa && (
         <>
+          {salvos.length > 8 && (
+            <div className="field" style={{ maxWidth: 360, marginBottom: 8 }}>
+              <label htmlFor="ter-busca">Buscar ({salvos.length} cadastrados)</label>
+              <input id="ter-busca" value={busca} placeholder="nome, CNPJ ou cidade" onChange={(e) => setBusca(e.target.value)} />
+            </div>
+          )}
           {salvos.length > 0 ? (
-            <div className="table-wrap" style={{ marginBottom: 14 }}>
+            <div className="table-wrap" style={{ marginBottom: 14, maxHeight: 480, overflowY: "auto" }}>
               <table className="dados">
                 <thead>
                   <tr>
@@ -151,7 +162,7 @@ export function CadastroTerceiros({
                   </tr>
                 </thead>
                 <tbody>
-                  {salvos.map((t) => (
+                  {visiveis.map((t) => (
                     <tr key={t.cnpj} style={{ background: editando === soDigitos(t.cnpj) ? "var(--surface-2)" : undefined }}>
                       <td>{t.razao}</td>
                       <td className="mono">{t.cnpj}</td>
