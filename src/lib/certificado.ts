@@ -250,6 +250,18 @@ export function localDoEndereco(endereco: string | null | undefined): string {
   return m ? `${m[1].trim()} - ${m[2]}` : "";
 }
 
+/**
+ * Dois endereços são o mesmo lugar? Pelo CEP quando os dois têm; senão pelo começo da rua
+ * ("Lote 01, Sala2…" = "Lote 01, sala 02…"; "Rua 11, quadra 1…" ≠ "Rua Ariadne Feltrin…").
+ */
+export function mesmoLocal(a: string | null | undefined, b: string | null | undefined): boolean {
+  const cep = (s: string) => s.match(/\b(\d{2})\.?(\d{3})\s*-\s*(\d{3})\b/)?.slice(1).join("") ?? null;
+  const [ca, cb] = [cep(a ?? ""), cep(b ?? "")];
+  if (ca && cb) return ca === cb;
+  const rua = (s: string) => semAcento(s).toLowerCase().split(/[,–-]/)[0].replace(/[^a-z0-9]/g, "").slice(0, 10);
+  return !!a && !!b && rua(a) === rua(b);
+}
+
 /** "pallets de madeirs", "PALLETS DE MADEIRA" -> "Paletes de madeira". */
 function normalizarProdutoComunicado(produto: string): string {
   let t = produto.trim().replace(/\s+/g, " ");
@@ -625,8 +637,14 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     tomEmail: fixo ? fixo.email : tomadorOutro ? (salvo?.email ?? "") : "Nihil",
     comunicado: numComunicado,
     // Prestadora trata na casa do cliente: 3.2 é sempre o endereço do comunicado (o cliente pode ter mais de
-    // um local no mesmo CNPJ); o da sede (cadastro) só vai no 2.3.
-    enderecoTrat: regra.prestadora ? (comunicado?.endereco ?? null) : empresa.endereco,
+    // um local no mesmo CNPJ); o da sede (cadastro) só vai no 2.3. Credenciada que trata em outro lugar
+    // (Biolog na HL Paletes; o cadastro tem o escritório): o local do comunicado. Mesmo lugar escrito de
+    // outro jeito (AGK "Sala2"): fica o do cadastro, que é o que vai nos certificados.
+    enderecoTrat: regra.prestadora
+      ? (comunicado?.endereco ?? null)
+      : empresa.modalidade === "Credenciada" && comunicado?.endereco && !mesmoLocal(comunicado.endereco, empresa.endereco)
+        ? comunicado.endereco
+        : empresa.endereco,
     destino: regra.destino ?? "Estoque",
     produto,
     volumes,
