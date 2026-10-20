@@ -231,7 +231,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   // Modelo padrão: certificados mestres soltos (valem para as notas/BLs que vierem depois).
   const [mestresMann, setMestresMann] = useState<MestreLido[]>([]);
   // Relatório do MAPA da empresa (aba TÉRMICO): o tratamento de cada ciclo, no lugar dos mestres.
-  const [relatorio, setRelatorio] = useState<{ nome: string; linhas: LinhaRelatorio[] } | null>(null);
+  const [relatorio, setRelatorio] = useState<{ nome: string; linhas: LinhaRelatorio[]; atualizado?: string } | null>(null);
   // Rótulos que o Word da empresa tem (o que faltar nos documentos vai "Nihil").
   const [camposModelo, setCamposModelo] = useState<Set<string> | null>(null);
   // Editor dos campos da declaração aberta (abre sozinho quando falta a quantidade).
@@ -275,6 +275,21 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
       vivo = false;
     };
   }, [cnpj, senha, versaoModelo]);
+
+  // Último relatório do MAPA guardado da empresa (pasta privada): já vem carregado.
+  useEffect(() => {
+    if (!cnpj || soDigitos(cnpj) === CNPJ_LG) return;
+    let vivo = true;
+    fetch(`/api/declaracoes/relatorio?cnpj=${soDigitos(cnpj)}`, { headers: cabecalhoSenha(senha), cache: "no-store" })
+      .then(async (r) => {
+        const j = r.ok ? await r.json() : null;
+        if (vivo && j?.salvo && Array.isArray(j.linhas)) setRelatorio({ nome: j.nome, linhas: j.linhas, atualizado: j.atualizado });
+      })
+      .catch(() => undefined);
+    return () => {
+      vivo = false;
+    };
+  }, [cnpj, senha]);
 
   const atual = itens[sel];
   const faltaCampo = !!atual?.dados && !atual.dados.volumes.trim();
@@ -327,8 +342,16 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
         const linhas = await lerRelatorioTermico(await planilha.arrayBuffer());
         if (!linhas.length) setToast("Não achei tratamentos na aba TÉRMICO deste relatório.");
         else {
-          rel = { nome: planilha.name, linhas };
+          rel = { nome: planilha.name, linhas, atualizado: new Date().toISOString() };
           setRelatorio(rel);
+          // Guarda para as próximas vezes (troca o anterior desta empresa).
+          void fetch("/api/declaracoes/relatorio", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", ...cabecalhoSenha(senha) },
+            body: JSON.stringify({ cnpj: soDigitos(cnpj), nome: planilha.name, linhas }),
+          })
+            .then((r) => setToast(r.ok ? `Relatório guardado: ${linhas.length} tratamentos. Da próxima vez ele já vem carregado.` : "O relatório foi lido, mas não consegui guardá-lo para a próxima vez."))
+            .catch(() => setToast("O relatório foi lido, mas não consegui guardá-lo para a próxima vez."));
         }
       } catch (e) {
         setToast(e instanceof Error ? e.message : "Não foi possível ler o relatório.");
@@ -741,7 +764,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
             dica={
               <>
                 Solte aqui a <b>nota fiscal</b> e/ou o <b>BL, booking ou packing list</b> (PDF) e o <b>relatório do MAPA</b> da empresa (.xlsx, o de
-                RELATÓRIOS 2025), ou clique para escolher. A declaração só precisa do mês: o ciclo escrito na nota (ex.: “CICLO MANN 0249”) puxa o
+                RELATÓRIOS 2025; fica guardado para as próximas vezes), ou clique para escolher. A declaração só precisa do mês: o ciclo escrito na nota (ex.: “CICLO MANN 0249”) puxa o
                 certificado, a data e a duração do relatório. Sem ciclo na nota, digite-o no campo “Ciclos”. O certificado mestre (PDF) também serve.
                 Várias notas de uma vez: uma declaração por nota.
               </>
@@ -752,7 +775,9 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
           />
           <div className="actions" style={{ marginTop: 0 }}>
             <span className={`badge ${relatorio ? "pago" : "pendente"}`}>
-              {relatorio ? `Relatório: ${relatorio.nome} · ${relatorio.linhas.length} tratamentos` : "Relatório do MAPA ainda não carregado"}
+              {relatorio
+                ? `Relatório: ${relatorio.nome} · ${relatorio.linhas.length} tratamentos${relatorio.atualizado ? ` · guardado em ${new Date(relatorio.atualizado).toLocaleDateString("pt-BR")}` : ""}`
+                : "Relatório do MAPA ainda não carregado"}
             </span>
             {mestresMann.length > 0 && (
               <span className="badge pago">
