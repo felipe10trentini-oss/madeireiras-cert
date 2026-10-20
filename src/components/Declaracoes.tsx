@@ -283,7 +283,11 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     fetch(`/api/declaracoes/relatorio?cnpj=${soDigitos(cnpj)}`, { headers: cabecalhoSenha(senha), cache: "no-store" })
       .then(async (r) => {
         const j = r.ok ? await r.json() : null;
-        if (vivo && j?.salvo && Array.isArray(j.linhas)) setRelatorio({ nome: j.nome, linhas: j.linhas, atualizado: j.atualizado });
+        if (vivo && j?.salvo && Array.isArray(j.linhas)) {
+          // Um por ano (os dois últimos): "2026: MANN & CIA - 2026.xlsx + 2025: …".
+          const rs = (j.relatorios ?? []) as { ano: string; nome: string; atualizado: string }[];
+          setRelatorio({ nome: rs.map((r) => `${r.ano}: ${r.nome}`).join(" + "), linhas: j.linhas, atualizado: rs[0]?.atualizado });
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -342,7 +346,18 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
         const linhas = await lerRelatorioTermico(await planilha.arrayBuffer());
         if (!linhas.length) setToast("Não achei tratamentos na aba TÉRMICO deste relatório.");
         else {
-          rel = { nome: planilha.name, linhas, atualizado: new Date().toISOString() };
+          // O relatório novo troca o do mesmo ano; o do outro ano guardado continua valendo.
+          const anoDe = (ls: LinhaRelatorio[]) => {
+            const c = new Map<string, number>();
+            for (const l of ls) {
+              const a = l.data.slice(-4);
+              c.set(a, (c.get(a) ?? 0) + 1);
+            }
+            return [...c.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? "";
+          };
+          const ano = anoDe(linhas);
+          const outros = (relatorio?.linhas ?? []).filter((l) => l.data.slice(-4) !== ano);
+          rel = { nome: `${ano}: ${planilha.name}`, linhas: [...linhas, ...outros], atualizado: new Date().toISOString() };
           setRelatorio(rel);
           // Guarda para as próximas vezes (troca o anterior desta empresa).
           void fetch("/api/declaracoes/relatorio", {
@@ -350,7 +365,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
             headers: { "Content-Type": "application/json", ...cabecalhoSenha(senha) },
             body: JSON.stringify({ cnpj: soDigitos(cnpj), nome: planilha.name, linhas }),
           })
-            .then((r) => setToast(r.ok ? `Relatório guardado: ${linhas.length} tratamentos. Da próxima vez ele já vem carregado.` : "O relatório foi lido, mas não consegui guardá-lo para a próxima vez."))
+            .then((r) => setToast(r.ok ? `Relatório de ${ano} guardado: ${linhas.length} tratamentos. Da próxima vez ele já vem carregado.` : "O relatório foi lido, mas não consegui guardá-lo para a próxima vez."))
             .catch(() => setToast("O relatório foi lido, mas não consegui guardá-lo para a próxima vez."));
         }
       } catch (e) {

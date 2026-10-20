@@ -7,35 +7,65 @@ import { soDigitos } from "@/lib/util";
 export const runtime = "nodejs";
 
 /**
- * Último relatório do MAPA de cada empresa (aba TÉRMICO já lida no navegador), para as declarações
- * do modelo padrão: fica na pasta privada "declaracoes/<cnpj>/relatorio.json" do Supabase (dados de
- * clientes nunca vão para o repositório). Soltar um relatório novo troca o anterior.
+ * Último relatório do MAPA de cada empresa, um por ano (aba TÉRMICO já lida no navegador), para as
+ * declarações do modelo padrão: "declaracoes/<cnpj>/relatorio-<ano>.json" na pasta privada do Supabase
+ * (dados de clientes nunca vão para o repositório). Soltar o relatório de novo troca o daquele ano; o
+ * do ano anterior fica (declaração de ciclo de dezembro feita em janeiro).
  */
 const pasta = () => getSupabaseServerClient().storage.from("declaracoes");
 
 interface Salvo {
+  ano: string;
   nome: string;
   atualizado: string;
   linhas: LinhaRelatorio[];
+}
+
+/** Ano que mais aparece nas datas dos tratamentos ("dd/mm/aaaa"). */
+function anoDe(linhas: LinhaRelatorio[]): string {
+  const cont = new Map<string, number>();
+  for (const l of linhas) {
+    const a = l.data.match(/(\d{4})$/)?.[1];
+    if (a) cont.set(a, (cont.get(a) ?? 0) + 1);
+  }
+  return [...cont.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? String(new Date().getFullYear());
 }
 
 export async function GET(req: Request) {
   if (!lerSessao(req)) return respostaNaoAutorizado();
   const cnpj = soDigitos(new URL(req.url).searchParams.get("cnpj") ?? "");
   if (cnpj.length !== 14) return NextResponse.json({ error: "Informe o CNPJ." }, { status: 400 });
-  const { data } = await pasta().download(`${cnpj}/relatorio.json`);
-  if (!data) return NextResponse.json({ salvo: false }, { headers: { "Cache-Control": "no-store" } });
-  try {
-    const s = JSON.parse(await data.text()) as Salvo;
-    return NextResponse.json({ salvo: true, ...s }, { headers: { "Cache-Control": "no-store" } });
-  } catch {
-    return NextResponse.json({ salvo: false });
+  const { data: arqs } = await pasta().list(cnpj, { limit: 100 });
+  // Os dois anos mais recentes guardados.
+  const anos = (arqs ?? [])
+    .map((a) => a.name.match(/^relatorio-(\d{4})\.json$/)?.[1])
+    .filter((a): a is string => !!a)
+    .sort()
+    .reverse()
+    .slice(0, 2);
+  const salvos: Salvo[] = [];
+  for (const ano of anos) {
+    const { data } = await pasta().download(`${cnpj}/relatorio-${ano}.json`);
+    if (!data) continue;
+    try {
+      salvos.push(JSON.parse(await data.text()) as Salvo);
+    } catch {
+      // arquivo estragado: ignora (soltar o relatório de novo regrava)
+    }
   }
+  return NextResponse.json(
+    {
+      salvo: salvos.length > 0,
+      relatorios: salvos.map((s) => ({ ano: s.ano, nome: s.nome, atualizado: s.atualizado, tratamentos: s.linhas.length })),
+      linhas: salvos.flatMap((s) => s.linhas),
+    },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }
 
 const txt = (v: unknown, max = 200) => (typeof v === "string" ? v.slice(0, max) : "");
 
-/** Salva { cnpj, nome, linhas } (as linhas lidas da aba TÉRMICO). */
+/** Salva { cnpj, nome, linhas } (as linhas lidas da aba TÉRMICO), no ano dos tratamentos. */
 export async function PUT(req: Request) {
   if (!lerSessao(req)) return respostaNaoAutorizado();
   const b = (await req.json().catch(() => null)) as { cnpj?: unknown; nome?: unknown; linhas?: unknown } | null;
@@ -59,11 +89,12 @@ export async function PUT(req: Request) {
     tomador: txt(l.tomador, 200),
     tomadorCnpj: soDigitos(txt(l.tomadorCnpj, 30)),
   }));
-  const salvo: Salvo = { nome: txt(b.nome, 200) || "relatorio.xlsx", atualizado: new Date().toISOString(), linhas };
-  const up = await pasta().upload(`${cnpj}/relatorio.json`, Buffer.from(JSON.stringify(salvo)), { contentType: "application/json", upsert: true });
+  const ano = anoDe(linhas);
+  const salvo: Salvo = { ano, nome: txt(b.nome, 200) || "relatorio.xlsx", atualizado: new Date().toISOString(), linhas };
+  const up = await pasta().upload(`${cnpj}/relatorio-${ano}.json`, Buffer.from(JSON.stringify(salvo)), { contentType: "application/json", upsert: true });
   if (up.error) {
     console.error("Falha ao salvar o relatório", up.error.message);
     return NextResponse.json({ error: "Não foi possível guardar o relatório." }, { status: 503 });
   }
-  return NextResponse.json({ ok: true, atualizado: salvo.atualizado, linhas: linhas.length });
+  return NextResponse.json({ ok: true, ano, atualizado: salvo.atualizado, linhas: linhas.length });
 }

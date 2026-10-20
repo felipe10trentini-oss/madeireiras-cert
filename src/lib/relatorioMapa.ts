@@ -30,7 +30,7 @@ export function loteDoCodigo(ciclo: string): string {
   return ciclo.match(/^UR\d{2}0*(\d+)[A-Z]{2}\d{6}$/i)?.[1] ?? "";
 }
 
-/** Lê a aba TÉRMICO (colunas do modelo do MAPA: F tomador, G CNPJ, O data, U ciclo, V temperatura, W duração, X certificado). */
+/** Lê a aba TÉRMICO do relatório (as colunas pelo nome do cabeçalho: o modelo do MAPA muda de ano em ano). */
 export async function lerRelatorioTermico(bytes: ArrayBuffer | Uint8Array): Promise<LinhaRelatorio[]> {
   const zip = await JSZip.loadAsync(bytes);
   const wb = (await zip.file("xl/workbook.xml")?.async("string")) ?? "";
@@ -44,19 +44,57 @@ export async function lerRelatorioTermico(bytes: ArrayBuffer | Uint8Array): Prom
   const sst = (await zip.file("xl/sharedStrings.xml")?.async("string")) ?? "";
   const textos = [...sst.matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => desescapar([...m[1].matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map((t) => t[1]).join("")));
 
-  const out: LinhaRelatorio[] = [];
+  // Linhas da planilha (célula por coluna, 1 = A).
+  const linhas: { n: number; cel: Record<number, string> }[] = [];
   for (const linha of xml.matchAll(/<row [^>]*r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)) {
-    if (+linha[1] < 9) continue;
     const cel: Record<number, string> = {};
     for (const c of linha[2].matchAll(/<c r="([A-Z]+\d+)"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
       const v = c[3]?.match(/<v>([\s\S]*?)<\/v>/)?.[1] ?? c[3]?.match(/<t[^>]*>([^<]*)<\/t>/)?.[1];
       if (v == null) continue;
       cel[colunaDe(c[1])] = (/t="s"/.test(c[2]) ? (textos[+v] ?? "") : desescapar(v)).trim();
     }
-    const certificado = cel[24] ?? "";
-    const ciclo = cel[21] ?? "";
+    linhas.push({ n: +linha[1], cel });
+  }
+
+  // O modelo muda de ano em ano e entre cadastradas e credenciadas (as cadastradas não têm o tomador e
+  // têm a coluna "Lote"): as colunas são achadas pelo cabeçalho, não pela posição.
+  const cab = linhas.slice(0, 20).find((l) => {
+    const t = Object.values(l.cel).join(" | ");
+    return /ciclo de tratamento/i.test(t) && /certificado de tratamento/i.test(t);
+  });
+  if (!cab) throw new Error("Não achei o cabeçalho da aba TÉRMICO (“Número do Ciclo de Tratamento”, “Nº do Certificado de Tratamento”).");
+  const achar = (re: RegExp, depois = 0) => {
+    const k = Object.entries(cab.cel).find(([c, t]) => +c > depois && re.test(t.replace(/\s+/g, " ").trim()));
+    return k ? +k[0] : null;
+  };
+  const col = {
+    tomador: achar(/^nome da empresa tomadora/i),
+    tomadorCnpj: achar(/^cnpj da empresa tomadora/i),
+    produto: achar(/^produto tratado/i),
+    volumes: achar(/^n[úu]mero de volumes/i),
+    data: achar(/^data do tratamento/i),
+    hora: achar(/^hor[áa]rio do in[íi]cio/i),
+    local: achar(/^local do tratamento/i),
+    modalidade: achar(/^modalidade/i),
+    ciclo: achar(/^n[úu]mero do ciclo/i),
+    temperatura: achar(/^temperatura/i),
+    duracao: achar(/^dura[çc][ãa]o/i),
+    lote: achar(/^lote\b/i),
+    certificado: achar(/^n[º°o.]*\s*do certificado de tratamento/i),
+  };
+  const faltam = (["ciclo", "certificado", "data"] as const).filter((k) => col[k] == null);
+  if (faltam.length) throw new Error(`A aba TÉRMICO mudou: não achei a coluna ${faltam.map((k) => ({ ciclo: "do ciclo", certificado: "do nº do certificado", data: "da data do tratamento" })[k]).join(", ")}.`);
+  // "Unidade" logo depois do nº de volumes.
+  const colUnidade = col.volumes != null && /^unidade/i.test(cab.cel[col.volumes + 1] ?? "") ? col.volumes + 1 : null;
+  const de = (cel: Record<number, string>, c: number | null) => (c == null ? "" : (cel[c] ?? ""));
+
+  const out: LinhaRelatorio[] = [];
+  for (const { n, cel } of linhas) {
+    if (n <= cab.n) continue;
+    const certificado = de(cel, col.certificado);
+    const ciclo = de(cel, col.ciclo);
     if (!/^\d{1,5}\/\d{4}/.test(certificado) || !ciclo) continue; // "não realizado", "cancelado", meses sem tratamento
-    const dur = cel[23] ?? "";
+    const dur = de(cel, col.duracao);
     const min = /^\d+(\.\d+)?$/.test(dur)
       ? // número: minutos ("32") ou fração de dia (hora do Excel)
         parseFloat(dur) < 1
@@ -65,19 +103,19 @@ export async function lerRelatorioTermico(bytes: ArrayBuffer | Uint8Array): Prom
       : minutosDe(dur);
     out.push({
       ciclo,
-      lote: loteDoCodigo(ciclo),
+      lote: de(cel, col.lote).replace(/\.0+$/, "") || loteDoCodigo(ciclo),
       certificado,
-      data: data(cel[15] ?? ""),
-      hora: horaDe(cel[16] ?? ""),
-      modalidade: cel[18] ?? "",
-      temperatura: (cel[22] ?? "").replace(/\s*°?\s*C$/i, ""),
+      data: data(de(cel, col.data)),
+      hora: horaDe(de(cel, col.hora)),
+      modalidade: de(cel, col.modalidade),
+      temperatura: de(cel, col.temperatura).replace(/\s*°?\s*C$/i, ""),
       minutos: min,
-      local: cel[17] ?? "",
-      volumes: cel[10] ?? "",
-      unidadeVolumes: cel[11] ?? "",
-      produto: cel[9] ?? "",
-      tomador: cel[6] ?? "",
-      tomadorCnpj: dig(cel[7] ?? ""),
+      local: de(cel, col.local),
+      volumes: de(cel, col.volumes),
+      unidadeVolumes: de(cel, colUnidade),
+      produto: de(cel, col.produto),
+      tomador: de(cel, col.tomador),
+      tomadorCnpj: dig(de(cel, col.tomadorCnpj)),
     });
   }
   return out;
