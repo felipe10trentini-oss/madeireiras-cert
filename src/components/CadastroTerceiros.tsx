@@ -49,6 +49,8 @@ export function CadastroTerceiros({
     setEditando(cnpj);
     setErro(null);
     setC(cnpj ? { ...VAZIO, ...(empresa?.relatorio?.tomadores?.[cnpj] ?? {}) } : VAZIO);
+    // O quadro de cadastro fica acima da lista: ao editar, sobe até ele.
+    if (cnpj) document.getElementById("ter-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function salvar(ev: FormEvent) {
@@ -143,6 +145,39 @@ export function CadastroTerceiros({
 
       {empresa && (
         <>
+          <form id="ter-form" onSubmit={salvar} style={{ marginBottom: 18 }}>
+            <div className="kpi-label" style={{ marginBottom: 6 }}>
+              {editando ? `Editar ${c.razao || "tomador"}` : `Novo tomador de ${empresa.apelido}`}
+            </div>
+            <div className="form-grid tres">
+              {campo("razao", "Razão social *")}
+              {campo("cnpj", "CNPJ *", { dica: "00.000.000/0000-00" })}
+              {campo("telefone", "Telefone")}
+              {campo("endereco", "Endereço da sede (com CEP)", { full: true, dica: "Rua, nº, bairro, CEP, cidade - UF (do cartão CNPJ)" })}
+              {campo("email", "E-mail", { type: "email" })}
+            </div>
+            {erro && (
+              <div className="alert-box critical" role="alert">
+                <ul>
+                  <li>{erro}</li>
+                </ul>
+              </div>
+            )}
+            <div className="actions" style={{ marginTop: 10 }}>
+              <button type="submit" className="btn primary" disabled={salvando}>
+                {salvando ? "Salvando…" : editando ? "Salvar alterações" : "Cadastrar tomador"}
+              </button>
+              {editando && (
+                <button type="button" className="btn" onClick={() => abrir("")}>
+                  Novo tomador
+                </button>
+              )}
+              <button type="button" className="btn" onClick={onFechar}>
+                Fechar
+              </button>
+            </div>
+          </form>
+
           {salvos.length > 8 && (
             <div className="field" style={{ maxWidth: 360, marginBottom: 8 }}>
               <label htmlFor="ter-busca">Buscar ({salvos.length} cadastrados)</label>
@@ -184,39 +219,6 @@ export function CadastroTerceiros({
           ) : (
             <p className="hint">Nenhum terceiro cadastrado em {empresa.apelido} ainda.</p>
           )}
-
-          <form onSubmit={salvar}>
-            <div className="kpi-label" style={{ marginBottom: 6 }}>
-              {editando ? `Editar ${c.razao || "tomador"}` : `Novo tomador de ${empresa.apelido}`}
-            </div>
-            <div className="form-grid tres">
-              {campo("razao", "Razão social *")}
-              {campo("cnpj", "CNPJ *", { dica: "00.000.000/0000-00" })}
-              {campo("telefone", "Telefone")}
-              {campo("endereco", "Endereço da sede (com CEP)", { full: true, dica: "Rua, nº, bairro, CEP, cidade - UF (do cartão CNPJ)" })}
-              {campo("email", "E-mail", { type: "email" })}
-            </div>
-            {erro && (
-              <div className="alert-box critical" role="alert">
-                <ul>
-                  <li>{erro}</li>
-                </ul>
-              </div>
-            )}
-            <div className="actions" style={{ marginTop: 10 }}>
-              <button type="submit" className="btn primary" disabled={salvando}>
-                {salvando ? "Salvando…" : editando ? "Salvar alterações" : "Cadastrar tomador"}
-              </button>
-              {editando && (
-                <button type="button" className="btn" onClick={() => abrir("")}>
-                  Novo tomador
-                </button>
-              )}
-              <button type="button" className="btn" onClick={onFechar}>
-                Fechar
-              </button>
-            </div>
-          </form>
         </>
       )}
     </div>
