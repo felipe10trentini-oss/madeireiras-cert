@@ -8,6 +8,8 @@ import { dadosIniciais, linhaDoMestre, type DadosDeclaracao } from "./declaracao
 import type { DeclaracaoMontada } from "./declaracaoLg";
 import type { Madeireira } from "./madeireiras";
 import { ciclosDoTexto, type NotaFiscal } from "./notaFiscal";
+import { regraDe } from "./certificado";
+import { escolherLinha, linhaDoRelatorio, linhasDoCiclo, type LinhaRelatorio } from "./relatorioMapa";
 import { soDigitos } from "./util";
 
 export const CNPJ_MANN_VOLANTE = "00093600000141";
@@ -78,7 +80,8 @@ function tomadorDoMestre(texto: string): string | null {
   );
 }
 
-const semZeros = (c: string | null | undefined) => (c ? String(parseInt(c, 10)) : "");
+// "0249" -> "249"; código da curva ("UR010972PR031026") fica como está.
+const semZeros = (c: string | null | undefined) => (!c ? "" : /^\d+$/.test(c.trim()) ? String(parseInt(c, 10)) : c.trim().toUpperCase());
 /** 1ª palavra da razão social, para comparar ("PALETES MARINGA PBR LTDA" ~ "Paletes Maringá Pbr Ltda"). */
 const primeira = (s: string) =>
   s
@@ -100,54 +103,89 @@ function volumesDaNota(nf: NotaFiscal): string {
     .join("\n");
 }
 
+/** De onde vêm as linhas do tratamento além dos mestres: o relatório do MAPA e os ciclos digitados. */
+export interface OpcoesDeclaracao {
+  relatorio?: LinhaRelatorio[] | null;
+  /** Ciclos/lotes digitados (quando a nota não traz): valem no lugar dos da nota. */
+  ciclos?: string[];
+}
+
 /**
- * Monta a declaração de uma remessa: nota fiscal (ou BL/booking) + certificado(s) mestre(s) dos
- * ciclos. Os mestres são casados pelo ciclo escrito na nota/BL.
+ * Monta a declaração de uma remessa: nota fiscal (ou BL/booking/packing list) + o tratamento de cada
+ * ciclo escrito nela, tirado do certificado mestre (se veio) ou do relatório do MAPA da empresa.
  */
 export function montarDeclaracaoPadrao(
   nf: NotaFiscal | null,
   bls: DadosBL[],
   mestres: MestreLido[],
   empresa: Madeireira | null,
-  hoje: string
+  hoje: string,
+  op: OpcoesDeclaracao = {}
 ): DeclaracaoMontada {
   const avisos: string[] = [];
   const bl = bls[0] ?? null;
-  const ciclosDoc = [...new Set([...(nf?.ciclos ?? []), ...bls.flatMap((b) => b.ciclos)])];
-  // Mestres do ciclo da nota/BL; sem ciclo escrito, todos os mestres soltos junto.
-  const usados = ciclosDoc.length
-    ? mestres.filter((m) => ciclosDoc.includes(semZeros(m.mestre.ciclo)) || ciclosDoc.includes(semZeros(m.mestre.lote)))
-    : mestres;
-  if (!ciclosDoc.length) avisos.push(nf ? "A nota não traz o nº do ciclo: entraram os certificados mestres soltos junto — confira se são os desta remessa." : "O BL/booking não traz o nº do ciclo: confira o certificado mestre.");
-  for (const c of ciclosDoc) {
-    if (!usados.some((m) => semZeros(m.mestre.ciclo) === c || semZeros(m.mestre.lote) === c)) avisos.push(`Ciclo ${c}: solte também o certificado mestre dele.`);
-  }
-  if (!mestres.length) avisos.push("Sem certificado mestre: as linhas do tratamento ficam em branco.");
+  const rel = op.relatorio ?? null;
+  const digitados = (op.ciclos ?? []).map((c) => c.trim()).filter(Boolean);
+  const ciclosDoc = digitados.length ? [...new Set(digitados.map(semZeros))] : [...new Set([...(nf?.ciclos ?? []), ...bls.flatMap((b) => b.ciclos)])];
 
-  const base = dadosIniciais([], empresa, hoje);
-  const m0 = usados[0];
   // A nota é da própria empresa (venda do palete)? Então o exportador é quem comprou.
   const notaPropria =
     !!nf &&
     !!empresa &&
     ((!!nf.emitente?.cnpj && soDigitos(nf.emitente.cnpj) === soDigitos(empresa.cnpj)) ||
       (!!nf.emitente?.razao && primeira(nf.emitente.razao) === primeira(empresa.razaoSocial)));
-  const exportador =
-    (notaPropria ? titulo(nf?.destinatario.razao) : titulo(nf?.emitente?.razao)) ||
-    titulo(bl?.exportador) ||
-    titulo(m0 ? tomadorDoMestre(m0.texto) : null);
+  const exportadorDoc = (notaPropria ? titulo(nf?.destinatario.razao) : titulo(nf?.emitente?.razao)) || titulo(bl?.exportador);
+  const cnpjTomador = (notaPropria ? nf?.destinatario.cnpj : nf?.emitente?.cnpj) ?? null;
+
+  // Cada ciclo: o mestre dele (se veio) ou a linha do relatório (a do tomador da remessa, se o ciclo se repete).
+  const doMestre = (c: string) => mestres.find((m) => semZeros(m.mestre.ciclo) === c || semZeros(m.mestre.lote) === c);
+  const usados: MestreLido[] = [];
+  const doRelatorio: LinhaRelatorio[] = [];
+  if (ciclosDoc.length) {
+    for (const c of ciclosDoc) {
+      const m = doMestre(c);
+      if (m) {
+        usados.push(m);
+        continue;
+      }
+      const l = rel ? escolherLinha(linhasDoCiclo(rel, c), { cnpj: cnpjTomador, nome: exportadorDoc }) : null;
+      if (l) doRelatorio.push(l);
+      else avisos.push(rel || mestres.length ? `Ciclo ${c}: não achei no relatório nem nos certificados mestres.` : `Ciclo ${c}: solte o relatório do MAPA da empresa (ou o certificado mestre).`);
+    }
+  } else {
+    usados.push(...mestres);
+    if (mestres.length) avisos.push(nf ? "A nota não traz o nº do ciclo: entraram os certificados mestres soltos junto — confira se são os desta remessa." : "O BL/booking não traz o nº do ciclo: confira o certificado mestre.");
+    else avisos.push("A nota/BL não traz o nº do ciclo: digite os ciclos (ou lotes) no campo “Ciclos” para puxar o tratamento do relatório.");
+  }
+
+  const base = dadosIniciais([], empresa, hoje);
+  const m0 = usados[0];
+  const exportador = exportadorDoc || titulo(m0 ? tomadorDoMestre(m0.texto) : null) || titulo(doRelatorio[0]?.tomador);
   const destinatario = (notaPropria ? "" : titulo(nf?.destinatario.razao)) || bl?.destinatario || "";
-  // Quantidade do mestre ("200 paletes") vai na linha do certificado mestre (Paletes Maringá). Duração:
+  // Quantidade do ciclo ("200 paletes") vai na linha do certificado mestre (Paletes Maringá). Duração:
   // a 56 °C as declarações levam 32 minutos (a curva às vezes fecha 31); mais longas ficam como estão.
-  const linhas = usados.map((m) => {
-    const l = linhaDoMestre(m.mestre);
+  const linhas = [
+    ...usados.map((m) => ({ ...linhaDoMestre(m.mestre), quantidade: m.mestre.quantidade || "" })),
+    ...doRelatorio.map(linhaDoRelatorio),
+  ].map((l) => {
     const min = parseInt(l.duracao, 10);
     const t = parseFloat(l.temperatura.replace(",", "."));
-    return { ...l, quantidade: l.quantidade || m.mestre.quantidade || "", duracao: t <= 56 && min > 0 && min < 32 ? "32 min" : l.duracao };
+    return { ...l, duracao: t <= 56 && min > 0 && min < 32 ? "32 min" : l.duracao };
   });
   const certs = [...new Set(linhas.map((l) => l.certificado).filter(Boolean))];
   if (!exportador) avisos.push("Não achei o exportador (emitente da nota / shipper do BL): preencha.");
-  const locais = [...new Set(usados.map((m) => m.mestre.enderecoTrat).filter(Boolean))] as string[];
+
+  // Local do tratamento: o do mestre; só com o relatório (que traz só a cidade), o da empresa — ou, na
+  // prestadora (Mann móvel), o do cliente cadastrado em Cadastro de terceiros.
+  const prestadora = !!empresa && !!regraDe(empresa).prestadora;
+  const tomadores = (empresa as { relatorio?: { tomadores?: Record<string, { endereco?: string }> } } | null)?.relatorio?.tomadores ?? {};
+  const locais = [
+    ...usados.map((m) => m.mestre.enderecoTrat),
+    ...doRelatorio.map((l) => (prestadora ? tomadores[l.tomadorCnpj]?.endereco || l.local : empresa?.endereco || l.local)),
+  ].filter((x): x is string => !!x);
+  if (doRelatorio.length && prestadora && doRelatorio.some((l) => !tomadores[l.tomadorCnpj]?.endereco)) {
+    avisos.push("Local do tratamento: o relatório só traz a cidade e o cliente não está no Cadastro de terceiros — confira o endereço.");
+  }
 
   const dados: DadosDeclaracao = {
     ...base,
@@ -164,14 +202,14 @@ export function montarDeclaracaoPadrao(
     produto: "",
     origem: "",
     comunicado: "",
-    localTratamento: locais.join("; ").replace(/\s*-\s*[A-Z]{2}\s*$/, ""),
+    localTratamento: [...new Set(locais)].join("; ").replace(/\s*-\s*[A-Z]{2}\s*$/, ""),
     sujeito: nf?.itens.every((i) => /palet|pallet/i.test(i.descricao)) ? "paletes" : nf?.itens.every((i) => /suporte|skid/i.test(i.descricao)) ? "suportes" : "material",
     linhas,
     // Mann Unidade Volante emite em Curitiba; as outras, na cidade delas (cadastro).
     localEmissao: empresa && soDigitos(empresa.cnpj) === CNPJ_MANN_VOLANTE ? "Curitiba - PR" : base.localEmissao,
   };
   if (!dados.volumes.trim()) avisos.push("Não achei a quantidade de material na nota/BL: preencha em “Editar campos” (Cubagem/Volume).");
-  if (!certs.length && mestres.length) avisos.push("Os certificados mestres soltos não são do ciclo da nota: confira.");
+  if (!certs.length && mestres.length && ciclosDoc.length && !doRelatorio.length) avisos.push("Os certificados mestres soltos não são do ciclo da nota: confira.");
   // Nome no padrão das pastas: Mann "Declaração HT - Renascer NFe 7376 - Novozymes" / "Declaração HT - Marine
   // ONEYSAOG54885400"; as outras "DECL. KTR NFe 11336".
   const curto = (s: string) => s.split(/\s+/)[0] ?? "";

@@ -20,15 +20,15 @@ export interface LinhaDR {
   material: string;
 }
 
-const desescapar = (s: string) =>
+export const desescapar = (s: string) =>
   s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
 
-function dataDeSerial(n: number): string {
+export function dataDeSerial(n: number): string {
   const d = new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000);
   return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${d.getUTCFullYear()}`;
 }
 
-function horaDe(v: string): string {
+export function horaDe(v: string): string {
   if (/^\d{1,2}h\d{2}m?$/i.test(v)) return v.replace(/m?$/i, "m").padStart(6, "0");
   const n = parseFloat(v);
   if (!isNaN(n) && n >= 0 && n < 1) {
@@ -39,12 +39,12 @@ function horaDe(v: string): string {
   return m ? `${m[1].padStart(2, "0")}h${m[2]}m` : v;
 }
 
-function data(v: string): string {
+export function data(v: string): string {
   if (/^\d{5}(\.\d+)?$/.test(v)) return dataDeSerial(parseFloat(v));
   return v;
 }
 
-const colunaDe = (ref: string) => ref.replace(/\d+/g, "").split("").reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0);
+export const colunaDe = (ref: string) => ref.replace(/\d+/g, "").split("").reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0);
 
 /** Lê a aba DADOS (ou a primeira) e devolve os lotes indexados pelo nº do lote. */
 export async function lerPlanilhaDR(bytes: ArrayBuffer | Uint8Array): Promise<Map<string, LinhaDR>> {

@@ -21,6 +21,7 @@ import type { CertificadoMestre } from "@/lib/certificadoMestre";
 import { aplicarPadrao, aprenderDoTexto, type PadraoDeclaracao } from "@/lib/modeloDeclaracao";
 import type { CartaCorrecao, NotaFiscal } from "@/lib/notaFiscal";
 import { lerPlanilhaDR, type LinhaDR } from "@/lib/planilhaDR";
+import { lerRelatorioTermico, type LinhaRelatorio } from "@/lib/relatorioMapa";
 import { preencherModelo, textoDoModelo } from "@/lib/preencherModelo";
 import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
@@ -42,7 +43,7 @@ interface Item {
   /** A nota como veio (sem a carta de correção), para refazer quando a carta chegar depois. */
   original?: NotaFiscal;
   /** Modelo padrão (todas menos a LG): a nota e/ou os BLs desta declaração (para refazer quando chegar o mestre). */
-  mann?: { nf: NotaFiscal | null; bls: DadosBL[] };
+  mann?: { nf: NotaFiscal | null; bls: DadosBL[]; ciclos?: string[] };
 }
 
 const LINHA_VAZIA: LinhaTratamento = { certificado: "", ciclo: "", lote: "", inicio: "", fim: "", tipo: "HT", temperatura: "56", duracao: "32 min", quantidade: "" };
@@ -220,6 +221,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   const [cartas, setCartas] = useState<Map<string, CartaCorrecao>>(new Map());
   // Modelo padrão: certificados mestres soltos (valem para as notas/BLs que vierem depois).
   const [mestresMann, setMestresMann] = useState<MestreLido[]>([]);
+  // Relatório do MAPA da empresa (aba TÉRMICO): o tratamento de cada ciclo, no lugar dos mestres.
+  const [relatorio, setRelatorio] = useState<{ nome: string; linhas: LinhaRelatorio[] } | null>(null);
   // Editor dos campos da declaração aberta (abre sozinho quando falta a quantidade).
   const [editando, setEditando] = useState(false);
 
@@ -290,6 +293,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     setErro(null);
     setCartas(new Map());
     setMestresMann([]);
+    setRelatorio(null);
   }
 
   /**
@@ -303,8 +307,29 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
       setModeloSolto(word);
       setEditandoModelo(true);
     }
+    // Relatório do MAPA (.xlsx): refaz as declarações que já estão na lista com o tratamento dele.
+    let rel = relatorio;
+    const planilha = files.find((f) => /\.xlsx$/i.test(f.name));
+    if (planilha) {
+      try {
+        const linhas = await lerRelatorioTermico(await planilha.arrayBuffer());
+        if (!linhas.length) setToast("Não achei tratamentos na aba TÉRMICO deste relatório.");
+        else {
+          rel = { nome: planilha.name, linhas };
+          setRelatorio(rel);
+        }
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Não foi possível ler o relatório.");
+      }
+    }
     const pdfs = files.filter((f) => /\.pdf$/i.test(f.name));
-    if (!pdfs.length) return;
+    if (!pdfs.length) {
+      if (rel && rel !== relatorio) {
+        const r = rel;
+        setItens((xs) => xs.map((x) => (x.mann ? remontar(x, mestresMann, r.linhas) : x)));
+      }
+      return;
+    }
     setCarregando(true);
     setErro(null);
     const notas: { f: File; nf: NotaFiscal }[] = [];
@@ -333,7 +358,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     const montarMann = (arquivoNf: string, nf: NotaFiscal | null, b: DadosBL[], data: string): Item => ({
       arquivoNf,
       nf,
-      ...montarDeclaracaoPadrao(nf, b, mestres, empresa, data),
+      ...montarDeclaracaoPadrao(nf, b, mestres, empresa, data, { relatorio: rel?.linhas }),
       mann: { nf, bls: b },
     });
     const out: Item[] = [];
@@ -350,13 +375,30 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     const numeros = new Set(out.map((x) => x.nf?.numero).filter(Boolean));
     const ficam = itens
       .filter((x) => !(x.nf?.numero && numeros.has(x.nf.numero)) && !x.erro)
-      .map((x) => (x.mann && novosMestres.length ? montarMann(x.arquivoNf, x.mann.nf, x.mann.bls, x.dados?.data ?? hoje) : x));
+      .map((x) => (x.mann && (novosMestres.length || rel !== relatorio) ? remontar(x, mestres, rel?.linhas ?? null) : x));
     if (!out.length && novosMestres.length && !ficam.some((x) => x.mann)) {
       setToast(`${novosMestres.length} certificado(s) mestre(s) lido(s): solte agora a nota fiscal ou o BL do cliente.`);
     }
     setItens([...ficam, ...out, ...erros]);
     setSel(ficam.length + Math.max(0, out.findIndex((x) => x.dados)));
     setCarregando(false);
+  }
+
+  /** Refaz uma declaração do modelo padrão (mestre ou relatório novo, ciclos digitados). */
+  function remontar(x: Item, mestres: MestreLido[], rel: LinhaRelatorio[] | null, ciclos?: string[]): Item {
+    if (!x.mann) return x;
+    const cs = ciclos ?? x.mann.ciclos;
+    return {
+      ...x,
+      ...montarDeclaracaoPadrao(x.mann.nf, x.mann.bls, mestres, empresa, x.dados?.data ?? hojeBR(), { relatorio: rel, ciclos: cs }),
+      mann: { ...x.mann, ciclos: cs },
+    };
+  }
+
+  /** Ciclos digitados (a nota não traz): puxa o tratamento deles do relatório/mestres. */
+  function trocarCiclos(i: number, texto: string) {
+    const ciclos = texto.split(/\s*(?:[,;/]|\be\b)\s*|\s+/).map((c) => c.trim()).filter(Boolean);
+    setItens((xs) => xs.map((x, j) => (j === i ? remontar(x, mestresMann, relatorio?.linhas ?? null, ciclos) : x)));
   }
 
   /** Documentos de uma remessa (empresa com regras aprendidas): uma declaração preenchida por eles. */
@@ -683,24 +725,28 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
       {cnpj && !semModelo && mann && (
         <>
           <SoltarArquivos
-            titulo={carregando ? "Lendo os documentos…" : "Arraste a nota fiscal (ou o BL) e o certificado mestre"}
+            titulo={carregando ? "Lendo os documentos…" : "Arraste a nota fiscal (ou o BL / packing list) e o relatório do MAPA"}
             dica={
               <>
-                Solte aqui a <b>nota fiscal</b> e/ou o <b>BL/booking</b> junto com o <b>certificado mestre</b> do ciclo (PDF), ou clique para
-                escolher. O ciclo escrito na nota (ex.: “CICLO MANN 0249”) escolhe o mestre; sem ciclo na nota, valem os mestres soltos juntos.
+                Solte aqui a <b>nota fiscal</b> e/ou o <b>BL, booking ou packing list</b> (PDF) e o <b>relatório do MAPA</b> da empresa (.xlsx, o de
+                RELATÓRIOS 2025), ou clique para escolher. A declaração só precisa do mês: o ciclo escrito na nota (ex.: “CICLO MANN 0249”) puxa o
+                certificado, a data e a duração do relatório. Sem ciclo na nota, digite-o no campo “Ciclos”. O certificado mestre (PDF) também serve.
                 Várias notas de uma vez: uma declaração por nota.
               </>
             }
-            accept=".pdf,.docx"
+            accept=".pdf,.xlsx,.docx"
             ocupado={carregando}
             onArquivos={(fs) => void soltarMann(fs)}
           />
           <div className="actions" style={{ marginTop: 0 }}>
-            <span className={`badge ${mestresMann.length ? "pago" : "pendente"}`}>
-              {mestresMann.length
-                ? `Mestres: ${mestresMann.map((m) => `${m.mestre.numero}${m.mestre.ciclo ? ` (ciclo ${parseInt(m.mestre.ciclo, 10) || m.mestre.ciclo})` : ""}`).join(", ")}`
-                : "Nenhum certificado mestre ainda"}
+            <span className={`badge ${relatorio ? "pago" : "pendente"}`}>
+              {relatorio ? `Relatório: ${relatorio.nome} · ${relatorio.linhas.length} tratamentos` : "Relatório do MAPA ainda não carregado"}
             </span>
+            {mestresMann.length > 0 && (
+              <span className="badge pago">
+                Mestres: {mestresMann.map((m) => `${m.mestre.numero}${m.mestre.ciclo ? ` (ciclo ${parseInt(m.mestre.ciclo, 10) || m.mestre.ciclo})` : ""}`).join(", ")}
+              </span>
+            )}
             <div className="spacer" />
             <button type="button" className="btn" onClick={novaManual}>
               Fazer manualmente
@@ -856,6 +902,26 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                       <li key={a}>{a}</li>
                     ))}
                   </ul>
+                </div>
+              )}
+              {atual.mann && (
+                <div className="card" style={{ marginBottom: 14 }}>
+                  <div className="field" style={{ maxWidth: 420 }}>
+                    <label htmlFor="d-ciclos">Ciclos / lotes do tratamento (do relatório)</label>
+                    <input
+                      id="d-ciclos"
+                      key={`${sel}-${(atual.mann.ciclos ?? atual.nf?.ciclos ?? []).join(",")}`}
+                      defaultValue={(atual.mann.ciclos ?? atual.nf?.ciclos ?? atual.dados.linhas.map((l) => l.lote || l.ciclo)).join(", ")}
+                      placeholder="ex.: 249, 256 ou 972 e 973"
+                      onBlur={(e) => trocarCiclos(sel, e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && trocarCiclos(sel, (e.target as HTMLInputElement).value)}
+                    />
+                  </div>
+                  <p className="hint" style={{ margin: "4px 0 0" }}>
+                    {relatorio
+                      ? "Digite os ciclos (ou lotes) e tecle Enter: o certificado, o mês e a duração vêm do relatório."
+                      : "Solte o relatório do MAPA da empresa na área acima para puxar o tratamento pelos ciclos."}
+                  </p>
                 </div>
               )}
               {editorAberto && (
