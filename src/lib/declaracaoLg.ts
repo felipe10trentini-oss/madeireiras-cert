@@ -6,6 +6,7 @@ import { dadosIniciais, type DadosDeclaracao, type LinhaTratamento } from "./dec
 import type { Madeireira } from "./madeireiras";
 import type { ItemNota, NotaFiscal } from "./notaFiscal";
 import type { LinhaDR } from "./planilhaDR";
+import { snMinusculo } from "./util";
 
 export const CNPJ_LG = "50709371000115";
 
@@ -126,14 +127,14 @@ export function montarDeclaracaoLg(nf: NotaFiscal, dr: Map<string, LinhaDR> | nu
       ...base,
       exportador: [d.razao, d.cnpj ? `CNPJ ${d.cnpj}` : ""].filter(Boolean).join(" – "),
       // Endereço e cidade em linhas separadas, como no modelo da LG.
-      enderecoExportador: [d.endereco, cidadeUf].filter(Boolean).join("\n"),
+      enderecoExportador: snMinusculo([d.endereco, cidadeUf].filter(Boolean).join("\n")),
       destinatario: "Nihil",
       volumes,
       produto: "Madeira de eucalipto / Eucalyptus wood",
       origem: "Brasil / Brazil",
       destino: "Nihil",
       comunicado: [...meses].sort((a, b) => a.slice(3).localeCompare(b.slice(3)) || a.localeCompare(b)).map((m) => `Programação MAPA ${m}`).join("; "),
-      localTratamento: "Linha Barra Seca S/N – CEP 89.728-000 – Concórdia - SC",
+      localTratamento: "Linha Barra Seca s/n – CEP 89.728-000 – Concórdia - SC",
       sujeito: itens.every((i) => /^(PALLET|PALETE)/i.test(i.descricao)) ? "paletes" : "material",
       linhas,
       observacao: nf.numero ? `Ref. à NF-e ${nf.numero}` : "",
@@ -153,7 +154,7 @@ export function manualLg(empresa: Madeireira | null, hoje: string): DadosDeclara
     produto: "Madeira de eucalipto / Eucalyptus wood",
     origem: "Brasil / Brazil",
     destino: "Nihil",
-    localTratamento: "Linha Barra Seca S/N – CEP 89.728-000 – Concórdia - SC",
+    localTratamento: "Linha Barra Seca s/n – CEP 89.728-000 – Concórdia - SC",
     sujeito: "paletes",
     linhas: [{ certificado: "", ciclo: "", lote: "", inicio: "", fim: "", tipo: "HT", temperatura: "56", duracao: "32 min", quantidade: "" }],
     localEmissao: (localDoEndereco(empresa?.endereco) || "Concórdia - SC").replace(/^Concordia/i, "Concórdia"),

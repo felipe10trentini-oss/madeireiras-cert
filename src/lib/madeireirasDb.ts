@@ -3,7 +3,7 @@ import { lerTratamentos, type ConfigEmpresa, type Madeireira } from "./madeireir
 import type { PadraoRelatorio, Tomador } from "./relatorio";
 import { juntarUltimos } from "./sequenciaCiclo";
 import { getSupabaseServerClient } from "./supabaseServer";
-import { soDigitos } from "./util";
+import { snMinusculo, soDigitos } from "./util";
 
 /** Tabela no schema "madeireiras" (separado das tabelas da Mann móvel, em "public"). */
 const TABELA = "empresas";
@@ -72,7 +72,7 @@ function paraRow(m: Madeireira) {
     cnpj: m.cnpj,
     crea: m.crea,
     telefone: m.telefone,
-    endereco: m.endereco,
+    endereco: snMinusculo(m.endereco),
     reg_mapa: m.regMapa,
     email: m.email,
     documento: m.documento,
@@ -193,7 +193,10 @@ export async function salvarPadraoRelatorio(cnpj: string, novo: PadraoRelatorio)
     ...antigo,
     ...novo,
     volumesCamara: { ...(antigo.volumesCamara ?? {}), ...(novo.volumesCamara ?? {}) },
-    tomadores: { ...(antigo.tomadores ?? {}), ...(novo.tomadores ?? {}) },
+    tomadores: {
+      ...(antigo.tomadores ?? {}),
+      ...Object.fromEntries(Object.entries(novo.tomadores ?? {}).map(([k, t]) => [k, { ...t, endereco: snMinusculo(t.endereco) }])),
+    },
     // Último ciclo por estufa: guarda o maior (reemitir um ciclo antigo não volta a sequência).
     ciclos: juntarUltimos(antigo.ciclos, novo.ciclos),
   };
@@ -246,7 +249,8 @@ export async function sincronizarTomadores(
   const vistos = new Set<string>();
   const norm = (s: string | undefined) => (s ?? "").trim();
 
-  for (const c of clientes) {
+  for (const bruto of clientes) {
+    const c = { ...bruto, endereco: snMinusculo(bruto.endereco) };
     const chave = soDigitos(c.cnpj);
     // A própria prestadora aparece na planilha como cliente: não é tomador dela mesma.
     if (chave === soDigitos(prestadora.cnpj)) {

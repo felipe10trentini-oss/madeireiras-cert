@@ -11,7 +11,7 @@ import { ciclosDoTexto, type NotaFiscal } from "./notaFiscal";
 import { regraDe } from "./certificado";
 import { escolherLinha, linhaDoRelatorio, linhasDoCiclo, type LinhaRelatorio } from "./relatorioMapa";
 import { completarComNihil } from "./preencherModelo";
-import { soDigitos } from "./util";
+import { snMinusculo, soDigitos } from "./util";
 
 export const CNPJ_MANN_VOLANTE = "00093600000141";
 
@@ -205,7 +205,7 @@ export function montarDeclaracaoPadrao(
     produto: "",
     origem: "",
     comunicado: "",
-    localTratamento: [...new Set(locais)].join("; ").replace(/\s*-\s*[A-Z]{2}\s*$/, ""),
+    localTratamento: snMinusculo([...new Set(locais)].join("; ")).replace(/\s*-\s*[A-Z]{2}\s*$/, ""),
     sujeito: nf?.itens.every((i) => /palet|pallet/i.test(i.descricao)) ? "paletes" : nf?.itens.every((i) => /suporte|skid/i.test(i.descricao)) ? "suportes" : "material",
     linhas,
     // Mann Unidade Volante emite em Curitiba; as outras, na cidade delas (cadastro).

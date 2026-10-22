@@ -2,6 +2,11 @@
 
 export const soDigitos = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
 
+/** Endereço sem número: sempre "s/n" minúsculo ("Rodovia MT 206 S/N" -> "Rodovia MT 206 s/n"). */
+export function snMinusculo<T extends string | null | undefined>(s: T): T {
+  return (typeof s === "string" ? s.replace(/(^|[^A-Za-zÀ-ÿ])[sS]\s*\/\s*[nN](?![A-Za-zÀ-ÿ])/g, "$1s/n") : s) as T;
+}
+
 export const semAcento = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
 
 /** "ARTEMOBILLI", "Artemobili" -> só letras e dígitos, maiúsculas, sem acento. */

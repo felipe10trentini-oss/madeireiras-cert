@@ -5,7 +5,7 @@ import { MODELOS, type Modelo, type ValoresCertificado } from "./modelos";
 import { chaveDoCiclo } from "./sequenciaCiclo";
 import { descricaoSerrada, fardos, frasePropria } from "./produtoTexto";
 import type { Tomador } from "./relatorio";
-import { duracaoHM, horaFmt, m3BR, semAcento, soDigitos, somarMinutos, tempBR, type DataHora } from "./util";
+import { duracaoHM, horaFmt, m3BR, semAcento, snMinusculo, soDigitos, somarMinutos, tempBR, type DataHora } from "./util";
 
 /**
  * KD  = secagem em estufa, umidade final até 18,0% (18,00% ainda é KD)
@@ -631,13 +631,13 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     razao: prestador.razaoSocial,
     cnpj: prestador.cnpj,
     crea: prestador.crea,
-    endereco: prestador.endereco,
+    endereco: snMinusculo(prestador.endereco),
     telefone: prestador.telefone,
     email: matriz ? matriz.email : (regra.email ?? empresa.email),
     regMapa: prestador.regMapa,
     tomRazao: fixo ? fixo.razao : tomadorOutro ? (salvo?.razao ?? comunicado!.tomadorNome) : "Nihil",
     tomCnpj: fixo ? fixo.cnpj : tomadorOutro ? (salvo?.cnpj ?? comunicado!.tomadorCnpj) : "Nihil",
-    tomEndereco: fixo ? fixo.endereco : tomadorOutro ? (salvo?.endereco ?? "") : "Nihil",
+    tomEndereco: snMinusculo(fixo ? fixo.endereco : tomadorOutro ? (salvo?.endereco ?? "") : "Nihil"),
     tomTelefone: fixo ? fixo.telefone : tomadorOutro ? (salvo?.telefone ?? "") : "Nihil",
     tomEmail: fixo ? fixo.email : tomadorOutro ? (salvo?.email ?? "") : "Nihil",
     comunicado: numComunicado,
@@ -645,11 +645,11 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
     // um local no mesmo CNPJ); o da sede (cadastro) só vai no 2.3. Credenciada que trata em outro lugar
     // (Biolog na HL Paletes; o cadastro tem o escritório): o local do comunicado. Mesmo lugar escrito de
     // outro jeito (AGK "Sala2"): fica o do cadastro, que é o que vai nos certificados.
-    enderecoTrat: regra.prestadora
+    enderecoTrat: snMinusculo(regra.prestadora
       ? (comunicado?.endereco ?? null)
       : empresa.modalidade === "Credenciada" && comunicado?.endereco && !mesmoLocal(comunicado.endereco, empresa.endereco)
         ? comunicado.endereco
-        : empresa.endereco,
+        : empresa.endereco),
     destino: regra.destino ?? "Estoque",
     produto,
     volumes,
