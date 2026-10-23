@@ -112,6 +112,9 @@ export const REGRAS_EMPRESA: Record<string, RegraEmpresa> = {
   "02927182000176": { loteEhNumero: true }, // JJ Thomazi
   "24046686000110": { prestadora: true }, // Exata (prestadora de serviço, como a Mann móvel)
   "00093600000141": { prestadora: true, localDoPrestador: true }, // Mann Unid. Volante (local de emissão: Curitiba - PR)
+  // Pallet do Brasil: credenciada desde 20/10/2026, no padrão da Mann móvel (prestadora: tomador e local do
+  // comunicado; emite na cidade dela) e o lote é o ciclo do tratamento, com 3 dígitos ("087").
+  "01137302000179": { prestadora: true, localDoPrestador: true, cicloTresDigitos: true },
   "21730230000186": { loteSequencial: true }, // GM
   "03636539000120": { loteAnoSemana: true, produto: "Madeira serrada para embalagens", programacaoTrimestral: true }, // MART
   "21495060000283": { kitEhAqf: true }, // Maxi

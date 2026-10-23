@@ -21,7 +21,8 @@ export interface Comunicado {
 const ROTULOS: { campo: keyof Comunicado | "razaoCnpj" | "marcas" | "observacao"; re: RegExp }[] = [
   // "Comunicado de tratamento n°:" ou "N° do comunicado de tratamento:" (DM)
   { campo: "numero", re: /^(?:comunicado de tratamento n\s*[°º]?|n\s*[°º]?\s*do comunicado de tratamento)\s*:/i },
-  { campo: "razaoCnpj", re: /^raz[ãa]o social\s*\/\s*cnpj\s*\(tomador de servi[çc]o\)\s*:/i },
+  // "Tomador se serviço" (erro de digitação no modelo da Pallet do Brasil) também vale.
+  { campo: "razaoCnpj", re: /^raz[ãa]o social\s*\/\s*cnpj\s*\(tomador (?:de|se) servi[çc]o\)\s*:/i },
   { campo: "endereco", re: /^endere[çc]o (?:do local )?de realiza[çc][ãa]o do tratamento\s*:/i },
   // Rótulos que existem no comunicado mas não vão para o certificado: sem eles, o valor do campo
   // anterior engole a linha ("Rua X, 4226 - Cambé - PR Unidade volante: Unidade 3").
