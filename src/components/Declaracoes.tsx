@@ -372,7 +372,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
         setToast(e instanceof Error ? e.message : "Não foi possível ler o relatório.");
       }
     }
-    const pdfs = files.filter((f) => /\.pdf$/i.test(f.name));
+    // PDF ou imagem (foto/print da nota, do BL…: lida por OCR).
+    const pdfs = files.filter((f) => /\.(pdf|png|jpe?g|webp)$/i.test(f.name) || f.type.startsWith("image/"));
     if (!pdfs.length) {
       if (rel && rel !== relatorio) {
         const r = rel;
@@ -521,7 +522,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   async function soltar(files: File[]) {
     const planilha = files.find((f) => /\.xlsx$/i.test(f.name));
     const word = files.find((f) => /\.docx$/i.test(f.name));
-    const notas = files.filter((f) => /\.pdf$/i.test(f.name));
+    const notas = files.filter((f) => /\.(pdf|png|jpe?g|webp)$/i.test(f.name) || f.type.startsWith("image/"));
     let drUsar = dr;
     if (planilha) drUsar = (await escolherDR(planilha)) ?? dr;
     if (word) {
@@ -756,7 +757,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                 monta as declarações.
               </>
             }
-            accept=".pdf,.xlsx,.docx"
+            accept=".pdf,.xlsx,.docx,.png,.jpg,.jpeg,.webp,image/*"
             ocupado={carregando}
             onArquivos={(fs) => void soltar(fs)}
           />
@@ -784,7 +785,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                 Várias notas de uma vez: uma declaração por nota.
               </>
             }
-            accept=".pdf,.xlsx,.docx"
+            accept=".pdf,.xlsx,.docx,.png,.jpg,.jpeg,.webp,image/*"
             ocupado={carregando}
             onArquivos={(fs) => void soltarMann(fs)}
           />
@@ -816,7 +817,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
               preenchida com o que o site aprendeu no modelo.
             </>
           }
-          accept=".pdf"
+          accept=".pdf,.png,.jpg,.jpeg,.webp,image/*"
           ocupado={carregando}
           onArquivos={(fs) => void soltarRemessa(fs)}
         />

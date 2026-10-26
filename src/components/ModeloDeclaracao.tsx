@@ -186,12 +186,12 @@ export function ModeloDeclaracao({
         <>
           <p className="hint" style={{ marginTop: 12 }}>
             <b>2.</b> Para o site aprender a preencher sozinho: arraste os documentos <b>da mesma remessa deste Word</b> (NF-e, BL, booking,
-            invoice… em PDF). Ele procura cada dado do Word nesses documentos e guarda de onde veio.
+            invoice… em PDF ou imagem). Ele procura cada dado do Word nesses documentos e guarda de onde veio.
           </p>
           <SoltarArquivos
             titulo={lendo ? "Lendo os documentos…" : "Arraste os documentos da remessa do modelo"}
-            dica="NF-e, BL, booking, invoice, packing list (PDF com texto). Pode soltar todos juntos."
-            accept=".pdf"
+            dica="NF-e, BL, booking, invoice, packing list: PDF ou imagem (foto/print, lida por OCR — confira). Pode soltar todos juntos."
+            accept=".pdf,.png,.jpg,.jpeg,.webp,image/*"
             ocupado={lendo}
             onArquivos={(fs) => void aprenderCom(fs)}
           />

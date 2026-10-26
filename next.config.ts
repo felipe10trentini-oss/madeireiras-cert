@@ -30,6 +30,8 @@ const nextConfig: NextConfig = {
     "/api/extrair": OCR,
     // Pedido do comunicado em imagem (print do WhatsApp, foto).
     "/api/comunicados/ler": OCR,
+    // Documentos da remessa da declaração em imagem (foto/print da nota, do BL…).
+    "/api/declaracoes/nf": OCR,
   },
 };
 
