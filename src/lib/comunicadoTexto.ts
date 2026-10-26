@@ -64,11 +64,39 @@ function horaDoTexto(t: string): string | null {
   return `${pad2(+m[1])}h${m[2] ?? "00"}m`;
 }
 
+/**
+ * Tabela (planilha ou Word: células com " | "): pela linha de títulos (quantidade/qtd, produto/material/
+ * descrição, medida), cada linha vira uma frase como a da mensagem ("300 Paletes 1000x1200 | 27/10/2026").
+ */
+function tabelaEmFrases(texto: string): { texto: string; itensTabela: string[] } {
+  const linhas = texto.split("\n");
+  const itensTabela: string[] = [];
+  const iCab = linhas.findIndex((l) => l.includes("|") && /quant|qtd|qtde/i.test(l) && /produto|material|mercadoria|descri|item|embalage/i.test(l));
+  if (iCab < 0) return { texto, itensTabela };
+  const cab = linhas[iCab].split("|").map((c) => semAcento(c).toLowerCase().trim());
+  const col = (re: RegExp) => cab.findIndex((c) => re.test(c));
+  const cQtd = col(/quant|qtd|qtde/);
+  const cProd = col(/produto|material|mercadoria|descri|item|embalage/);
+  const cMed = col(/medida|dimens|tamanho|bitola/);
+  const frases: string[] = [];
+  for (const l of linhas.slice(iCab + 1)) {
+    if (!l.includes("|")) continue;
+    const c = l.split("|").map((x) => x.trim());
+    const qtd = c[cQtd]?.match(/\d[\d.,]*/)?.[0];
+    if (!qtd || !c[cProd]) continue;
+    const item = `${qtd.replace(/[.,]0+$/, "")} ${c[cProd]}${cMed >= 0 && c[cMed] ? ` ${c[cMed]}` : ""}`;
+    itensTabela.push(item);
+    frases.push(`${item} | ${c.filter((_, i) => i !== cQtd && i !== cProd && i !== cMed).join(" | ")}`);
+  }
+  return { texto: [...linhas.slice(0, iCab), ...frases].join("\n"), itensTabela };
+}
+
 export function interpretarTexto(
   texto: string,
   op: { tomadores: Tomador[]; prestadora: boolean; hoje?: Date; modelo: Partial<Record<CampoComunicado, string>> }
 ): Interpretado {
-  const t = texto.replace(/\r/g, "");
+  const tab = tabelaEmFrases(texto.replace(/\r/g, ""));
+  const t = tab.texto;
   const plano = t.replace(/\s+/g, " ");
   const v: Partial<Record<CampoComunicado, string>> = {};
   const achados: CampoComunicado[] = [];
@@ -123,6 +151,9 @@ export function interpretarTexto(
         ? `${nomes[0]} de madeira`
         : `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1].toLowerCase().replace(/s$/, "")} de madeira`;
     marcar("produto", produto);
+  } else if (tab.itensTabela.length) {
+    // Tabela com um item que não é palete/caixa/kit…: vai como veio ("300 PBR").
+    marcar("quantidade", tab.itensTabela.join("; "));
   }
 
   // Aviso da Mann/Exata ("aviso 1764/2026", "AV 1764") e unidade volante ("unidade 3").

@@ -96,6 +96,41 @@ async function ler(worker: Worker, png: Buffer, psm: PSM): Promise<string> {
   return (await worker.recognize(png)).data.text;
 }
 
+/**
+ * Texto de uma imagem solta (print do WhatsApp, foto do pedido do cliente) para o comunicado: amplia e,
+ * se o fundo for escuro (WhatsApp no modo escuro), inverte as cores antes de ler.
+ */
+export async function ocrImagem(buffer: Buffer): Promise<string> {
+  const img = await loadImage(buffer);
+  const escala = Math.max(1, Math.min(3, 1800 / img.width));
+  const canvas = createCanvas(Math.round(img.width * escala), Math.round(img.height * escala));
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const d = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let soma = 0;
+  for (let i = 0; i < d.data.length; i += 4 * 16) soma += (d.data[i] + d.data[i + 1] + d.data[i + 2]) / 3;
+  if (soma / (d.data.length / (4 * 16)) < 110) {
+    for (let i = 0; i < d.data.length; i += 4) {
+      d.data[i] = 255 - d.data[i];
+      d.data[i + 1] = 255 - d.data[i + 1];
+      d.data[i + 2] = 255 - d.data[i + 2];
+    }
+    ctx.putImageData(d, 0, 0);
+  }
+  const worker = await createWorker("por", undefined, {
+    langPath: path.join(process.cwd(), "ocr"),
+    gzip: true,
+    cachePath: os.tmpdir(),
+  });
+  try {
+    return await ler(worker, canvas.toBuffer("image/png"), PSM.AUTO);
+  } finally {
+    await worker.terminate();
+  }
+}
+
 export async function ocrPrimeiraPagina(buffer: Buffer): Promise<string> {
   const png = await imagemDaPagina(buffer);
   if (!png) return "";

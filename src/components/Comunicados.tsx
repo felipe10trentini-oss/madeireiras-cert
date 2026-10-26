@@ -15,6 +15,7 @@ import {
 import { interpretarTexto } from "@/lib/comunicadoTexto";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
+import { textoDaPlanilha, textoDoWord } from "@/lib/textoDeArquivo";
 import { soDigitos } from "@/lib/util";
 import { SoltarArquivos } from "./SoltarArquivos";
 
@@ -178,10 +179,49 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
     }
   }
 
-  function identificar() {
+  /**
+   * Pedido em arquivo: planilha (.xlsx) e Word (.docx) lidos aqui; imagem (print do WhatsApp, foto) e PDF
+   * no servidor (OCR). O texto vai para a caixa (dá para conferir) e já é identificado.
+   */
+  async function lerArquivos(files: File[]) {
+    setOcupado(true);
+    const partes: string[] = [];
+    try {
+      for (const f of files) {
+        const n = f.name.toLowerCase();
+        if (/\.xls$|\.doc$/.test(n)) {
+          setToast(`${f.name}: formato antigo do Office — abra e salve como .xlsx/.docx, ou copie o texto.`);
+          continue;
+        }
+        if (/\.xlsx$/.test(n)) partes.push(await textoDaPlanilha(await f.arrayBuffer()));
+        else if (/\.docx$/.test(n)) partes.push(await textoDoWord(await f.arrayBuffer()));
+        else if (/\.(txt|csv)$/.test(n)) partes.push((await f.text()).replace(/;/g, " | "));
+        else {
+          const form = new FormData();
+          form.append("arquivo", f);
+          const res = await fetch("/api/comunicados/ler", { method: "POST", headers: cabecalhoSenha(senha), body: form });
+          if (res.status === 401) return sair();
+          const j = await res.json().catch(() => ({}));
+          if (!res.ok) setToast(j.error ?? `Não consegui ler ${f.name}.`);
+          else partes.push(j.texto ?? "");
+        }
+      }
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Não consegui ler o arquivo.");
+    } finally {
+      setOcupado(false);
+    }
+    const lido = partes.map((x) => x.trim()).filter(Boolean).join("\n");
+    if (!lido) return;
+    const novo = [texto.trim(), lido].filter(Boolean).join("\n");
+    setTexto(novo);
+    identificar(novo);
+  }
+
+  function identificar(textoUsado = texto) {
     if (!modelo || !empresa) return;
     const doModelo = Object.fromEntries(Object.values(modelo.campos).map((c) => [c!.campo, c!.valor])) as Partial<Record<CampoComunicado, string>>;
-    const r = interpretarTexto(texto, { tomadores, prestadora: !!regraDe(empresa).prestadora, modelo: doModelo });
+    const r = interpretarTexto(textoUsado, { tomadores, prestadora: !!regraDe(empresa).prestadora, modelo: doModelo });
     // Número: o seguinte; na Mann/Exata o comunicado leva o número do aviso.
     const numeroEhAviso = !!modelo.campos.aviso && modelo.campos.aviso.valor === modelo.campos.numero?.valor;
     r.valores.numero =
@@ -278,23 +318,44 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
         <>
           <div className="card" style={{ marginBottom: 14 }}>
             <label htmlFor="com-texto" className="kpi-label">
-              Cole aqui o pedido do tratamento
+              Cole aqui o pedido do tratamento (texto do WhatsApp ou Ctrl+V do print)
             </label>
             <textarea
               id="com-texto"
               rows={7}
               value={texto}
               onChange={(e) => setTexto(e.target.value)}
+              onPaste={(e) => {
+                // Print copiado (WhatsApp): Ctrl+V da imagem lê pelo OCR.
+                const imgs = [...e.clipboardData.files].filter((f) => f.type.startsWith("image/"));
+                if (imgs.length) {
+                  e.preventDefault();
+                  void lerArquivos(imgs);
+                }
+              }}
               placeholder={"Ex.: Tratamento amanhã às 13:30 para a MRP Comercio\n50 kit caixas 1000x1200x680\n8 paletes 1300x1300"}
               style={{ width: "100%" }}
             />
             <div className="actions" style={{ marginTop: 8 }}>
-              <button type="button" className="btn primary" disabled={!texto.trim()} onClick={identificar}>
-                Identificar
+              <button type="button" className="btn primary" disabled={!texto.trim() || ocupado} onClick={() => identificar()}>
+                {ocupado ? "Lendo…" : "Identificar"}
               </button>
               <span className="hint">O que não estiver no texto fica como no último comunicado; confira antes de gerar.</span>
             </div>
           </div>
+
+          <SoltarArquivos
+            titulo={ocupado ? "Lendo o arquivo…" : "Ou arraste o arquivo do pedido"}
+            dica={
+              <>
+                <b>Planilha do Excel</b> (.xlsx), <b>Word</b> (.docx), <b>imagem</b> (print do WhatsApp, foto) ou <b>PDF</b>: o texto aparece na caixa
+                acima e o site identifica os campos. Imagem é lida por OCR (alguns segundos) — confira os números.
+              </>
+            }
+            accept=".xlsx,.xls,.docx,.doc,.pdf,.png,.jpg,.jpeg,.webp,.txt,.csv,image/*"
+            ocupado={ocupado}
+            onArquivos={(fs) => void lerArquivos(fs)}
+          />
 
           {avisos.length > 0 && (
             <div className="alert-box">
