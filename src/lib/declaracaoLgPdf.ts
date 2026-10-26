@@ -670,7 +670,8 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
     const largPag = deitada ? qh : qw;
     const altPag = deitada ? qw : qh;
     const esq = cxAss - largPag / 2;
-    const base = A4.h - yLinha + 2;
+    // Em pé (Mann): a imagem tem margem branca embaixo, então desce até o traço encostar na linha.
+    const base = A4.h - yLinha + (deitada ? 2 : -altPag * 0.05);
     if (rot === 270) pg.drawImage(assin, { x: esq + H - t * H, y: base - l * W, width: W, height: H, rotate: degrees(90) });
     else if (rot === 90) pg.drawImage(assin, { x: esq - (H - t * H - qh), y: base + W - l * W, width: W, height: H, rotate: degrees(-90) });
     else pg.drawImage(assin, { x: esq - l * W, y: base - (H - t * H - altPag), width: W, height: H });
