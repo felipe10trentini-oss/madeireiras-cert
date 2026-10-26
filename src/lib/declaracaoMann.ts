@@ -10,6 +10,7 @@ import type { Madeireira } from "./madeireiras";
 import { ciclosDoTexto, type NotaFiscal } from "./notaFiscal";
 import { regraDe } from "./certificado";
 import { escolherLinha, linhaDoRelatorio, linhasDoCiclo, type LinhaRelatorio } from "./relatorioMapa";
+import { clientesDoPedido, lerDocumentoExportacao } from "./documentoExportacao";
 import { completarComNihil } from "./preencherModelo";
 import { snMinusculo, soDigitos } from "./util";
 
@@ -104,6 +105,22 @@ export function lerBL(texto: string): DadosBL {
       tipo: tab.tipo ?? null,
     };
   }
+  const doc = lerDocumentoExportacao(texto);
+  const rotulos = lerBLPorRotulo(t, plano);
+  return {
+    ...rotulos,
+    bl: doc.bl ?? rotulos.bl,
+    booking: doc.booking ?? rotulos.booking,
+    navio: doc.navio ?? rotulos.navio,
+    destino: doc.destino ?? rotulos.destino,
+    destinatario: doc.destinatario ?? rotulos.destinatario,
+    exportador: doc.exportador ?? rotulos.exportador,
+    invoice: doc.invoice,
+  };
+}
+
+/** Leitura antiga, pelos rótulos "Booking:", "Vessel:"… (BL com o valor logo depois do rótulo). */
+function lerBLPorRotulo(t: string, plano: string): DadosBL {
   return {
     bl: plano.match(/\b(?:B\/L|BILL OF LADING)\s*(?:N[ºo°.]*|NO\.?|NUMBER|#)?\s*:?\s*([A-Z]{2,6}[A-Z0-9-]{5,20})/i)?.[1] ?? null,
     booking: plano.match(/\bBOOKING\s*(?:N[ºo°.]*|NO\.?|NUMBER|REF\.?|#)?\s*:?\s*([A-Z0-9-]{6,20})/i)?.[1] ?? null,
@@ -123,7 +140,7 @@ export function titulo(s: string | null | undefined): string {
     .toLowerCase()
     .split(/\s+/)
     .filter(Boolean)
-    .map((p, i) => (i > 0 && MINUSCULAS.has(p) ? p : /^s\.?\/?a\.?$/.test(p) ? "S.A." : p.charAt(0).toUpperCase() + p.slice(1)))
+    .map((p, i) => (i > 0 && MINUSCULAS.has(p) ? p : /^s\/a$/.test(p) ? "S/A" : /^s\.?a\.?$/.test(p) ? "S.A." : p.charAt(0).toUpperCase() + p.slice(1)))
     .join(" ");
 }
 
@@ -289,12 +306,40 @@ export function montarDeclaracaoPadrao(
   if (!certs.length && mestres.length && ciclosDoc.length && !doRelatorio.length) avisos.push("Os certificados mestres soltos não são do ciclo da nota: confira.");
   // Nome no padrão das pastas: Mann "Declaração HT - Renascer NFe 7376 - Novozymes" / "Declaração HT - Marine
   // ONEYSAOG54885400"; as outras "DECL. KTR NFe 11336".
-  const curto = (s: string) => s.split(/\s+/)[0] ?? "";
+  // Nome curto como nas pastas: "Madeireira Rio Claro Ltda" -> "Rio Claro", "Vbs Madeiras Ltda" -> "VBS",
+  // "Affonso Ditzel Cia Ltda" -> "Affonso Ditzel", "Renascer Pallet e Embalagem…" -> "Renascer".
+  const GENERICO = /^(madeireira|madeiras?|ind(?:ustria|\.)?|com(?:ercio|\.)?|serraria|cia|ltda|ltd|s\/?a\.?|s\.a\.|eireli|me|epp|e|de|do|da|&|pallets?|paletes?|embalage\w*|artefatos|exp(?:ortacao|\.)?)$/i;
+  const curto = (s: string) => {
+    const ps = s.split(/\s+/).filter(Boolean);
+    while (ps.length > 1 && /^(madeireira|ind(?:ustria|\.)?|serraria)$/i.test(ps[0])) ps.shift();
+    const fim = ps.findIndex((p, i) => i > 0 && GENERICO.test(p));
+    const nome = (fim < 0 ? ps : ps.slice(0, fim)).slice(0, 3);
+    // Sigla sozinha ("Vbs" -> "VBS"); em nome de duas palavras fica como está ("Rio Claro").
+    return nome.length === 1 && nome[0].length <= 3 && /^[a-z]+$/i.test(nome[0]) ? nome[0].toUpperCase() : nome.join(" ");
+  };
   const mann = !!empresa && soDigitos(empresa.cnpj) === CNPJ_MANN_VOLANTE;
-  const ref = nf?.numero ? `NFe ${nf.numero}${mann && destinatario ? ` - ${curto(destinatario)}` : ""}` : bl?.bl || bl?.booking || certs[0] || "";
-  const arquivo = `${mann ? "Declaração HT -" : "DECL."} ${curto(exportador) || "Cliente"} ${ref}`.replace(/[\\/:*?"<>|]/g, "-").trim() + ".docx";
+  // Referência: a nota; senão a fatura/invoice, o booking, o B/L; pedido sem documento: empresa do ciclo + ciclo ("Madex 964").
+  const cicloRef = doRelatorio[0]?.ciclo ?? usados[0]?.mestre.ciclo ?? "";
+  const semDoc = !nf?.numero && !bl?.invoice && !bl?.booking && !bl?.bl;
+  const nome = semDoc && cicloRef && doRelatorio[0]?.tomador ? curto(titulo(doRelatorio[0].tomador)) : curto(exportador);
+  const ref = nf?.numero
+    ? `NFe ${nf.numero}${mann && destinatario ? ` - ${curto(destinatario)}` : ""}`
+    : bl?.invoice || (bl?.booking ? (mann ? `- ${bl.booking}` : bl.booking) : "") || bl?.bl || (cicloRef ? semZeros(cicloRef) : certs[0]) || "";
+  const arquivo = `${mann ? "Declaração HT -" : "DECL."} ${nome || "Cliente"} ${ref}`.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim() + ".docx";
   return { dados: completarComNihil(dados, op.campos as Parameters<typeof completarComNihil>[1]), avisos, arquivo };
 }
 
 /** Nome antigo (só a Mann Unidade Volante usava). */
 export const montarDeclaracaoMann = montarDeclaracaoPadrao;
+
+/**
+ * Documento "outro" (BL, booking, packing list, pedido do cliente) em uma ou mais remessas: pedido com
+ * vários clientes do mesmo ciclo ("CICLO 964 para: NORTOX S/A - 30 PALETES / CAFÉ TRÊS CORAÇÕES - 250
+ * PALETES") vira uma declaração por cliente.
+ */
+export function blsDoTexto(texto: string): DadosBL[] {
+  const base = lerBL(texto);
+  const clientes = clientesDoPedido(texto);
+  if (!clientes.length) return [base];
+  return clientes.map((c) => ({ ...base, exportador: c.exportador, pacotes: c.quantidade, tipo: c.item }));
+}

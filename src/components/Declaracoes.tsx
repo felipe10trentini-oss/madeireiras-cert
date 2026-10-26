@@ -4,7 +4,7 @@ import JSZip from "jszip";
 import { useEffect, useRef, useState } from "react";
 import { CAMPOS_REMESSA, dadosIniciais, linhaDoMestre, nomeArquivo, type DadosDeclaracao, type LinhaTratamento } from "@/lib/declaracao";
 import { CNPJ_LG, manualLg, montarDeclaracaoLg } from "@/lib/declaracaoLg";
-import { CNPJ_MANN_VOLANTE, lerBL, montarDeclaracaoPadrao, type DadosBL, type MestreLido } from "@/lib/declaracaoMann";
+import { blsDoTexto, CNPJ_MANN_VOLANTE, montarDeclaracaoPadrao, type DadosBL, type MestreLido } from "@/lib/declaracaoMann";
 import {
   ativosDoModelo,
   baixarFontes,
@@ -397,7 +397,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
         if (!res.ok) erros.push({ arquivoNf: f.name, nf: null, erro: j.error ?? "Não consegui ler este PDF.", dados: null, avisos: [], arquivo: "" });
         else if (j.nf) notas.push({ f, nf: j.nf });
         else if (j.mestre) novosMestres.push({ mestre: j.mestre, texto: j.texto ?? "" });
-        else bls.push({ f, bl: lerBL(j.texto ?? "") });
+        // BL/booking/packing list/pedido: pedido com vários clientes vira uma declaração por cliente.
+        else for (const bl of blsDoTexto(j.texto ?? "")) bls.push({ f, bl });
       } catch {
         erros.push({ arquivoNf: f.name, nf: null, erro: "Falha de conexão.", dados: null, avisos: [], arquivo: "" });
       }

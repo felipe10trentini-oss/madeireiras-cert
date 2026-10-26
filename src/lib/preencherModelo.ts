@@ -119,7 +119,7 @@ export function completarComNihil(d: DadosDeclaracao, campos: Set<Campo> | null 
   if (!campos) return d;
   const out = { ...d } as DadosDeclaracao & Record<string, unknown>;
   for (const c of campos) {
-    if (!REMOVIVEIS.has(c) || c === "observacao") continue;
+    if (!REMOVIVEIS.has(c) || c === "observacao" || c === "volumes") continue;
     const k = (CHAVE_DADOS[c] ?? c) as keyof DadosDeclaracao;
     const v = out[k];
     if (typeof v === "string" && !v.trim()) (out as Record<string, unknown>)[k] = "Nihil";
