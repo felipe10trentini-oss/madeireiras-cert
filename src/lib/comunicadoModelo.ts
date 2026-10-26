@@ -20,14 +20,17 @@ export type CampoComunicado =
   | "horario"
   | "duracao"
   | "temperatura"
-  | "observacao";
+  | "observacao"
+  // Modelo em tabela (CJ Tedeski): o interessado (razão social) e a cidade do local vão em colunas próprias.
+  | "interessado"
+  | "cidade";
 
 /** Rótulos do modelo do MAPA (iguais em todas as empresas; só a linha muda). */
 export const ROTULOS_COMUNICADO: [CampoComunicado, RegExp, string][] = [
-  ["numero", /^(?:comunicado de tratamento n|n[º°o]?\s*do comunicado de tratamento)/i, "Comunicado de tratamento nº"],
-  ["tomador", /^raz[ãa]o social\s*\/\s*cnpj/i, "Razão Social / CNPJ (tomador de serviço)"],
+  ["numero", /^(?:comunicado de tratamento (?:fitossanit[áa]rio\s+)?n|n[º°o]?\s*do comunicado de tratamento)/i, "Comunicado de tratamento nº"],
+  ["tomador", /^(?:raz[ãa]o social\s*\/\s*cnpj|tomador de servi[çc]o)/i, "Razão Social / CNPJ (tomador de serviço)"],
   ["aviso", /^n[úu]mero do aviso/i, "Número do aviso"],
-  ["local", /^endere[çc]o (?:do local\s+)?de realiza[çc][ãa]o/i, "Endereço do local de realização do tratamento"],
+  ["local", /^(?:endere[çc]o (?:do local\s+)?de realiza[çc][ãa]o|local de tratamento)/i, "Endereço do local de realização do tratamento"],
   ["unidade", /^unidade volante/i, "Unidade volante"],
   ["destino", /^destino/i, "Destino"],
   ["produto", /^produto a ser tratado/i, "Produto a ser tratado"],
@@ -40,6 +43,24 @@ export const ROTULOS_COMUNICADO: [CampoComunicado, RegExp, string][] = [
   ["duracao", /^dura[çc][ãa]o do tratamento/i, "Duração do tratamento"],
   ["temperatura", /^temperatura/i, "Temperatura"],
   ["observacao", /^observa[çc][ãa]o/i, "Observação"],
+  ["interessado", /^interessado$/i, "Interessado (tabela)"],
+  ["cidade", /^local$/i, "Local (tabela)"],
+];
+
+/**
+ * Modelo em tabela (CJ Tedeski: uma linha de cabeçalho "LOCAL | INTERESSADO | MERCADORIA… | DATA | HORA")
+ * — o valor vai na célula logo abaixo do título.
+ */
+const TITULOS_TABELA: [CampoComunicado, RegExp][] = [
+  ["cidade", /^local$/i],
+  ["interessado", /^interessado$/i],
+  ["produto", /^mercadoria/i],
+  ["unidade", /^unidade de tratamento$/i],
+  ["quantidade", /^quantidade$/i],
+  ["data", /^data$/i],
+  ["horario", /^hora$/i],
+  ["duracao", /^tempo de exposi[çc][ãa]o$/i],
+  ["temperatura", /^temperatura$/i],
 ];
 
 export interface CampoModelo {
@@ -55,7 +76,7 @@ export interface ModeloComunicado {
 }
 
 const desescapar = (s: string) =>
-  s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+  s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n: string) => String.fromCodePoint(+n)).replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCodePoint(parseInt(h, 16))).replace(/&amp;/g, "&");
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const colunaDe = (ref: string) => ref.replace(/\d+/g, "").split("").reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0);
 const letraDe = (n: number): string => (n <= 0 ? "" : letraDe(Math.floor((n - 1) / 26)) + String.fromCharCode(65 + ((n - 1) % 26)));
@@ -103,18 +124,45 @@ export async function lerModeloComunicado(bytes: ArrayBuffer | Uint8Array): Prom
     if (!xml) continue;
     const cel = celulas(xml, textos);
     const campos: ModeloComunicado["campos"] = {};
+    // Rótulo mesclado (CJ: "COMUNICADO … Nº" em E2:J2): o valor fica depois da mescla (K2).
+    const mesclas = [...xml.matchAll(/<mergeCell ref="([A-Z]+)(\d+):([A-Z]+)(\d+)"/g)].map((m) => ({ c1: colunaDe(m[1]), l1: +m[2], c2: colunaDe(m[3]), l2: +m[4] }));
+    const fimDaMescla = (ref: string) => {
+      const c = colunaDe(ref);
+      const l = +ref.replace(/[A-Z]+/, "");
+      return mesclas.find((m) => m.c1 === c && m.l1 === l)?.c2 ?? c;
+    };
+    const tituloDeTabela = (t: string) => TITULOS_TABELA.some(([, re]) => re.test(t));
     for (const [ref, { valor: texto }] of cel) {
       const t = texto.replace(/\s+/g, " ").trim();
-      if (!t.endsWith(":") || t.length > 90) continue;
+      if (!/(?::|\bn[º°o]\.?)$/i.test(t) || t.length > 90 || tituloDeTabela(t)) continue;
       const achado = ROTULOS_COMUNICADO.find(([, re]) => re.test(t));
       if (!achado || campos[achado[0]]) continue;
       const linha = ref.replace(/[A-Z]+/, "");
-      const celula = `${letraDe(colunaDe(ref) + 1)}${linha}`;
+      const celula = `${letraDe(fimDaMescla(ref) + 1)}${linha}`;
       const v = cel.get(celula);
       let valor = v?.valor ?? "";
       if (achado[0] === "data" && v?.numero && /^\d{5}(\.\d+)?$/.test(valor)) valor = dataDeSerial(parseFloat(valor));
       if (/^=|^IF\(/i.test(valor)) valor = "";
       campos[achado[0]] = { campo: achado[0], rotulo: t, celula, valor: valor.trim() };
+    }
+    // Tabela: a linha com 4 ou mais títulos conhecidos; o valor é a célula de baixo.
+    const porLinha = new Map<number, [string, string][]>();
+    for (const [ref, { valor }] of cel) {
+      const l = +ref.replace(/[A-Z]+/, "");
+      porLinha.set(l, [...(porLinha.get(l) ?? []), [ref, valor.replace(/\s+/g, " ").trim()]]);
+    }
+    const cab = [...porLinha.entries()].find(([, cs]) => cs.filter(([, t]) => tituloDeTabela(t)).length >= 4);
+    if (cab) {
+      for (const [ref, t] of cab[1]) {
+        const achado = TITULOS_TABELA.find(([, re]) => re.test(t));
+        if (!achado || campos[achado[0]]) continue;
+        const celula = `${ref.replace(/\d+/, "")}${cab[0] + 1}`;
+        const v = cel.get(celula);
+        let valor = v?.valor ?? "";
+        if (achado[0] === "data" && v?.numero && /^\d{5}(\.\d+)?$/.test(valor)) valor = dataDeSerial(parseFloat(valor));
+        if (/^=|^IF\(/i.test(valor)) valor = "";
+        campos[achado[0]] = { campo: achado[0], rotulo: t, celula, valor: valor.trim() };
+      }
     }
     if (!melhor || Object.keys(campos).length > Object.keys(melhor.campos).length) melhor = { aba: a.caminho, campos };
   }

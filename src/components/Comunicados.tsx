@@ -20,6 +20,29 @@ import { SoltarArquivos } from "./SoltarArquivos";
 
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+// Empresas se descredenciando (26/10/2026): não emitem mais comunicado pelo site.
+const SEM_COMUNICADO = new Set(["Flavia", "JJR", "Megga", "Vale Norte"]);
+
+/** Cidade do endereço ("… - Salto - SP" / "… Salto/SP") para a coluna LOCAL da tabela (CJ). */
+function cidadeDe(endereco: string): string {
+  const m = endereco.replace(/CEP:?\s*[\d.]+-?\d*/gi, " ").match(/([A-Za-zÀ-ÿ' .]+?)\s*[-–/]\s*[A-Z]{2}\.?\s*$/);
+  return m ? m[1].trim() : "";
+}
+
+/**
+ * Modelo em tabela (CJ Tedeski): interessado (razão social) e cidade saem do tomador e do local, e as
+ * colunas vão em maiúsculas (como as fórmulas da planilha dela).
+ */
+function completarTabela(m: ModeloComunicado, v: Partial<Record<CampoComunicado, string>>): Partial<Record<CampoComunicado, string>> {
+  if (!m.campos.interessado && !m.campos.cidade) return v;
+  const out = { ...v };
+  const razao = (v.tomador ?? "").replace(/\s*[-–;,]?\s*CNPJ.*$/i, "").trim();
+  if (m.campos.interessado && razao) out.interessado = razao.toUpperCase();
+  if (m.campos.cidade && v.local) out.cidade = (cidadeDe(v.local) || v.cidade || "").toUpperCase();
+  if (out.produto) out.produto = out.produto.toUpperCase();
+  return out;
+}
+
 interface Salvo {
   salvo: boolean;
   nomeModelo: string | null;
@@ -78,7 +101,10 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
   }, [toast]);
 
   const lista = useMemo(
-    () => (empresas ?? []).filter((e) => e.documento === "comunicado" && !e.config?.inativa).sort((a, b) => a.apelido.localeCompare(b.apelido, "pt-BR")),
+    () =>
+      (empresas ?? [])
+        .filter((e) => e.documento === "comunicado" && !e.config?.inativa && !SEM_COMUNICADO.has(e.apelido))
+        .sort((a, b) => a.apelido.localeCompare(b.apelido, "pt-BR")),
     [empresas]
   );
   const empresa = lista.find((e) => e.cnpj === cnpj) ?? null;
@@ -160,14 +186,17 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
     const numeroEhAviso = !!modelo.campos.aviso && modelo.campos.aviso.valor === modelo.campos.numero?.valor;
     r.valores.numero =
       numeroEhAviso && r.achados.includes("aviso") ? r.valores.aviso! : proximoNumero(salvo?.ultimoNumero ?? modelo.campos.numero?.valor, new Date().getFullYear());
-    setValores(r.valores);
+    setValores(completarTabela(modelo, r.valores));
     setAchados(r.achados);
     setAvisos(r.avisos);
   }
 
   function trocarTomador(razaoCnpj: string) {
     const t = tomadores.find((x) => `${x.razao} - CNPJ ${x.cnpj}` === razaoCnpj);
-    setValores((v) => ({ ...v, tomador: razaoCnpj, ...(t && empresa && regraDe(empresa).prestadora && t.endereco ? { local: t.endereco } : {}) }));
+    setValores((v) => {
+      const novo = { ...v, tomador: razaoCnpj, ...(t && empresa && regraDe(empresa).prestadora && t.endereco ? { local: t.endereco } : {}) };
+      return modelo ? completarTabela(modelo, novo) : novo;
+    });
   }
 
   async function gerar() {
