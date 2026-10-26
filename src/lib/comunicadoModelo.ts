@@ -1,0 +1,177 @@
+// Modelo do comunicado de tratamento de cada empresa: o Excel que ela já usa (timbre, logo e os rótulos
+// "Comunicado de tratamento nº:", "Razão Social/ CNPJ (Tomador de serviço):"…). O site acha cada campo
+// pelo rótulo (a linha muda de empresa para empresa) e escreve o valor na célula ao lado, sem mexer no
+// resto do arquivo. O valor que está no modelo é o do último comunicado emitido nele. Roda no navegador.
+import JSZip from "jszip";
+
+export type CampoComunicado =
+  | "numero"
+  | "tomador"
+  | "aviso"
+  | "local"
+  | "unidade"
+  | "destino"
+  | "produto"
+  | "volumes"
+  | "quantidade"
+  | "marcas"
+  | "modalidade"
+  | "data"
+  | "horario"
+  | "duracao"
+  | "temperatura"
+  | "observacao";
+
+/** Rótulos do modelo do MAPA (iguais em todas as empresas; só a linha muda). */
+export const ROTULOS_COMUNICADO: [CampoComunicado, RegExp, string][] = [
+  ["numero", /^(?:comunicado de tratamento n|n[º°o]?\s*do comunicado de tratamento)/i, "Comunicado de tratamento nº"],
+  ["tomador", /^raz[ãa]o social\s*\/\s*cnpj/i, "Razão Social / CNPJ (tomador de serviço)"],
+  ["aviso", /^n[úu]mero do aviso/i, "Número do aviso"],
+  ["local", /^endere[çc]o (?:do local\s+)?de realiza[çc][ãa]o/i, "Endereço do local de realização do tratamento"],
+  ["unidade", /^unidade volante/i, "Unidade volante"],
+  ["destino", /^destino/i, "Destino"],
+  ["produto", /^produto a ser tratado/i, "Produto a ser tratado"],
+  ["volumes", /^n[º°o]?\s*e descri[çc][ãa]o dos volumes/i, "Nº e descrição dos volumes"],
+  ["quantidade", /^quantidade/i, "Quantidade"],
+  ["marcas", /^marcas distintivas/i, "Marcas distintivas"],
+  ["modalidade", /^modalidade de tratamento/i, "Modalidade de tratamento"],
+  ["data", /^data [ds]o in[íi]cio do tratamento/i, "Data do início do tratamento"],
+  ["horario", /^hor[áa]rio do in[íi]cio/i, "Horário do início do tratamento"],
+  ["duracao", /^dura[çc][ãa]o do tratamento/i, "Duração do tratamento"],
+  ["temperatura", /^temperatura/i, "Temperatura"],
+  ["observacao", /^observa[çc][ãa]o/i, "Observação"],
+];
+
+export interface CampoModelo {
+  campo: CampoComunicado;
+  rotulo: string;
+  celula: string; // "B10"
+  valor: string; // o que está no modelo (último comunicado)
+}
+
+export interface ModeloComunicado {
+  aba: string; // caminho da planilha no zip
+  campos: Partial<Record<CampoComunicado, CampoModelo>>;
+}
+
+const desescapar = (s: string) =>
+  s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const colunaDe = (ref: string) => ref.replace(/\d+/g, "").split("").reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0);
+const letraDe = (n: number): string => (n <= 0 ? "" : letraDe(Math.floor((n - 1) / 26)) + String.fromCharCode(65 + ((n - 1) % 26)));
+
+function dataDeSerial(n: number): string {
+  const d = new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000);
+  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${d.getUTCFullYear()}`;
+}
+
+async function abrir(bytes: ArrayBuffer | Uint8Array) {
+  const zip = await JSZip.loadAsync(bytes);
+  const wb = (await zip.file("xl/workbook.xml")?.async("string")) ?? "";
+  const rels = (await zip.file("xl/_rels/workbook.xml.rels")?.async("string")) ?? "";
+  const sst = (await zip.file("xl/sharedStrings.xml")?.async("string")) ?? "";
+  const textos = [...sst.matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => desescapar([...m[1].matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map((t) => t[1]).join("")));
+  const abas = [...wb.matchAll(/<sheet [^>]*name="([^"]+)"[^>]*r:id="(\w+)"/g)].map((m) => {
+    const alvo = rels.match(new RegExp(`Id="${m[2]}"[^>]*Target="([^"]+)"`))?.[1] ?? rels.match(new RegExp(`Target="([^"]+)"[^>]*Id="${m[2]}"`))?.[1] ?? "";
+    return { nome: desescapar(m[1]), caminho: `xl/${alvo.replace(/^\/?xl\//, "")}` };
+  });
+  return { zip, textos, abas };
+}
+
+/** Células da planilha: valor em texto (compartilhado, inline ou número; data do Excel vira dd/mm/aaaa nos campos de data). */
+function celulas(xml: string, textos: string[]): Map<string, { valor: string; numero: boolean }> {
+  const out = new Map<string, { valor: string; numero: boolean }>();
+  for (const c of xml.matchAll(/<c r="([A-Z]+\d+)"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    const corpo = c[3] ?? "";
+    const v = corpo.match(/<v>([\s\S]*?)<\/v>/)?.[1];
+    const inline = [...corpo.matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map((t) => t[1]).join("");
+    const tipo = c[2].match(/t="(\w+)"/)?.[1];
+    if (tipo === "s" && v != null) out.set(c[1], { valor: textos[+v] ?? "", numero: false });
+    else if (tipo === "inlineStr") out.set(c[1], { valor: desescapar(inline), numero: false });
+    else if (tipo === "str" && v != null) out.set(c[1], { valor: desescapar(v), numero: false });
+    else if (v != null) out.set(c[1], { valor: v, numero: !tipo || tipo === "n" });
+  }
+  return out;
+}
+
+/** Acha os campos do comunicado no modelo (a aba que tem os rótulos). */
+export async function lerModeloComunicado(bytes: ArrayBuffer | Uint8Array): Promise<ModeloComunicado> {
+  const { zip, textos, abas } = await abrir(bytes);
+  let melhor: ModeloComunicado | null = null;
+  for (const a of abas) {
+    const xml = await zip.file(a.caminho)?.async("string");
+    if (!xml) continue;
+    const cel = celulas(xml, textos);
+    const campos: ModeloComunicado["campos"] = {};
+    for (const [ref, { valor: texto }] of cel) {
+      const t = texto.replace(/\s+/g, " ").trim();
+      if (!t.endsWith(":") || t.length > 90) continue;
+      const achado = ROTULOS_COMUNICADO.find(([, re]) => re.test(t));
+      if (!achado || campos[achado[0]]) continue;
+      const linha = ref.replace(/[A-Z]+/, "");
+      const celula = `${letraDe(colunaDe(ref) + 1)}${linha}`;
+      const v = cel.get(celula);
+      let valor = v?.valor ?? "";
+      if (achado[0] === "data" && v?.numero && /^\d{5}(\.\d+)?$/.test(valor)) valor = dataDeSerial(parseFloat(valor));
+      if (/^=|^IF\(/i.test(valor)) valor = "";
+      campos[achado[0]] = { campo: achado[0], rotulo: t, celula, valor: valor.trim() };
+    }
+    if (!melhor || Object.keys(campos).length > Object.keys(melhor.campos).length) melhor = { aba: a.caminho, campos };
+  }
+  if (!melhor || !melhor.campos.numero) throw new Error("Não achei os campos do comunicado neste Excel (rótulo “Comunicado de tratamento nº:”).");
+  return melhor;
+}
+
+/** Escreve os valores nas células do modelo e devolve o Excel novo (o resto do arquivo fica igual). */
+export async function preencherComunicado(
+  bytes: ArrayBuffer | Uint8Array,
+  modelo: ModeloComunicado,
+  valores: Partial<Record<CampoComunicado, string>>
+): Promise<Uint8Array> {
+  const { zip } = await abrir(bytes);
+  let xml = (await zip.file(modelo.aba)?.async("string")) ?? "";
+  for (const [campo, valor] of Object.entries(valores) as [CampoComunicado, string][]) {
+    const c = modelo.campos[campo];
+    if (!c || valor == null) continue;
+    const ref = c.celula;
+    const novo = (estilo: string) => `<c r="${ref}"${estilo} t="inlineStr"><is><t xml:space="preserve">${esc(valor)}</t></is></c>`;
+    const re = new RegExp(`<c r="${ref}"([^>]*?)(?:\\/>|>[\\s\\S]*?<\\/c>)`);
+    const m = xml.match(re);
+    if (m) {
+      const estilo = m[1].match(/\ss="\d+"/)?.[0] ?? "";
+      xml = xml.replace(re, novo(estilo));
+    } else {
+      // Célula que não existe no XML: entra na linha, na ordem das colunas.
+      const linha = ref.replace(/[A-Z]+/, "");
+      const reLinha = new RegExp(`<row [^>]*r="${linha}"[^>]*>([\\s\\S]*?)<\\/row>`);
+      const ml = xml.match(reLinha);
+      if (ml) {
+        const col = colunaDe(ref);
+        const cels = [...ml[1].matchAll(/<c r="([A-Z]+)\d+"[\s\S]*?(?:\/>|<\/c>)/g)];
+        const depois = cels.find((x) => colunaDe(x[1]) > col);
+        const corpo = depois ? ml[1].replace(depois[0], novo("") + depois[0]) : ml[1] + novo("");
+        xml = xml.replace(ml[0], ml[0].replace(ml[1], corpo));
+      }
+    }
+  }
+  zip.file(modelo.aba, xml);
+  // Fórmulas trocadas por valor (modelo da Mann): a cadeia de cálculo antiga sai, senão o Excel pede reparo.
+  if (zip.file("xl/calcChain.xml")) {
+    zip.remove("xl/calcChain.xml");
+    const ct = (await zip.file("[Content_Types].xml")?.async("string")) ?? "";
+    zip.file("[Content_Types].xml", ct.replace(/<Override[^>]*calcChain[^>]*\/>/g, ""));
+    const rels = (await zip.file("xl/_rels/workbook.xml.rels")?.async("string")) ?? "";
+    zip.file("xl/_rels/workbook.xml.rels", rels.replace(/<Relationship[^>]*calcChain[^>]*\/>/g, ""));
+  }
+  return zip.generateAsync({ type: "uint8array" });
+}
+
+/** Próximo número: "357/2026" -> "358/2026" (mesmos dígitos); outro ano -> "001/<ano>". */
+export function proximoNumero(ultimo: string | null | undefined, ano: number): string {
+  const m = (ultimo ?? "").match(/(\d{1,5})\s*[/-]\s*(\d{2,4})/);
+  if (!m) return `001/${ano}`;
+  const anoUlt = m[2].length === 2 ? 2000 + +m[2] : +m[2];
+  const digitos = Math.max(3, m[1].length);
+  if (anoUlt !== ano) return `${"1".padStart(digitos, "0")}/${ano}`;
+  return `${String(+m[1] + 1).padStart(digitos, "0")}/${ano}`;
+}
