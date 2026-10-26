@@ -98,7 +98,9 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
     lotes: obs ? lotesDaObservacao(obs) : [],
     observacao: obs,
     emitente: { razao: plano.match(/RECEBEMOS DE\s+(.+?)\s+OS PRODUTOS/i)?.[1]?.trim() ?? null, cnpj: null },
-    ciclos: ciclosDoTexto(`${obs ?? ""} ${itens.map((i) => i.descricao).join(" ")}`),
+    // Ciclo na observação/itens; o código da curva (UR…) vale em qualquer lugar da nota (a Maxi escreve
+    // "CICLO DE TRATAMENTO SKIDS UR010164SC180826" nos dados adicionais).
+    ciclos: [...new Set([...ciclosDoTexto(`${obs ?? ""} ${itens.map((i) => i.descricao).join(" ")}`), ...(plano.match(/\bUR\d{6}[A-Z]{2}\d{6}\b/g) ?? [])])],
   };
 }
 
@@ -142,6 +144,8 @@ export function ciclosDoTexto(texto: string): string[] {
       if (n && c !== "NaN" && !out.includes(c)) out.push(c);
     }
   }
+  // Código da curva (UR + estufa + lote + UF + data): "CICLO DE TRATAMENTO SKIDS UR010164SC180826" (Maxi).
+  for (const m of texto.matchAll(/\bUR\d{6}[A-Z]{2}\d{6}\b/g)) if (!out.includes(m[0])) out.push(m[0]);
   return out;
 }
 

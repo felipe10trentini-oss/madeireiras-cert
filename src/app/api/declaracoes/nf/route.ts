@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { lerSessao, respostaNaoAutorizado } from "@/lib/auth";
 import { lerCertificadoMestre } from "@/lib/certificadoMestre";
 import { juntarDanfe, lerCartaCorrecao, lerNotaFiscal } from "@/lib/notaFiscal";
-import { ocrImagem } from "@/lib/ocr";
+import { ocrImagem, ocrTabela } from "@/lib/ocr";
 import { extractPdf } from "@/lib/pdfText";
 
 export const runtime = "nodejs";
@@ -25,7 +25,8 @@ export async function POST(req: Request) {
     const ehPdf = buf.subarray(0, 4).toString("latin1") === "%PDF";
     const ehImagem = !ehPdf && (/^image\//.test(arq.type) || /\.(png|jpe?g|webp|gif|bmp)$/i.test(arq.name));
     if (!ehPdf && !ehImagem) return NextResponse.json({ error: "Envie PDF ou imagem (PNG/JPG)." }, { status: 415 });
-    const text = ehPdf ? (await extractPdf(buf)).text : await ocrImagem(buf);
+    // Imagem: tabela (print de e-mail/planilha com cabeçalho) lida por coluna; senão o texto corrido.
+    const text = ehPdf ? (await extractPdf(buf)).text : ((await ocrTabela(buf).catch(() => null)) ?? (await ocrImagem(buf)));
     if (!text.trim()) return NextResponse.json({ error: ehPdf ? "PDF sem texto (escaneado): não consigo ler." : "Não consegui ler a imagem." }, { status: 422 });
     // A carta de correção também fala de "NF-e": vem antes da nota.
     const cc = lerCartaCorrecao(text);

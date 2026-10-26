@@ -131,6 +131,108 @@ export async function ocrImagem(buffer: Buffer): Promise<string> {
   }
 }
 
+/**
+ * Tabela em imagem (print de e-mail/planilha do cliente: "Booking | Origem | Destino | Cliente | Invoice…"):
+ * o cabeçalho é a faixa escura do topo; as colunas são separadas pelas linhas claras dentro dela e as linhas
+ * da tabela pelas linhas de grade do corpo. Cada célula é lida à parte (bem mais confiável que a imagem
+ * inteira). Devolve "Título | Título…" e "valor | valor…", ou null quando a imagem não parece uma tabela.
+ */
+export async function ocrTabela(buffer: Buffer): Promise<string | null> {
+  const img = await loadImage(buffer);
+  const escala = Math.max(1, Math.min(3, 2400 / img.width));
+  const W = Math.round(img.width * escala);
+  const H = Math.round(img.height * escala);
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, W, H);
+  ctx.drawImage(img, 0, 0, W, H);
+  const d = ctx.getImageData(0, 0, W, H).data;
+  const lum = (x: number, y: number) => {
+    const i = (y * W + x) * 4;
+    return (d[i] + d[i + 1] + d[i + 2]) / 3;
+  };
+  // Cabeçalho: a primeira faixa de linhas de pixels escura (média < 120).
+  const mediaLinha = (y: number) => {
+    let s2 = 0;
+    for (let x = 0; x < W; x += 3) s2 += lum(x, y);
+    return s2 / Math.ceil(W / 3);
+  };
+  let ini = 0;
+  while (ini < H && mediaLinha(ini) >= 120) ini++;
+  let fim = ini;
+  while (fim < H && mediaLinha(fim) < 120) fim++;
+  if (ini >= H || fim - ini < 12 * escala) return null;
+  // Colunas: dentro do cabeçalho, as colunas de pixels quase todas claras são os separadores.
+  const sep: boolean[] = [];
+  for (let x = 0; x < W; x++) {
+    let claros = 0;
+    for (let y = ini; y < fim; y += 2) if (lum(x, y) > 170) claros++;
+    sep.push(claros / Math.ceil((fim - ini) / 2) > 0.85);
+  }
+  const cols: [number, number][] = [];
+  let x = 0;
+  while (x < W) {
+    while (x < W && sep[x]) x++;
+    const a = x;
+    while (x < W && !sep[x]) x++;
+    if (x - a > 25 * escala) cols.push([a, x]);
+  }
+  if (cols.length < 4) return null;
+  // Linhas do corpo: linhas de grade horizontais (escuras/cinzas na maior parte da largura da tabela).
+  const xa = cols[0][0];
+  const xb = cols[cols.length - 1][1];
+  const grade = (y: number) => {
+    let esc = 0;
+    for (let x2 = xa; x2 < xb; x2 += 3) if (lum(x2, y) < 215) esc++;
+    return esc / Math.ceil((xb - xa) / 3) > 0.7;
+  };
+  const cortes: number[] = [];
+  for (let y = fim + 4; y < H; y++) if (grade(y) && (!cortes.length || y - cortes[cortes.length - 1] > 10 * escala)) cortes.push(y);
+  const limitesLinhas: [number, number][] = [];
+  let topo = fim;
+  for (const c of cortes) {
+    if (c - topo > 14 * escala) limitesLinhas.push([topo, c]);
+    topo = c;
+  }
+  if (H - topo > 14 * escala && !cortes.length) limitesLinhas.push([topo, H]);
+  if (!limitesLinhas.length) return null;
+
+  const worker = await createWorker("por", undefined, { langPath: path.join(process.cwd(), "ocr"), gzip: true, cachePath: os.tmpdir() });
+  const ler1 = async (x0: number, y0: number, x1: number, y1: number, inverter: boolean) => {
+    const m = 3;
+    const c = createCanvas(x1 - x0 - 2 * m + 40, y1 - y0 - 2 * m + 40);
+    const k = c.getContext("2d");
+    k.fillStyle = inverter ? "#000" : "#fff";
+    k.fillRect(0, 0, c.width, c.height);
+    k.drawImage(canvas, x0 + m, y0 + m, x1 - x0 - 2 * m, y1 - y0 - 2 * m, 20, 20, x1 - x0 - 2 * m, y1 - y0 - 2 * m);
+    if (inverter) {
+      const id = k.getImageData(0, 0, c.width, c.height);
+      for (let i = 0; i < id.data.length; i += 4) {
+        id.data[i] = 255 - id.data[i];
+        id.data[i + 1] = 255 - id.data[i + 1];
+        id.data[i + 2] = 255 - id.data[i + 2];
+      }
+      k.putImageData(id, 0, 0);
+    }
+    return (await worker.recognize(c.toBuffer("image/png"))).data.text.replace(/\s+/g, " ").replace(/[|“”"]/g, "").trim();
+  };
+  try {
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+    const titulos: string[] = [];
+    for (const [a, b] of cols) titulos.push(await ler1(a, ini, b, fim, true));
+    const linhas: string[] = [];
+    for (const [y0, y1] of limitesLinhas) {
+      const vals: string[] = [];
+      for (const [a, b] of cols) vals.push(await ler1(a, y0, b, y1, false));
+      if (vals.some(Boolean)) linhas.push(vals.join(" | "));
+    }
+    return [titulos.join(" | "), ...linhas].join("\n");
+  } finally {
+    await worker.terminate();
+  }
+}
+
 export async function ocrPrimeiraPagina(buffer: Buffer): Promise<string> {
   const png = await imagemDaPagina(buffer);
   if (!png) return "";

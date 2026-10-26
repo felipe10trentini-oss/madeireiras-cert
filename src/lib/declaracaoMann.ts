@@ -35,6 +35,43 @@ export interface DadosBL {
   destinatario: string | null;
   exportador: string | null;
   ciclos: string[];
+  // Da tabela do cliente (print do e-mail/planilha: "Booking | Destino | Cliente | Invoice | Gross Weight…").
+  importador?: string | null;
+  invoice?: string | null;
+  pesoBruto?: string | null;
+  pesoLiquido?: string | null;
+  /** Total de volumes ("Total Packages": 40). */
+  pacotes?: string | null;
+  /** "Tratamento de Embalagem (skids)": o que foi tratado. */
+  tipo?: string | null;
+}
+
+/** Tabela com cabeçalho (células com " | "): o valor de cada título na linha de baixo. */
+function daTabela(texto: string): Partial<DadosBL> | null {
+  const linhas = texto.split("\n").filter((l) => l.includes("|"));
+  if (linhas.length < 2) return null;
+  const cab = linhas[0].split("|").map((c) => c.trim().toLowerCase());
+  const val = linhas[1].split("|").map((c) => c.trim());
+  const de = (re: RegExp) => {
+    const i = cab.findIndex((c) => re.test(c));
+    return i >= 0 && val[i] ? val[i] : null;
+  };
+  const r: Partial<DadosBL> = {
+    booking: de(/booking/),
+    bl: de(/^b\/?l\b|bill of lading/),
+    navio: de(/vessel|navio/),
+    destino: de(/destin|discharge|\bpod\b/),
+    container: de(/container|cont[êe]iner/),
+    destinatario: de(/consignee|destinat/),
+    importador: de(/cliente|importer|importador|buyer|notify/),
+    exportador: de(/exportador|exporter|shipper/),
+    invoice: de(/invoice|fatura/),
+    pesoBruto: de(/gross|bruto/),
+    pesoLiquido: de(/net\s*weight|l[íi]quido/),
+    pacotes: de(/packages|volumes|pacotes|qtd.*volumes/),
+    tipo: de(/tipo|certif|descri|produto|material/),
+  };
+  return Object.values(r).some(Boolean) ? r : null;
 }
 
 const linhaApos = (t: string, re: RegExp) => {
@@ -48,6 +85,25 @@ const linhaApos = (t: string, re: RegExp) => {
 export function lerBL(texto: string): DadosBL {
   const t = texto.replace(/[ \t]+/g, " ");
   const plano = t.replace(/\s+/g, " ");
+  const tab = daTabela(t);
+  if (tab) {
+    return {
+      bl: tab.bl ?? null,
+      booking: tab.booking ?? null,
+      navio: tab.navio ?? null,
+      destino: tab.destino ?? null,
+      container: tab.container ?? null,
+      destinatario: tab.destinatario ?? null,
+      exportador: tab.exportador ?? null,
+      ciclos: ciclosDoTexto(plano),
+      importador: tab.importador ?? null,
+      invoice: tab.invoice ?? null,
+      pesoBruto: tab.pesoBruto ?? null,
+      pesoLiquido: tab.pesoLiquido ?? null,
+      pacotes: tab.pacotes ?? null,
+      tipo: tab.tipo ?? null,
+    };
+  }
   return {
     bl: plano.match(/\b(?:B\/L|BILL OF LADING)\s*(?:N[ºo°.]*|NO\.?|NUMBER|#)?\s*:?\s*([A-Z]{2,6}[A-Z0-9-]{5,20})/i)?.[1] ?? null,
     booking: plano.match(/\bBOOKING\s*(?:N[ºo°.]*|NO\.?|NUMBER|REF\.?|#)?\s*:?\s*([A-Z0-9-]{6,20})/i)?.[1] ?? null,
@@ -90,6 +146,20 @@ const primeira = (s: string) =>
     .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase()
     .split(/\s+/)[0];
+
+/**
+ * Volumes pela tabela do cliente: "40" pacotes + "Tratamento de Embalagem (skids)" -> "40 Suportes de madeira/
+ * Wooden skids" (a nota pode ser da madeira serrada, e a declaração é da embalagem).
+ */
+function volumesDaTabela(bl: DadosBL | null): string | null {
+  const n = bl?.pacotes?.match(/\d[\d.]*/)?.[0];
+  if (!n) return null;
+  const t = bl?.tipo ?? "";
+  if (/skid|suporte/i.test(t)) return `${n} Suportes de madeira/ Wooden skids`;
+  if (/palet|pallet/i.test(t)) return `${n} Paletes de madeira/ Wooden pallets`;
+  if (/caixa|crate/i.test(t)) return `${n} Caixas de madeira/ Wooden crates`;
+  return null;
+}
 
 /** "100 paletes de madeira/ wooden pallets" a partir dos itens da nota. */
 function volumesDaNota(nf: NotaFiscal): string {
@@ -201,12 +271,16 @@ export function montarDeclaracaoPadrao(
     booking: bl?.booking ?? "",
     container: bl?.container ?? "",
     destino: bl?.destino ?? "",
-    volumes: nf ? volumesDaNota(nf) : "",
+    importador: titulo(bl?.importador) || base.importador,
+    fatura: bl?.invoice ?? base.fatura,
+    pesoBruto: bl?.pesoBruto ? `${bl.pesoBruto} Kgs` : base.pesoBruto,
+    pesoLiquido: bl?.pesoLiquido ? `${bl.pesoLiquido} Kgs` : base.pesoLiquido,
+    volumes: volumesDaTabela(bl) ?? (nf ? volumesDaNota(nf) : ""),
     produto: "",
     origem: "",
     comunicado: "",
     localTratamento: snMinusculo([...new Set(locais)].join("; ")).replace(/\s*-\s*[A-Z]{2}\s*$/, ""),
-    sujeito: nf?.itens.every((i) => /palet|pallet/i.test(i.descricao)) ? "paletes" : nf?.itens.every((i) => /suporte|skid/i.test(i.descricao)) ? "suportes" : "material",
+    sujeito: /skid|suporte/i.test(bl?.tipo ?? "") ? "suportes" : /palet|pallet/i.test(bl?.tipo ?? "") ? "paletes" : nf?.itens.every((i) => /palet|pallet/i.test(i.descricao)) ? "paletes" : nf?.itens.every((i) => /suporte|skid/i.test(i.descricao)) ? "suportes" : "material",
     linhas,
     // Mann Unidade Volante emite em Curitiba; as outras, na cidade delas (cadastro).
     localEmissao: empresa && soDigitos(empresa.cnpj) === CNPJ_MANN_VOLANTE ? "Curitiba - PR" : base.localEmissao,
