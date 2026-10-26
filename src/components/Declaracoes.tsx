@@ -619,7 +619,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     const c = cachePdf.current;
     // LG: o layout novo na cor dela; as outras empresas: o mesmo layout, na cor do logo.
     if (automatico) return gerarPdfLgB(d, c.ativos, c.fontes);
-    return gerarPdfPadrao(d, c.ativos, c.fontes, { cor: c.cor, geral: true });
+    // Mann Unid. Volante: no layout da LG, com a tabela do tratamento (início, término…); as outras, só o mês.
+    return gerarPdfPadrao(d, c.ativos, c.fontes, { cor: c.cor, geral: true, tabela: soDigitos(cnpj) === CNPJ_MANN_VOLANTE });
   }
 
   async function baixarPdf(i: number) {

@@ -143,6 +143,16 @@ export function escolherLinha(cands: LinhaRelatorio[], tomador: { cnpj?: string 
   return [...base].sort((a, b) => quando(b).localeCompare(quando(a)))[0];
 }
 
+/** "03/10/2026" + "08h24m" + 31 min -> "03/10/2026 08h55m" (virando o dia, a data acompanha). */
+function terminoDe(data: string, hora: string, minutos: number | null): string {
+  const d = data.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const h = hora.match(/^(\d{1,2})h(\d{2})m$/);
+  if (!d || !h || !minutos) return "";
+  const t = new Date(Date.UTC(+d[3], +d[2] - 1, +d[1], +h[1], +h[2]) + minutos * 60000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(t.getUTCDate())}/${p(t.getUTCMonth() + 1)}/${t.getUTCFullYear()} ${p(t.getUTCHours())}h${p(t.getUTCMinutes())}m`;
+}
+
 /** Linha do tratamento da declaração a partir da linha do relatório. */
 export function linhaDoRelatorio(l: LinhaRelatorio): LinhaTratamento {
   const unidade = /^unidades?$/i.test(l.unidadeVolumes) || !l.unidadeVolumes ? (l.produto.split(/\s+/)[0] ?? "") : l.unidadeVolumes;
@@ -151,7 +161,7 @@ export function linhaDoRelatorio(l: LinhaRelatorio): LinhaTratamento {
     ciclo: l.ciclo,
     lote: l.lote,
     inicio: [l.data, l.hora].filter(Boolean).join(" "),
-    fim: "",
+    fim: terminoDe(l.data, l.hora, l.minutos),
     tipo: /KD/i.test(l.modalidade) ? "KD" : "HT",
     temperatura: l.temperatura || "56",
     duracao: l.minutos ? `${l.minutos} min` : "",

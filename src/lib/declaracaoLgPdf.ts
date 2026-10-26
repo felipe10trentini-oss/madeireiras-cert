@@ -400,6 +400,8 @@ export interface OpcoesPdf {
   cor: [number, number, number];
   /** true: campos de qualquer empresa (importador, NF-e, navio…), coluna do ciclo e o texto do tratamento. */
   geral: boolean;
+  /** Com `geral`: a tabela do tratamento da LG (ciclo, início, término…) no lugar de "só o mês" (Mann Unid. Volante). */
+  tabela?: boolean;
 }
 
 /**
@@ -516,13 +518,16 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
     texto(pg, pt, ME, y, b, 7.6, TINTA);
     texto(pg, en, ME, y + 9, it, 6.8, CINZA_TXT);
     (linhas.length ? linhas : ["—"]).forEach((l, i) => texto(pg, l, ME + COL, y + i * 11, b, TAMV, TINTA));
+    // 2ª coluna (B/L, contêiner…): quebra na largura que sobra (vários contêineres não saem da página).
+    let linhasExtra: string[] = [];
     if (extra) {
       const x2 = ME + LARG / 2 + 6;
       texto(pg, extra.pt, x2, y, b, 7.6, TINTA);
       texto(pg, extra.en, x2, y + 9, it, 6.8, CINZA_TXT);
-      texto(pg, extra.valor.toUpperCase(), x2 + 92, y, b, TAMV, TINTA);
+      linhasExtra = quebrar(b, extra.valor.toUpperCase(), TAMV, MD - (x2 + 92));
+      linhasExtra.forEach((l, i) => texto(pg, l, x2 + 92, y + i * 11, b, TAMV, TINTA));
     }
-    y += Math.max(20, linhas.length * 11 + 6);
+    y += Math.max(20, Math.max(linhas.length, linhasExtra.length) * 11 + 6);
     linhaH(pg, ME, MD, y - 4, 0.4, CINZA_LINHA);
     y += 4;
   };
@@ -556,11 +561,12 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
     um("NATUREZA DO PRODUTO", "Kind of product", ptDe(d.produto || ""));
     dois(["PESO LÍQUIDO", "Net weight", d.pesoLiquido], ["PESO BRUTO", "Gross weight", d.pesoBruto]);
     dois(["PROCEDÊNCIA", "Origin", ptDe(d.origem || "")], ["DESTINO", "Destination", d.destino]);
+    if (o.tabela) um("CERTIFICADO MESTRE", "Master HT certificate", [...new Set(d.linhas.map((l) => l.certificado).filter(Boolean))].join("; "));
     um("PROGRAMAÇÃO / COMUNICADO", "Treatment notice", d.comunicado.replace(/Programa[çc][ãa]o MAPA\s*/gi, ""));
   }
   y += 8;
 
-  if (o.geral) {
+  if (o.geral && !o.tabela) {
     // Modelo padrão das declarações (todas as empresas menos a LG): sem a tabela de início/término,
     // só o certificado mestre (ciclo/lote), o mês do tratamento, a duração e o local.
     secao("TRATAMENTO", "TREATMENT");
