@@ -21,6 +21,8 @@ export interface LinhaRelatorio {
   produto: string;
   tomador: string;
   tomadorCnpj: string;
+  /** "Identificação da unidade de tratamento": na Mann, a placa do veículo. */
+  unidade?: string;
 }
 
 const dig = (s: string) => s.replace(/\D/g, "");
@@ -76,6 +78,7 @@ export async function lerRelatorioTermico(bytes: ArrayBuffer | Uint8Array): Prom
     hora: achar(/^hor[áa]rio do in[íi]cio/i),
     local: achar(/^local do tratamento/i),
     modalidade: achar(/^modalidade/i),
+    unidade: achar(/^identifica[çc][ãa]o da unidade/i),
     ciclo: achar(/^n[úu]mero do ciclo/i),
     temperatura: achar(/^temperatura/i),
     duracao: achar(/^dura[çc][ãa]o/i),
@@ -116,6 +119,7 @@ export async function lerRelatorioTermico(bytes: ArrayBuffer | Uint8Array): Prom
       produto: de(cel, col.produto),
       tomador: de(cel, col.tomador),
       tomadorCnpj: dig(de(cel, col.tomadorCnpj)),
+      unidade: de(cel, col.unidade),
     });
   }
   return out;
@@ -123,10 +127,20 @@ export async function lerRelatorioTermico(bytes: ArrayBuffer | Uint8Array): Prom
 
 const semZeros = (c: string) => (/^\d+$/.test(c) ? String(parseInt(c, 10)) : c.toUpperCase());
 
-/** Linhas do relatório do ciclo (ou lote) pedido. */
+const chave = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * Linhas do relatório do ciclo (ou lote) pedido. Aceita ciclo + cliente ("508 Rio Claro", "964 Madex"):
+ * o mesmo nº de ciclo se repete entre as unidades (os 5 veículos da Mann), e o cliente separa.
+ */
 export function linhasDoCiclo(rel: LinhaRelatorio[], ciclo: string): LinhaRelatorio[] {
-  const c = semZeros(ciclo.trim());
-  return rel.filter((l) => semZeros(l.ciclo) === c || (l.lote && l.lote === c));
+  const [num, ...resto] = ciclo.trim().split(/\s+/);
+  const c = semZeros(num ?? "");
+  const todas = rel.filter((l) => semZeros(l.ciclo) === c || (l.lote && l.lote === c));
+  const filtro = chave(resto.join(" "));
+  if (!filtro) return todas;
+  const doCliente = todas.filter((l) => chave(l.tomador).includes(filtro) || filtro.split(" ").every((p) => chave(l.tomador).includes(p)));
+  return doCliente.length ? doCliente : todas;
 }
 
 /**

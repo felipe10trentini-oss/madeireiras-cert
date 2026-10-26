@@ -196,6 +196,8 @@ export interface OpcoesDeclaracao {
   relatorio?: LinhaRelatorio[] | null;
   /** Ciclos/lotes digitados (quando a nota não traz): valem no lugar dos da nota. */
   ciclos?: string[];
+  /** Linha do relatório escolhida na tela para cada ciclo (o ciclo se repete entre as unidades): ciclo -> nº do certificado. */
+  escolhas?: Record<string, string>;
   /** Campos que o Word da empresa tem: o que o documento base não trouxe vai "Nihil". */
   campos?: Set<string> | null;
 }
@@ -216,7 +218,7 @@ export function montarDeclaracaoPadrao(
   const bl = bls[0] ?? null;
   const rel = op.relatorio ?? null;
   const digitados = (op.ciclos ?? []).map((c) => c.trim()).filter(Boolean);
-  const ciclosDoc = digitados.length ? [...new Set(digitados.map(semZeros))] : [...new Set([...(nf?.ciclos ?? []), ...bls.flatMap((b) => b.ciclos)])];
+  const ciclosDoc = digitados.length ? [...new Set(digitados)] : [...new Set([...(nf?.ciclos ?? []), ...bls.flatMap((b) => b.ciclos)])];
 
   // A nota é da própria empresa (venda do palete)? Então o exportador é quem comprou.
   const notaPropria =
@@ -228,7 +230,8 @@ export function montarDeclaracaoPadrao(
   const cnpjTomador = (notaPropria ? nf?.destinatario.cnpj : nf?.emitente?.cnpj) ?? null;
 
   // Cada ciclo: o mestre dele (se veio) ou a linha do relatório (a do tomador da remessa, se o ciclo se repete).
-  const doMestre = (c: string) => mestres.find((m) => semZeros(m.mestre.ciclo) === c || semZeros(m.mestre.lote) === c);
+  const numDo = (c: string) => semZeros(c.trim().split(/\s+/)[0]);
+  const doMestre = (c: string) => mestres.find((m) => semZeros(m.mestre.ciclo) === numDo(c) || semZeros(m.mestre.lote) === numDo(c));
   const usados: MestreLido[] = [];
   const doRelatorio: LinhaRelatorio[] = [];
   if (ciclosDoc.length) {
@@ -238,7 +241,12 @@ export function montarDeclaracaoPadrao(
         usados.push(m);
         continue;
       }
-      const l = rel ? escolherLinha(linhasDoCiclo(rel, c), { cnpj: cnpjTomador, nome: exportadorDoc }) : null;
+      const cands = rel ? linhasDoCiclo(rel, c) : [];
+      const escolhida = op.escolhas?.[c] ? cands.find((x) => x.certificado === op.escolhas![c]) : undefined;
+      const l = escolhida ?? (rel ? escolherLinha(cands, { cnpj: cnpjTomador, nome: exportadorDoc }) : null);
+      if (l && cands.length > 1 && !escolhida && !/\s/.test(c.trim())) {
+        avisos.push(`Ciclo ${numDo(c)}: há ${cands.length} tratamentos com esse nº no relatório (unidades diferentes) — confira o escolhido ou digite ciclo + cliente (ex.: “${numDo(c)} ${(l.tomador.split(/\s+/)[0] ?? "").toLowerCase()}”).`);
+      }
       if (l) doRelatorio.push(l);
       else avisos.push(rel || mestres.length ? `Ciclo ${c}: não achei no relatório nem nos certificados mestres.` : `Ciclo ${c}: solte o relatório do MAPA da empresa (ou o certificado mestre).`);
     }

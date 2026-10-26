@@ -21,7 +21,7 @@ import type { CertificadoMestre } from "@/lib/certificadoMestre";
 import { aplicarPadrao, aprenderDoTexto, type PadraoDeclaracao } from "@/lib/modeloDeclaracao";
 import type { CartaCorrecao, NotaFiscal } from "@/lib/notaFiscal";
 import { lerPlanilhaDR, type LinhaDR } from "@/lib/planilhaDR";
-import { lerRelatorioTermico, type LinhaRelatorio } from "@/lib/relatorioMapa";
+import { lerRelatorioTermico, linhasDoCiclo, type LinhaRelatorio } from "@/lib/relatorioMapa";
 import { camposDoWord, completarComNihil, preencherModelo, textoDoModelo } from "@/lib/preencherModelo";
 import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
@@ -43,7 +43,7 @@ interface Item {
   /** A nota como veio (sem a carta de correção), para refazer quando a carta chegar depois. */
   original?: NotaFiscal;
   /** Modelo padrão (todas menos a LG): a nota e/ou os BLs desta declaração (para refazer quando chegar o mestre). */
-  mann?: { nf: NotaFiscal | null; bls: DadosBL[]; ciclos?: string[] };
+  mann?: { nf: NotaFiscal | null; bls: DadosBL[]; ciclos?: string[]; escolhas?: Record<string, string> };
 }
 
 const LINHA_VAZIA: LinhaTratamento = { certificado: "", ciclo: "", lote: "", inicio: "", fim: "", tipo: "HT", temperatura: "56", duracao: "32 min", quantidade: "" };
@@ -437,19 +437,25 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   }
 
   /** Refaz uma declaração do modelo padrão (mestre ou relatório novo, ciclos digitados). */
-  function remontar(x: Item, mestres: MestreLido[], rel: LinhaRelatorio[] | null, ciclos?: string[]): Item {
+  function remontar(x: Item, mestres: MestreLido[], rel: LinhaRelatorio[] | null, ciclos?: string[], escolhas?: Record<string, string>): Item {
     if (!x.mann) return x;
     const cs = ciclos ?? x.mann.ciclos;
+    const es = escolhas ?? x.mann.escolhas;
     return {
       ...x,
-      ...montarDeclaracaoPadrao(x.mann.nf, x.mann.bls, mestres, empresa, x.dados?.data ?? hojeBR(), { relatorio: rel, ciclos: cs, campos: camposModelo }),
-      mann: { ...x.mann, ciclos: cs },
+      ...montarDeclaracaoPadrao(x.mann.nf, x.mann.bls, mestres, empresa, x.dados?.data ?? hojeBR(), { relatorio: rel, ciclos: cs, escolhas: es, campos: camposModelo }),
+      mann: { ...x.mann, ciclos: cs, escolhas: es },
     };
   }
 
   /** Ciclos digitados (a nota não traz): puxa o tratamento deles do relatório/mestres. */
   function trocarCiclos(i: number, texto: string) {
-    const ciclos = texto.split(/\s*(?:[,;/]|\be\b)\s*|\s+/).map((c) => c.trim()).filter(Boolean);
+    // Separados por vírgula, ponto e vírgula ou "e" antes de número; cada um pode ter o cliente
+    // ("508 Rio Claro, 964 Madex"). Só números com espaço ("972 973") também separa.
+    const ciclos = texto
+      .split(/\s*[,;/\n]\s*|\s+e\s+(?=\d)/)
+      .flatMap((c) => (/^\d+(?:\s+\d+)+$/.test(c.trim()) ? c.trim().split(/\s+/) : [c.trim()]))
+      .filter(Boolean);
     setItens((xs) => xs.map((x, j) => (j === i ? remontar(x, mestresMann, relatorio?.linhas ?? null, ciclos) : x)));
   }
 
@@ -967,14 +973,43 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                       id="d-ciclos"
                       key={`${sel}-${(atual.mann.ciclos ?? atual.nf?.ciclos ?? []).join(",")}`}
                       defaultValue={(atual.mann.ciclos ?? atual.nf?.ciclos ?? atual.dados.linhas.map((l) => l.lote || l.ciclo)).join(", ")}
-                      placeholder="ex.: 249, 256 ou 972 e 973"
+                      placeholder="ex.: 249, 256 · 972 e 973 · ciclo + cliente: 508 Rio Claro"
                       onBlur={(e) => trocarCiclos(sel, e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && trocarCiclos(sel, (e.target as HTMLInputElement).value)}
                     />
                   </div>
+                  {relatorio &&
+                    (atual.mann.ciclos ?? atual.nf?.ciclos ?? atual.mann.bls.flatMap((b) => b.ciclos)).map((c) => {
+                      // O mesmo nº de ciclo em mais de uma unidade (os veículos da Mann): escolhe qual.
+                      const cands = linhasDoCiclo(relatorio.linhas, c);
+                      if (cands.length < 2) return null;
+                      const atualCert = atual.mann?.escolhas?.[c] ?? atual.dados?.linhas.find((l) => cands.some((k) => k.certificado === l.certificado))?.certificado ?? "";
+                      return (
+                        <div className="field" key={c} style={{ maxWidth: 640, marginTop: 8 }}>
+                          <label htmlFor={`d-esc-${c}`}>Ciclo {c}: {cands.length} tratamentos com esse nº — qual é?</label>
+                          <select
+                            id={`d-esc-${c}`}
+                            value={atualCert}
+                            onChange={(e) =>
+                              setItens((xs) =>
+                                xs.map((x, j) => (j === sel ? remontar(x, mestresMann, relatorio.linhas, undefined, { ...(x.mann?.escolhas ?? {}), [c]: e.target.value }) : x))
+                              )
+                            }
+                          >
+                            {cands.map((k) => (
+                              <option key={k.certificado} value={k.certificado}>
+                                {k.certificado} · {k.data} {k.hora} · {k.tomador || "—"}
+                                {k.unidade ? ` · ${k.unidade}` : ""}
+                                {k.local ? ` · ${k.local}` : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })}
                   <p className="hint" style={{ margin: "4px 0 0" }}>
                     {relatorio
-                      ? "Digite os ciclos (ou lotes) e tecle Enter: o certificado, o mês e a duração vêm do relatório."
+                      ? "Digite os ciclos (ou lotes) e tecle Enter: o certificado, o mês e a duração vêm do relatório. Ciclo repetido entre os veículos: digite ciclo + cliente (ex.: 508 Rio Claro) ou escolha na lista."
                       : "Solte o relatório do MAPA da empresa na área acima para puxar o tratamento pelos ciclos."}
                   </p>
                 </div>

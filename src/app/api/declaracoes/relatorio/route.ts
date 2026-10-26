@@ -88,6 +88,7 @@ export async function PUT(req: Request) {
     produto: txt(l.produto, 160),
     tomador: txt(l.tomador, 200),
     tomadorCnpj: soDigitos(txt(l.tomadorCnpj, 30)),
+    unidade: txt(l.unidade, 40),
   }));
   const ano = anoDe(linhas);
   const salvo: Salvo = { ano, nome: txt(b.nome, 200) || "relatorio.xlsx", atualizado: new Date().toISOString(), linhas };

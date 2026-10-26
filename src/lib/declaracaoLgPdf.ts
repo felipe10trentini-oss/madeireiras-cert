@@ -634,7 +634,7 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
   caixa(pg, ME, topo, LARG, hTotal, 5, { borda: VERDE, esp: 0.9 });
   y = topo + hTotal + 16;
   }
-  if (o.geral) {
+  if (o.geral && !o.tabela) {
     const tt = textoTratamento(d);
     for (const [txt, f, cor, tam] of [
       [`Tratamento: ${tt.pt}`, r, TINTA, 8.2],
