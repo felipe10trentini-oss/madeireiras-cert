@@ -2,17 +2,21 @@
 
 // Emissão do comunicado de tratamento: escolhe a empresa, cola o texto (mensagem do cliente, e-mail,
 // lista) e o site preenche o Excel modelo da empresa (timbre e logo dela) com o número seguinte.
+import JSZip from "jszip";
 import { useEffect, useMemo, useState } from "react";
 import { regraDe } from "@/lib/certificado";
 import {
   lerModeloComunicado,
+  logoDoModelo,
   preencherComunicado,
   proximoNumero,
   ROTULOS_COMUNICADO,
   type CampoComunicado,
   type ModeloComunicado,
 } from "@/lib/comunicadoModelo";
-import { interpretarTexto } from "@/lib/comunicadoTexto";
+import { gerarPdfComunicado } from "@/lib/comunicadoPdf";
+import { interpretarTexto, separarPedidos } from "@/lib/comunicadoTexto";
+import { baixarFontes } from "@/lib/declaracaoLgPdf";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { textoDaPlanilha, textoDoWord } from "@/lib/textoDeArquivo";
@@ -58,8 +62,14 @@ const paraBase64 = (b: Uint8Array) => {
   return btoa(s);
 };
 
-function baixar(bytes: Uint8Array, nome: string) {
-  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: XLSX }));
+interface Pedido {
+  valores: Partial<Record<CampoComunicado, string>>;
+  achados: CampoComunicado[];
+  avisos: string[];
+}
+
+function baixar(bytes: Uint8Array, nome: string, tipo = XLSX) {
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: tipo }));
   const a = document.createElement("a");
   a.href = url;
   a.download = nome;
@@ -81,9 +91,16 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
   const [salvo, setSalvo] = useState<Salvo | null>(null);
   const [modelo, setModelo] = useState<ModeloComunicado | null>(null);
   const [texto, setTexto] = useState("");
-  const [valores, setValores] = useState<Partial<Record<CampoComunicado, string>>>({});
-  const [achados, setAchados] = useState<CampoComunicado[]>([]);
-  const [avisos, setAvisos] = useState<string[]>([]);
+  // Um pedido pode ter vários comunicados (um por tratamento).
+  const [pedidos, setPedidos] = useState<Pedido[]>([]);
+  const [sel, setSel] = useState(0);
+  const [ultimoExcel, setUltimoExcel] = useState<{ bytes: Uint8Array; nome: string } | null>(null);
+  const atual = pedidos[sel] ?? pedidos[0] ?? null;
+  const valores = atual?.valores ?? {};
+  const achados = atual?.achados ?? [];
+  const avisos = atual?.avisos ?? [];
+  const setValores = (f: (v: Partial<Record<CampoComunicado, string>>) => Partial<Record<CampoComunicado, string>>) =>
+    setPedidos((ps) => ps.map((x, i) => (i === Math.min(sel, ps.length - 1) ? { ...x, valores: f(x.valores) } : x)));
   const [erro, setErro] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -132,9 +149,8 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
           setModelo(m);
           const base = Object.fromEntries(Object.values(m.campos).map((c) => [c!.campo, c!.valor])) as Partial<Record<CampoComunicado, string>>;
           base.numero = proximoNumero(j.ultimoNumero ?? m.campos.numero?.valor, new Date().getFullYear());
-          setValores(base);
-          setAchados([]);
-          setAvisos([]);
+          setPedidos([{ valores: completarTabela(m, base), achados: [], avisos: [] }]);
+          setSel(0);
         } catch (e) {
           setErro(e instanceof Error ? e.message : "Não consegui ler o modelo.");
         }
@@ -149,10 +165,10 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
     setCnpj(c);
     setSalvo(null);
     setModelo(null);
-    setValores({});
+    setPedidos([]);
+    setSel(0);
+    setUltimoExcel(null);
     setTexto("");
-    setAchados([]);
-    setAvisos([]);
     setErro(null);
   }
 
@@ -221,14 +237,29 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
   function identificar(textoUsado = texto) {
     if (!modelo || !empresa) return;
     const doModelo = Object.fromEntries(Object.values(modelo.campos).map((c) => [c!.campo, c!.valor])) as Partial<Record<CampoComunicado, string>>;
-    const r = interpretarTexto(textoUsado, { tomadores, prestadora: !!regraDe(empresa).prestadora, modelo: doModelo });
-    // Número: o seguinte; na Mann/Exata o comunicado leva o número do aviso.
+    // Um comunicado por tratamento; números em sequência (na Mann/Exata, o número do aviso).
     const numeroEhAviso = !!modelo.campos.aviso && modelo.campos.aviso.valor === modelo.campos.numero?.valor;
-    r.valores.numero =
-      numeroEhAviso && r.achados.includes("aviso") ? r.valores.aviso! : proximoNumero(salvo?.ultimoNumero ?? modelo.campos.numero?.valor, new Date().getFullYear());
-    setValores(completarTabela(modelo, r.valores));
-    setAchados(r.achados);
-    setAvisos(r.avisos);
+    let numero = salvo?.ultimoNumero ?? modelo.campos.numero?.valor ?? "";
+    let data = "";
+    const lidos = separarPedidos(textoUsado).map((bloco) => {
+      const r = interpretarTexto(bloco, { tomadores, prestadora: !!regraDe(empresa).prestadora, modelo: doModelo });
+      if (numeroEhAviso && r.achados.includes("aviso")) r.valores.numero = r.valores.aviso!;
+      else {
+        numero = proximoNumero(numero, new Date().getFullYear());
+        r.valores.numero = numero;
+      }
+      // Sem data no bloco: a do comunicado anterior.
+      if (r.achados.includes("data")) data = r.valores.data!;
+      else if (data) {
+        r.valores.data = data;
+        r.avisos = r.avisos.filter((a) => !/data do tratamento/.test(a));
+      }
+      return { valores: completarTabela(modelo, r.valores), achados: r.achados, avisos: r.avisos };
+    });
+    setPedidos(lidos);
+    setSel(0);
+    setUltimoExcel(null);
+    if (lidos.length > 1) setToast(`${lidos.length} comunicados identificados no pedido: confira cada um.`);
   }
 
   function trocarTomador(razaoCnpj: string) {
@@ -239,23 +270,49 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
     });
   }
 
+  /**
+   * Gera o PDF de todos os comunicados (um só: baixa o PDF; vários: um .zip com os PDFs) e guarda o Excel
+   * preenchido do último como o modelo da empresa (a planilha fica sempre com o último emitido).
+   */
   async function gerar() {
-    if (!salvo?.bytes || !modelo || !empresa) return;
-    const numero = (valores.numero ?? "").trim();
-    if (!numero) return setToast("Informe o número do comunicado.");
+    if (!salvo?.bytes || !modelo || !empresa || !pedidos.length) return;
+    const semNumero = pedidos.findIndex((x) => !(x.valores.numero ?? "").trim());
+    if (semNumero >= 0) {
+      setSel(semNumero);
+      return setToast("Informe o número de todos os comunicados.");
+    }
     setOcupado(true);
     try {
-      // Todos os campos (os modelos da Mann/Exata têm fórmulas que puxariam o comunicado anterior).
-      const todos = Object.fromEntries(Object.keys(modelo.campos).map((k) => [k, valores[k as CampoComunicado] ?? ""]));
-      const bytes = await preencherComunicado(salvo.bytes, modelo, todos);
-      baixar(bytes, nomeDoArquivo(salvo.nomeModelo, numero, empresa.apelido));
+      const [fontes, logo] = await Promise.all([baixarFontes(), logoDoModelo(salvo.bytes)]);
+      const pdfs: { nome: string; bytes: Uint8Array }[] = [];
+      for (const x of pedidos) {
+        const numero = x.valores.numero!.trim();
+        const bytes = await gerarPdfComunicado(modelo, x.valores, empresa, logo, fontes);
+        pdfs.push({ nome: nomeDoArquivo(salvo.nomeModelo, numero, empresa.apelido).replace(/\.xlsx$/i, ".pdf"), bytes });
+      }
+      if (pdfs.length === 1) baixar(pdfs[0].bytes, pdfs[0].nome, "application/pdf");
+      else {
+        const zip = new JSZip();
+        for (const p of pdfs) zip.file(p.nome, p.bytes);
+        baixar(await zip.generateAsync({ type: "uint8array" }), `Comunicados ${empresa.apelido} ${pedidos[0].valores.numero!.replace(/\//g, "-")} a ${pedidos[pedidos.length - 1].valores.numero!.replace(/\//g, "-")}.zip`, "application/zip");
+      }
+      // Excel do último emitido: todos os campos (os modelos da Mann/Exata têm fórmulas que puxariam o anterior).
+      const ultimo = pedidos[pedidos.length - 1];
+      const todos = Object.fromEntries(Object.keys(modelo.campos).map((k) => [k, ultimo.valores[k as CampoComunicado] ?? ""]));
+      const excel = await preencherComunicado(salvo.bytes, modelo, todos);
+      const numeroUltimo = ultimo.valores.numero!.trim();
+      setUltimoExcel({ bytes: excel, nome: nomeDoArquivo(salvo.nomeModelo, numeroUltimo, empresa.apelido) });
       const res = await fetch("/api/comunicados/modelo", {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...cabecalhoSenha(senha) },
-        body: JSON.stringify({ cnpj: empresa.cnpj, ultimoNumero: numero }),
+        body: JSON.stringify({ cnpj: empresa.cnpj, ultimoNumero: numeroUltimo, emitido: paraBase64(excel) }),
       });
-      setSalvo((s) => (s ? { ...s, ultimoNumero: numero } : s));
-      setToast(res.ok ? `Comunicado ${numero} gerado. Abra o Excel e salve em PDF.` : `Comunicado ${numero} gerado, mas não consegui guardar o número.`);
+      setSalvo((s) => (s ? { ...s, ultimoNumero: numeroUltimo, bytes: excel } : s));
+      setToast(
+        res.ok
+          ? `${pdfs.length === 1 ? `Comunicado ${numeroUltimo} salvo em PDF` : `${pdfs.length} comunicados salvos em PDF (.zip)`}. A planilha ficou com o último (${numeroUltimo}).`
+          : "PDF gerado, mas não consegui guardar o último emitido: confira a numeração na próxima vez."
+      );
     } catch (e) {
       setToast(e instanceof Error ? e.message : "Não foi possível gerar o comunicado.");
     } finally {
@@ -368,8 +425,45 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
             </div>
           )}
 
+          {pedidos.length > 1 && (
+            <div className="toolbar" style={{ marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
+              {pedidos.map((x, i) => (
+                <button key={i} type="button" className={`btn btn-sm${i === sel ? " primary" : ""}`} onClick={() => setSel(i)}>
+                  {x.valores.numero || `#${i + 1}`} · {x.valores.data ?? ""} {x.valores.horario ?? ""}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="card" style={{ marginBottom: 14 }}>
-            <div className="kpi-label">Comunicado</div>
+            <div className="toolbar" style={{ marginBottom: 6 }}>
+              <div className="kpi-label" style={{ margin: 0 }}>
+                Comunicado {pedidos.length > 1 ? `${sel + 1} de ${pedidos.length}` : ""}
+              </div>
+              <div className="spacer" />
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => {
+                  const ult = pedidos[pedidos.length - 1];
+                  setPedidos((ps) => [...ps, { valores: { ...ult.valores, numero: proximoNumero(ult.valores.numero, new Date().getFullYear()) }, achados: [], avisos: [] }]);
+                  setSel(pedidos.length);
+                }}
+              >
+                + Comunicado
+              </button>
+              {pedidos.length > 1 && (
+                <button
+                  type="button"
+                  className="btn btn-sm danger"
+                  onClick={() => {
+                    setPedidos((ps) => ps.filter((_, i) => i !== sel));
+                    setSel((s2) => Math.max(0, s2 - 1));
+                  }}
+                >
+                  Remover este
+                </button>
+              )}
+            </div>
             <div className="form-grid tres">
               {campos.map(([c, , rotulo]) => (
                 <div className={`field${longo.has(c) ? " full" : ""}`} key={c}>
@@ -394,9 +488,16 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
             </div>
             <div className="actions" style={{ marginTop: 12 }}>
               <button type="button" className="btn primary lg" disabled={ocupado} onClick={() => void gerar()}>
-                Gerar comunicado (Excel)
+                {ocupado ? "Gerando…" : pedidos.length > 1 ? `Gerar os ${pedidos.length} comunicados (PDF)` : "Gerar comunicado (PDF)"}
               </button>
-              <span className="hint">Sai no Excel da empresa, com o timbre e o logo; abra e salve em PDF para protocolar.</span>
+              {ultimoExcel && (
+                <button type="button" className="btn" onClick={() => baixar(ultimoExcel.bytes, ultimoExcel.nome)}>
+                  Baixar o Excel do último
+                </button>
+              )}
+              <span className="hint">
+                Sai em PDF, com o logo da empresa; vários de uma vez vêm num .zip. A planilha da empresa fica com o último emitido.
+              </span>
             </div>
           </div>
         </>

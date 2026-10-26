@@ -91,6 +91,44 @@ function tabelaEmFrases(texto: string): { texto: string; itensTabela: string[] }
   return { texto: [...linhas.slice(0, iCab), ...frases].join("\n"), itensTabela };
 }
 
+/**
+ * Mais de um comunicado no mesmo pedido: separa em blocos, um por tratamento.
+ *   - lista numerada ("1)", "2 -", "Comunicado 2", "Pedido 3") -> um por item;
+ *   - tabela (planilha/Word) -> uma linha por tratamento (a linha sem data/hora junta na de cima);
+ *   - vários horários no texto -> cada horário começa um tratamento.
+ * As linhas antes do primeiro bloco (saudação, cliente, data) valem para todos.
+ */
+export function separarPedidos(texto: string): string[] {
+  const { texto: t } = tabelaEmFrases(texto.replace(/\r/g, ""));
+  const linhas = t.split("\n").map((l) => l.trim()).filter(Boolean);
+  const temHora = (l: string) => !!horaDoTexto(l.replace(/\b\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?\b/g, " "));
+  const temData = (l: string) => /\b\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?\b/.test(l);
+  const temItem = (l: string) => itensDoTexto(l).length > 0 || /^\d[\d.,]*\s+\S/.test(l);
+  const numerado = (l: string) => /^(?:\d{1,2}\s*[)º°.-]\s+|(?:comunicado|pedido|tratamento|carga)\s*(?:n[º°o.]*\s*)?\d{1,2}\b)/i.test(l);
+
+  let inicios: number[] = [];
+  if (linhas.filter(numerado).length >= 2) inicios = linhas.map((l, i) => (numerado(l) ? i : -1)).filter((i) => i >= 0);
+  else if (t !== texto.replace(/\r/g, "")) {
+    // Tabela: as frases das linhas (vêm com " | ") que têm data ou hora própria.
+    inicios = linhas.map((l, i) => (l.includes("|") && temItem(l) && (temHora(l) || temData(l)) ? i : -1)).filter((i) => i >= 0);
+  } else {
+    const comHora = linhas.map((l, i) => (temHora(l) ? i : -1)).filter((i) => i >= 0);
+    const horas = new Set(comHora.map((i) => horaDoTexto(linhas[i])));
+    if (comHora.length >= 2 && horas.size >= 2) {
+      // O item na linha de cima do horário ("200 paletes" ↵ "às 8h") é do mesmo tratamento.
+      inicios = comHora.map((i) => (i > 0 && temItem(linhas[i - 1]) && !temHora(linhas[i - 1]) && !temItem(linhas[i]) ? i - 1 : i));
+    }
+  }
+  inicios = [...new Set(inicios)].sort((a, b) => a - b);
+  if (inicios.length < 2) return [texto];
+  const contexto = linhas.slice(0, inicios[0]).filter((l) => !temItem(l));
+  const soltos = linhas.slice(0, inicios[0]).filter(temItem);
+  return inicios.map((ini, k) => {
+    const bloco = linhas.slice(ini, inicios[k + 1] ?? linhas.length);
+    return [...contexto, ...(k === 0 ? soltos : []), ...bloco].join("\n");
+  });
+}
+
 export function interpretarTexto(
   texto: string,
   op: { tomadores: Tomador[]; prestadora: boolean; hoje?: Date; modelo: Partial<Record<CampoComunicado, string>> }

@@ -73,6 +73,13 @@ export interface CampoModelo {
 export interface ModeloComunicado {
   aba: string; // caminho da planilha no zip
   campos: Partial<Record<CampoComunicado, CampoModelo>>;
+  /** Para o PDF: título ("COMUNICADO DE TRATAMENTO COM FINS QUARENTENÁRIOS"), registro e cabeçalho do modelo. */
+  titulo?: string;
+  registro?: string;
+  /** Textos do cabeçalho (coluna A, acima do título): no modelo em tabela é o quadro da empresa. */
+  cabecalho: string[];
+  /** Modelo em tabela (CJ): as colunas na ordem, com o campo de cada uma ou o valor fixo (Nº "1", identificação). */
+  tabela?: { titulo: string; campo?: CampoComunicado; fixo: string }[];
 }
 
 const desescapar = (s: string) =>
@@ -164,7 +171,31 @@ export async function lerModeloComunicado(bytes: ArrayBuffer | Uint8Array): Prom
         campos[achado[0]] = { campo: achado[0], rotulo: t, celula, valor: valor.trim() };
       }
     }
-    if (!melhor || Object.keys(campos).length > Object.keys(melhor.campos).length) melhor = { aba: a.caminho, campos };
+    // Título, registro e cabeçalho (para desenhar o PDF).
+    const textoDe = (ref: string) => (cel.get(ref)?.valor ?? "").replace(/[ \t]+/g, " ").trim();
+    const refs = [...cel.keys()];
+    const refTitulo = refs.find((r) => /^COMUNICADO DE TRATAMENTO/i.test(textoDe(r)) && !/:\s*$/.test(textoDe(r)));
+    const titulo = refTitulo ? textoDe(refTitulo).replace(/\s*N[º°o]\s*$/i, "").trim() : undefined;
+    const refReg = refs.find((r) => /^REGISTRO\s+M\.?A\.?P\.?A/i.test(textoDe(r)));
+    const linhaTitulo = refTitulo ? +refTitulo.replace(/[A-Z]+/, "") : 6;
+    const cabecalho = refs
+      .filter((r) => /^A\d+$/.test(r) && +r.slice(1) < linhaTitulo + (cab ? 6 : 0) && +r.slice(1) <= 8)
+      .sort((x, y) => +x.slice(1) - +y.slice(1))
+      .map(textoDe)
+      .filter((x) => x && !/^COMUNICADO/i.test(x) && !/:\s*$/.test(x));
+    let tabela: ModeloComunicado["tabela"];
+    if (cab) {
+      tabela = cab[1]
+        .sort((x, y) => colunaDe(x[0]) - colunaDe(y[0]))
+        .filter(([, tt]) => tt)
+        .map(([ref, tt]) => {
+          const achado = TITULOS_TABELA.find(([, re]) => re.test(tt));
+          const fixo = textoDe(`${ref.replace(/\d+/, "")}${cab[0] + 1}`);
+          return { titulo: tt, campo: achado?.[0], fixo: /^=|^IF\(/i.test(fixo) ? "" : fixo };
+        });
+    }
+    const modeloAba: ModeloComunicado = { aba: a.caminho, campos, titulo, registro: refReg ? textoDe(refReg) : undefined, cabecalho, tabela };
+    if (!melhor || Object.keys(campos).length > Object.keys(melhor.campos).length) melhor = modeloAba;
   }
   if (!melhor || !melhor.campos.numero) throw new Error("Não achei os campos do comunicado neste Excel (rótulo “Comunicado de tratamento nº:”).");
   return melhor;
@@ -222,4 +253,13 @@ export function proximoNumero(ultimo: string | null | undefined, ano: number): s
   const digitos = Math.max(3, m[1].length);
   if (anoUlt !== ano) return `${"1".padStart(digitos, "0")}/${ano}`;
   return `${String(+m[1] + 1).padStart(digitos, "0")}/${ano}`;
+}
+
+/** Logo do modelo (a 1ª imagem PNG/JPG do Excel), para o PDF. */
+export async function logoDoModelo(bytes: ArrayBuffer | Uint8Array): Promise<Uint8Array | null> {
+  const zip = await JSZip.loadAsync(bytes);
+  const nome = Object.keys(zip.files)
+    .filter((n) => /^xl\/media\/.+\.(png|jpe?g)$/i.test(n))
+    .sort()[0];
+  return nome ? zip.file(nome)!.async("uint8array") : null;
 }

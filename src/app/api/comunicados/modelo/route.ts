@@ -47,11 +47,12 @@ export async function GET(req: Request) {
 }
 
 /**
- * { cnpj, nome?, modelo?: base64 do .xlsx, ultimoNumero? }. Trocar o modelo pede a permissão de Cadastros;
- * o último número (depois de emitir) qualquer operador grava.
+ * { cnpj, nome?, modelo?: base64 do .xlsx, emitido?: base64, ultimoNumero? }. Trocar o modelo pede a
+ * permissão de Cadastros; depois de emitir, qualquer operador grava o último número e o Excel preenchido
+ * do último comunicado (`emitido`), que passa a ser o modelo — a planilha fica sempre com o último emitido.
  */
 export async function PUT(req: Request) {
-  const b = (await req.json().catch(() => null)) as { cnpj?: unknown; nome?: unknown; modelo?: unknown; ultimoNumero?: unknown } | null;
+  const b = (await req.json().catch(() => null)) as { cnpj?: unknown; nome?: unknown; modelo?: unknown; emitido?: unknown; ultimoNumero?: unknown } | null;
   const cnpj = soDigitos(typeof b?.cnpj === "string" ? b.cnpj : "");
   if (cnpj.length !== 14) return NextResponse.json({ error: "Informe o CNPJ." }, { status: 400 });
   if (b?.modelo != null ? !podeAcessar(req, "madeireiras") : !lerSessao(req)) {
@@ -59,9 +60,10 @@ export async function PUT(req: Request) {
   }
   try {
     const atual = await lerConfig(cnpj);
-    if (b?.modelo != null) {
-      if (typeof b.modelo !== "string" || !/^[A-Za-z0-9+/=]+$/.test(b.modelo)) return NextResponse.json({ error: "Envie o Excel (.xlsx)." }, { status: 400 });
-      const buf = Buffer.from(b.modelo, "base64");
+    const arquivo = b?.modelo ?? b?.emitido;
+    if (arquivo != null) {
+      if (typeof arquivo !== "string" || !/^[A-Za-z0-9+/=]+$/.test(arquivo)) return NextResponse.json({ error: "Envie o Excel (.xlsx)." }, { status: 400 });
+      const buf = Buffer.from(arquivo, "base64");
       if (buf[0] !== 0x50 || buf[1] !== 0x4b) return NextResponse.json({ error: "O arquivo não é um Excel (.xlsx)." }, { status: 400 });
       if (buf.length > 10 * 1024 * 1024) return NextResponse.json({ error: "Excel muito grande (máx. 10 MB)." }, { status: 413 });
       const up = await pasta().upload(`${cnpj}/comunicado.xlsx`, buf, { contentType: XLSX, upsert: true });
