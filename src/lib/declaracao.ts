@@ -47,6 +47,8 @@ export interface DadosDeclaracao {
   localTratamento: string;
   sujeito: Sujeito;
   linhas: LinhaTratamento[];
+  /** Cada ciclo com a quantidade dele na remessa (pedido com vários ciclos): coluna "Quantidade" na tabela. */
+  qtdPorCiclo?: boolean;
   umidade: string; // KD: "18%"
   observacao: string;
   // Emissão

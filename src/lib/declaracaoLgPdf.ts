@@ -594,7 +594,11 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
   } else {
   // ---------- tabela do tratamento (LG) ----------
   const comCiclo = o.geral && d.linhas.some((l) => l.ciclo);
-  const cols = (comCiclo ? [0, 0.13, 0.25, 0.38, 0.62, 0.86, 1] : [0, 0.16, 0.34, 0.6, 0.86, 1]).map((f) => ME + f * LARG);
+  // Vários ciclos com a quantidade de cada um na remessa (pedido "90 - Pallet Ciclo 0252 / 200 - … 0226").
+  const comQtd = comCiclo && !!d.qtdPorCiclo;
+  const cols = (
+    comQtd ? [0, 0.1, 0.22, 0.32, 0.43, 0.64, 0.85, 1] : comCiclo ? [0, 0.13, 0.25, 0.38, 0.62, 0.86, 1] : [0, 0.16, 0.34, 0.6, 0.86, 1]
+  ).map((f) => ME + f * LARG);
   const topo = y;
   const hFaixa = 17;
   const hCab = 26;
@@ -607,6 +611,7 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
   pg.drawRectangle({ x: ME, y: A4.h - topo - hFaixa - hCab, width: LARG, height: hCab, color: VERDE_CLARO });
   const cab: [string, string][] = [
     ...(comCiclo ? ([["Ciclo", "Cycle"]] as [string, string][]) : []),
+    ...(comQtd ? ([["Quantidade", "Quantity"]] as [string, string][]) : []),
     ["Tratamento", "Treatment"],
     ["Temperatura", "Temperature"],
     ["Início do tratamento", "Start of treatment"],
@@ -622,8 +627,8 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
   const dh = (v: string) => v.replace(/^(\d{2}\/\d{2}\/\d{4})\s+(\d{2}h\d{2}m)$/, "$1  ·  $2");
   linhas.forEach((l, k) => {
     if (k % 2 === 1) pg.drawRectangle({ x: ME, y: A4.h - yl - hLin, width: LARG, height: hLin, color: CINZA_FUNDO });
-    const vals = [...(comCiclo ? [l.ciclo] : []), l.tipo, l.temperatura ? `${l.temperatura} °C` : "", dh(l.inicio), dh(l.fim), l.duracao];
-    vals.forEach((v, i) => centro(pg, v || "—", (cols[i] + cols[i + 1]) / 2, yl + 5, i === (comCiclo ? 1 : 0) ? b : r, 8.4, TINTA));
+    const vals = [...(comCiclo ? [l.ciclo] : []), ...(comQtd ? [l.quantidade ?? ""] : []), l.tipo, l.temperatura ? `${l.temperatura} °C` : "", dh(l.inicio), dh(l.fim), l.duracao];
+    vals.forEach((v, i) => centro(pg, v || "—", (cols[i] + cols[i + 1]) / 2, yl + 5, i === (comCiclo ? 1 : 0) + (comQtd ? 1 : 0) ? b : r, 8.4, TINTA));
     linhaH(pg, ME, MD, yl, 0.4, CINZA_LINHA);
     yl += hLin;
   });

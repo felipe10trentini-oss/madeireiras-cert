@@ -4,7 +4,7 @@ import JSZip from "jszip";
 import { useEffect, useRef, useState } from "react";
 import { CAMPOS_REMESSA, dadosIniciais, linhaDoMestre, nomeArquivo, type DadosDeclaracao, type LinhaTratamento } from "@/lib/declaracao";
 import { CNPJ_LG, manualLg, montarDeclaracaoLg } from "@/lib/declaracaoLg";
-import { blsDoTexto, CNPJ_MANN_VOLANTE, montarDeclaracaoPadrao, type DadosBL, type MestreLido } from "@/lib/declaracaoMann";
+import { blsDoTexto, CNPJ_MANN_VOLANTE, montarDeclaracaoPadrao, quantidadeDigitada, type DadosBL, type MestreLido } from "@/lib/declaracaoMann";
 import {
   ativosDoModelo,
   baixarFontes,
@@ -44,6 +44,13 @@ interface Item {
   original?: NotaFiscal;
   /** Modelo padrão (todas menos a LG): a nota e/ou os BLs desta declaração (para refazer quando chegar o mestre). */
   mann?: { nf: NotaFiscal | null; bls: DadosBL[]; ciclos?: string[]; escolhas?: Record<string, string> };
+}
+
+/** Ciclos do pedido com a quantidade de cada um, como se digita no campo: "90 x 252, 200 x 226". */
+function ciclosComQuantidade(bls: DadosBL[]): string[] | undefined {
+  const q: Record<string, string> = Object.assign({}, ...bls.map((b) => b.quantidades ?? {}));
+  if (!Object.keys(q).length) return undefined;
+  return [...new Set(bls.flatMap((b) => b.ciclos))].map((c) => (q[c] ? `${q[c].match(/^[\d.]+/)?.[0]} x ${c}` : c));
 }
 
 const LINHA_VAZIA: LinhaTratamento = { certificado: "", ciclo: "", lote: "", inicio: "", fim: "", tipo: "HT", temperatura: "56", duracao: "32 min", quantidade: "" };
@@ -972,14 +979,15 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                     <input
                       id="d-ciclos"
                       key={`${sel}-${(atual.mann.ciclos ?? atual.nf?.ciclos ?? []).join(",")}`}
-                      defaultValue={(atual.mann.ciclos ?? atual.nf?.ciclos ?? atual.dados.linhas.map((l) => l.lote || l.ciclo)).join(", ")}
-                      placeholder="ex.: 249, 256 · 972 e 973 · ciclo + cliente: 508 Rio Claro"
+                      defaultValue={(atual.mann.ciclos ?? ciclosComQuantidade(atual.mann.bls) ?? atual.nf?.ciclos ?? atual.dados.linhas.map((l) => l.lote || l.ciclo)).join(", ")}
+                      placeholder="ex.: 249, 256 · 972 e 973 · ciclo + cliente: 508 Rio Claro · quantidade x ciclo: 90 x 252, 200 x 226"
                       onBlur={(e) => trocarCiclos(sel, e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && trocarCiclos(sel, (e.target as HTMLInputElement).value)}
                     />
                   </div>
                   {relatorio &&
-                    (atual.mann.ciclos ?? atual.nf?.ciclos ?? atual.mann.bls.flatMap((b) => b.ciclos)).map((c) => {
+                    (atual.mann.ciclos ?? atual.nf?.ciclos ?? atual.mann.bls.flatMap((b) => b.ciclos)).map((cd) => {
+                      const c = quantidadeDigitada(cd)?.ciclo ?? cd;
                       // O mesmo nº de ciclo em mais de uma unidade (os veículos da Mann): escolhe qual.
                       const cands = linhasDoCiclo(relatorio.linhas, c);
                       if (cands.length < 2) return null;
@@ -1009,7 +1017,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                     })}
                   <p className="hint" style={{ margin: "4px 0 0" }}>
                     {relatorio
-                      ? "Digite os ciclos (ou lotes) e tecle Enter: o certificado, o mês e a duração vêm do relatório. Ciclo repetido entre os veículos: digite ciclo + cliente (ex.: 508 Rio Claro) ou escolha na lista."
+                      ? "Digite os ciclos (ou lotes) e tecle Enter: o certificado, o mês e a duração vêm do relatório. Ciclo repetido entre os veículos: digite ciclo + cliente (ex.: 508 Rio Claro) ou escolha na lista. Vários ciclos com quantidades diferentes: quantidade x ciclo (ex.: 90 x 252, 200 x 226, 100 x 227)."
                       : "Solte o relatório do MAPA da empresa na área acima para puxar o tratamento pelos ciclos."}
                   </p>
                 </div>

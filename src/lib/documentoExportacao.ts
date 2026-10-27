@@ -30,7 +30,9 @@ const titulo = (s: string) =>
     .replace(/(?<=\s)(De|Da|Do|Das|Dos|E)(?=\s)/g, (m) => m.toLowerCase())
     .replace(/\(([a-z]{5})\)/gi, (_, c: string) => `(${c.toUpperCase()})`);
 
-const ehRotulo = (l: string) => /\(\d{1,2}\)|COMPLETE NAME|REFERENCES|NOTIFY|PLACE OF|PORT OF|VESSEL|DOCUMENT NO|SHIPPER|CONSIGNEE|EXPORTER/i.test(l);
+const ehRotulo = (l: string) => /\(\d{1,2}\)|COMPLETE NAME|REFERENCES|NOTIFY|PLACE OF|PORT OF|VESSEL|DOCUMENT NO|SHIPPER|CONSIGNEE|EXPORTER|RIDER PAGES|ENDORSEMENT/i.test(l);
+// Rascunho do BL (draft da MSC): nº do BL e navio ainda em "XXXXXXXXXXXXXXXX".
+const ehRascunho = (v: string | null | undefined) => !!v && /^X{4,}$/i.test(v.replace(/[\s./-]/g, ""));
 
 /** Empresa a partir da linha i: junta a linha seguinte curta ("LLC") ao nome. */
 function empresaEm(ls: string[], i: number): string {
@@ -85,7 +87,8 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   // Navio: "Vessel MSC AMALFI Voyage 26N", rótulo VESSEL, ou linha de armador com viagem ("NYK DIANA V.025N").
   let navio: string | null =
     [...plano.matchAll(/\bVessel\s+(.+?)\s+Voyage\s+(\S+)/gi)].map((m) => `${m[1]} ${m[2]}`).find((v) => !/[(&]|\bNO\.?$|\bNR\b|FLAG/i.test(v)) ?? null;
-  const ARMADOR = /^(MSC|NYK|MAERSK|CMA CGM|CMA|HAPAG|HAMBURG|ONE|EVER|COSCO|ZIM|HMM|YM|YANG MING|LOG-IN|ALIAN[CÇ]A|SEALAND|OOCL|PIL|WAN HAI)\s+[A-Z].*?(?:\bV\.?\s*\/?\s*[A-Z0-9]{2,6}|\s\/\s*[A-Z0-9]{3,6}|\s\d{2,3}[A-Z])\s*$/i;
+  // "MSC INSA - NA642R" (draft da MSC): navio - viagem.
+  const ARMADOR = /^(MSC|NYK|MAERSK|CMA CGM|CMA|HAPAG|HAMBURG|ONE|EVER|COSCO|ZIM|HMM|YM|YANG MING|LOG-IN|ALIAN[CÇ]A|SEALAND|OOCL|PIL|WAN HAI)\s+[A-Z].*?(?:\bV\.?\s*\/?\s*[A-Z0-9]{2,6}|\s\/\s*[A-Z0-9]{3,6}|\s\d{2,3}[A-Z]|\s-\s[A-Z]{1,3}\d{2,4}[A-Z]?)\s*$/i;
   if (!navio) navio = ls.find((l) => ARMADOR.test(l) && l.length < 40) ?? null;
   // "NYK RUMINA / 078N ITAJAI, BRAZIL": o navio no começo da linha, até a viagem.
   if (!navio) {
@@ -97,7 +100,7 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   if (!navio) {
     const i = ls.findIndex((l) => /^VESSEL\b|^Vessel & Voyage/i.test(l));
     const v = i >= 0 ? proxValor(i) : null;
-    if (v && v.length < 40) navio = v;
+    if (v && v.length < 40 && !ehRascunho(v)) navio = v;
   }
 
   // Destino: Place of delivery / Port of discharge; porto com código ("MOBILE (USMOB)"); o porto
@@ -106,8 +109,11 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   const comCodigo = ls.filter((l) => /\(([A-Z]{5})\)\s*$/.test(l) && !/^(ITAJA|PARANAGU|SANTOS|NAVEGANTES|ITAPO|RIO GRANDE|S[AÃ]O FRANCISCO)/i.test(l));
   if (comCodigo.length) destino = comCodigo[comCodigo.length - 1];
   if (!destino) {
-    const i = ls.findIndex((l) => /PORT OF DISCHARGE|PLACE OF DELIVERY/i.test(l));
-    const v = i >= 0 ? proxValor(i) : null;
+    // "PORT OF DISCHARGE AGENT:" é o agente (endereço), não o porto; valor que é porto brasileiro
+    // (o draft da MSC embaralha as caixas: "Navegantes / SC") também não.
+    const v = ls
+      .map((l, i) => (/PORT OF DISCHARGE|PLACE OF DELIVERY/i.test(l) && l.length <= 70 && !/\bAGENT\b/i.test(l) ? proxValor(i) : null))
+      .find((x) => x && x.length <= 60 && !PORTOS_BR.test(x));
     // "ROTTERDAM, NETHERLANDS LE HAVRE, FRANCE": o último (lugar de entrega).
     if (v) {
       const ult = v.match(/([A-Z][A-Z .]+,\s*[A-Z]+)\s*$/)?.[1] ?? v;
@@ -116,7 +122,7 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   }
   if (!destino) {
     const cont = new Map<string, number>();
-    for (const l of ls) if (/^[A-Z][A-Z ]{3,20}$/.test(l) && !PORTOS_BR.test(l) && !EMPRESA.test(l)) cont.set(l, (cont.get(l) ?? 0) + 1);
+    for (const l of ls) if (/^[A-Z][A-Z ]{3,20}$/.test(l) && !PORTOS_BR.test(l) && !EMPRESA.test(l) && !ehRascunho(l)) cont.set(l, (cont.get(l) ?? 0) + 1);
     const rep = [...cont.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1])[0];
     if (rep) destino = rep[0];
   }
@@ -128,6 +134,19 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
       .find((p) => p && !/^(BRASIL|BRAZIL)$/i.test(p));
     if (pais) destino = pais;
   }
+  // A cidade que se repete (endereço do agente no destino e caixa do porto): "Montoir-de-Bretagne, 44550"
+  // e "Montoir-De-Bretagne".
+  if (!destino) {
+    const cont = new Map<string, { n: number; v: string }>();
+    for (const l of ls) {
+      const c = l.split(",")[0].trim();
+      if (!/^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' -]{3,30}$/.test(c) || ENDERECO.test(c) || PORTOS_BR.test(c) || EMPRESA.test(c) || ehRotulo(c) || ehRascunho(c)) continue;
+      const k = c.toLowerCase();
+      cont.set(k, { n: (cont.get(k)?.n ?? 0) + 1, v: cont.get(k)?.v ?? c });
+    }
+    const rep = [...cont.values()].filter((x) => x.n >= 2).sort((a, b) => b.n - a.n)[0];
+    if (rep) destino = rep.v;
+  }
 
   // Invoice/fatura: "INVOICE:CMB/RC/007/2026", "INVOICE: 4513/2026", "MN/RC/042/2026".
   const invoice =
@@ -137,8 +156,9 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   // Booking: rótulo, ou os formatos dos armadores (EBKG/SAOG + 8 dígitos); contêiner (4 letras + 7 dígitos) não.
   const booking =
     plano.match(/\bBooking\s*(?:N[º°o.]*|#|No\.?)?\s*:?\s*([A-Z0-9]{8,14})\b/i)?.[1] ?? plano.match(/\b((?:EBKG|SAOG|BKG)\d{8,10})\b/)?.[1] ?? null;
+  const blRotulo = plano.match(/\b(?:B\/L\s*No\.?|BILL OF LADING\s*NO\.?|Sea Waybill No\.?)\s*:?\s*([A-Z0-9]{8,18})\b/i)?.[1];
   const bl =
-    plano.match(/\b(?:B\/L\s*No\.?|BILL OF LADING\s*NO\.?|Sea Waybill No\.?)\s*:?\s*([A-Z0-9]{8,18})\b/i)?.[1] ??
+    (ehRascunho(blRotulo) ? null : blRotulo) ??
     plano.match(/\b(BRZSE\d{8}|ONEY[A-Z]{4}\d{8}|MEDU[A-Z0-9]{8}|HLCU[A-Z0-9]{10,14})\b/)?.[1] ??
     null;
 
@@ -164,4 +184,65 @@ export function clientesDoPedido(texto: string): { exportador: string; quantidad
     if (m && !/^\d/.test(m[1])) out.push({ exportador: titulo(m[1].replace(/[*.]+$/, "").trim()), quantidade: m[2], item: m[3].toLowerCase() });
   }
   return out;
+}
+
+export interface PedidoLido {
+  /** Quem pediu ("Para Instituto Botânico La Selva", ou o nome antes da NF-e no e-mail). */
+  cliente: string | null;
+  nfe: string | null;
+  fatura: string | null;
+  /** Quantidade de cada ciclo/lote ("90 - Pallet 1000x1200 Ciclo Mann 0252", "14 paletes LOTE 499"). */
+  itens: { ciclo: string; quantidade: string; item: string }[];
+}
+
+const ITEM = /paletes?|pallets?|skids?|suportes?|caixas?|crates?|engradados?|kits?|tampas?/i;
+/** "Pallet 1000x1200" -> "paletes"; "skid" -> "suportes" (como na declaração). */
+function tipoDoItem(s: string): string {
+  const w = s.match(ITEM)?.[0].toLowerCase() ?? "";
+  if (/^pa[l]+et/.test(w)) return "paletes";
+  if (/skid|suporte/.test(w)) return "suportes";
+  if (/caixa|crate/.test(w)) return "caixas";
+  if (/engradado/.test(w)) return "engradados";
+  if (/kit/.test(w)) return "kits";
+  if (/tampa/.test(w)) return "tampas";
+  return "unidades";
+}
+
+const SAUDACAO = /^(boa|bom|ol[áa]|oi|prezad|solicito|preciso|segue|seguem|att|atenciosamente|obrigad|grat|favor|por favor|declara)/i;
+
+/**
+ * Pedido de declaração por e-mail (print ou texto): cliente, NF-e ("NFE 7399"), fatura ("FAT 161") e a
+ * quantidade de cada ciclo — uma declaração com vários ciclos. Só vale para texto curto sem CNPJ (o
+ * BL/booking tem a leitura dele).
+ */
+export function lerPedido(texto: string): PedidoLido | null {
+  if (texto.length > 2500 || CNPJ.test(texto)) return null;
+  const ls = texto.replace(/\r/g, "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const nfe = texto.match(/\bNF-?e?\s*(?:N[º°o.]*)?\s*:?\s*(\d{3,9})\b/i)?.[1] ?? null;
+  const fatura = texto.match(/\bFAT(?:URA)?\.?\s*(?:N[º°o.]*)?\s*:?\s*(\d[\d/-]*\d|\d)\b/i)?.[1] ?? null;
+  const itens: PedidoLido["itens"] = [];
+  const iDados: number[] = [];
+  ls.forEach((l, i) => {
+    // "90 - Pallet 1000x1200 Ciclo Mann 0252" / "14 paletes LOTE 499" / "Ciclo 252 - 90 paletes".
+    const a = l.match(/^(\d[\d.]*)\s*(?:[-–—x:]\s*)?(.*?)\b(?:CICLO|LOTE)S?\s*(?:MANN)?\s*[:#nNº°.]*\s*(\d{1,5})\b/i);
+    const b = !a && l.match(/\b(?:CICLO|LOTE)S?\s*(?:MANN)?\s*[:#nNº°.]*\s*(\d{1,5})\s*[-–—:(]\s*(\d[\d.]*)\s*(.*)$/i);
+    if (a) itens.push({ ciclo: String(parseInt(a[3], 10)), quantidade: a[1], item: tipoDoItem(a[2]) });
+    else if (b) itens.push({ ciclo: String(parseInt(b[1], 10)), quantidade: b[2], item: tipoDoItem(b[3]) });
+    if (a || b || /\bNF-?e?\b|\bFAT(?:URA)?\b|\bCICLO|\bLOTE/i.test(l)) iDados.push(i);
+  });
+  if (!itens.length && !nfe && !fatura) return null;
+  // Cliente: "Para X"; senão a 1ª linha antes dos dados que não é saudação ("Companhia providencia ind. com").
+  let cliente = ls.map((l) => l.match(/^para:?\s+([^\d].{2,80})$/i)?.[1]).find(Boolean) ?? null;
+  if (!cliente && iDados.length) {
+    cliente =
+      ls
+        .slice(0, iDados[0])
+        .find((l) => !SAUDACAO.test(l) && !/\d/.test(l) && l.split(/\s+/).length >= 2 && l.length <= 80 && !/[?:]$/.test(l)) ?? null;
+  }
+  return {
+    cliente: cliente ? titulo(cliente.replace(/[.,;]+$/, "").trim()) : null,
+    nfe: nfe ? String(parseInt(nfe, 10)) : null,
+    fatura,
+    itens,
+  };
 }

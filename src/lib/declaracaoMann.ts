@@ -10,7 +10,7 @@ import type { Madeireira } from "./madeireiras";
 import { ciclosDoTexto, type NotaFiscal } from "./notaFiscal";
 import { regraDe } from "./certificado";
 import { escolherLinha, linhaDoRelatorio, linhasDoCiclo, type LinhaRelatorio } from "./relatorioMapa";
-import { clientesDoPedido, lerDocumentoExportacao } from "./documentoExportacao";
+import { clientesDoPedido, lerDocumentoExportacao, lerPedido } from "./documentoExportacao";
 import { completarComNihil } from "./preencherModelo";
 import { snMinusculo, soDigitos } from "./util";
 
@@ -45,6 +45,10 @@ export interface DadosBL {
   pacotes?: string | null;
   /** "Tratamento de Embalagem (skids)": o que foi tratado. */
   tipo?: string | null;
+  /** Nº da NF-e escrito no pedido ("NFE 7399"), quando a nota não vem junto. */
+  nfe?: string | null;
+  /** Quantidade de cada ciclo na remessa (pedido "90 - Pallet Ciclo Mann 0252"): ciclo -> "90 paletes". */
+  quantidades?: Record<string, string>;
 }
 
 /** Tabela com cabeçalho (células com " | "): o valor de cada título na linha de baixo. */
@@ -191,6 +195,12 @@ function volumesDaNota(nf: NotaFiscal): string {
     .join("\n");
 }
 
+/** "90 x 252" / "90 x 508 Rio Claro" no campo "Ciclos": a quantidade da remessa nesse ciclo. */
+export function quantidadeDigitada(c: string): { quantidade: string; ciclo: string } | null {
+  const m = c.trim().match(/^(\d[\d.]*)\s*[x×]\s*(\d.*)$/i);
+  return m ? { quantidade: m[1], ciclo: m[2].trim() } : null;
+}
+
 /** De onde vêm as linhas do tratamento além dos mestres: o relatório do MAPA e os ciclos digitados. */
 export interface OpcoesDeclaracao {
   relatorio?: LinhaRelatorio[] | null;
@@ -217,7 +227,18 @@ export function montarDeclaracaoPadrao(
   const avisos: string[] = [];
   const bl = bls[0] ?? null;
   const rel = op.relatorio ?? null;
-  const digitados = (op.ciclos ?? []).map((c) => c.trim()).filter(Boolean);
+  // Quantidade de cada ciclo na remessa: a do pedido, ou digitada no campo "Ciclos" ("90 x 252").
+  const qtd = new Map<string, string>();
+  for (const b of bls) for (const [c, v] of Object.entries(b.quantidades ?? {})) qtd.set(semZeros(c), v);
+  const unidade = [...qtd.values()][0]?.replace(/^[\d.]+\s*/, "") || "paletes";
+  const digitados = (op.ciclos ?? [])
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .map((c) => {
+      const q = quantidadeDigitada(c);
+      if (q) qtd.set(semZeros(q.ciclo.split(/\s+/)[0]), `${q.quantidade} ${unidade}`);
+      return q?.ciclo ?? c;
+    });
   const ciclosDoc = digitados.length ? [...new Set(digitados)] : [...new Set([...(nf?.ciclos ?? []), ...bls.flatMap((b) => b.ciclos)])];
 
   // A nota é da própria empresa (venda do palete)? Então o exportador é quem comprou.
@@ -234,11 +255,13 @@ export function montarDeclaracaoPadrao(
   const doMestre = (c: string) => mestres.find((m) => semZeros(m.mestre.ciclo) === numDo(c) || semZeros(m.mestre.lote) === numDo(c));
   const usados: MestreLido[] = [];
   const doRelatorio: LinhaRelatorio[] = [];
+  const cicloDe = new Map<MestreLido | LinhaRelatorio, string>();
   if (ciclosDoc.length) {
     for (const c of ciclosDoc) {
       const m = doMestre(c);
       if (m) {
         usados.push(m);
+        cicloDe.set(m, numDo(c));
         continue;
       }
       const cands = rel ? linhasDoCiclo(rel, c) : [];
@@ -247,8 +270,10 @@ export function montarDeclaracaoPadrao(
       if (l && cands.length > 1 && !escolhida && !/\s/.test(c.trim())) {
         avisos.push(`Ciclo ${numDo(c)}: há ${cands.length} tratamentos com esse nº no relatório (unidades diferentes) — confira o escolhido ou digite ciclo + cliente (ex.: “${numDo(c)} ${(l.tomador.split(/\s+/)[0] ?? "").toLowerCase()}”).`);
       }
-      if (l) doRelatorio.push(l);
-      else avisos.push(rel || mestres.length ? `Ciclo ${c}: não achei no relatório nem nos certificados mestres.` : `Ciclo ${c}: solte o relatório do MAPA da empresa (ou o certificado mestre).`);
+      if (l) {
+        doRelatorio.push(l);
+        cicloDe.set(l, numDo(c));
+      } else avisos.push(rel || mestres.length ? `Ciclo ${c}: não achei no relatório nem nos certificados mestres.` : `Ciclo ${c}: solte o relatório do MAPA da empresa (ou o certificado mestre).`);
     }
   } else {
     usados.push(...mestres);
@@ -262,9 +287,11 @@ export function montarDeclaracaoPadrao(
   const destinatario = (notaPropria ? "" : titulo(nf?.destinatario.razao)) || bl?.destinatario || "";
   // Quantidade do ciclo ("200 paletes") vai na linha do certificado mestre (Paletes Maringá). Duração:
   // a 56 °C as declarações levam 32 minutos (a curva às vezes fecha 31); mais longas ficam como estão.
+  // Com a quantidade de cada ciclo (pedido/digitada), ela vale no lugar da do ciclo inteiro.
+  const daRemessa = (x: MestreLido | LinhaRelatorio) => qtd.get(cicloDe.get(x) ?? "");
   const linhas = [
-    ...usados.map((m) => ({ ...linhaDoMestre(m.mestre), quantidade: m.mestre.quantidade || "" })),
-    ...doRelatorio.map(linhaDoRelatorio),
+    ...usados.map((m) => ({ ...linhaDoMestre(m.mestre), quantidade: daRemessa(m) ?? (m.mestre.quantidade || "") })),
+    ...doRelatorio.map((l) => ({ ...linhaDoRelatorio(l), ...(daRemessa(l) ? { quantidade: daRemessa(l) } : {}) })),
   ].map((l) => {
     const min = parseInt(l.duracao, 10);
     const t = parseFloat(l.temperatura.replace(",", "."));
@@ -290,7 +317,7 @@ export function montarDeclaracaoPadrao(
     exportador,
     enderecoExportador: "",
     destinatario,
-    nfe: nf?.numero ?? "",
+    nfe: nf?.numero ?? bl?.nfe ?? "",
     navio: bl?.navio ?? "",
     bl: bl?.bl ?? "",
     booking: bl?.booking ?? "",
@@ -307,9 +334,15 @@ export function montarDeclaracaoPadrao(
     localTratamento: snMinusculo([...new Set(locais)].join("; ")).replace(/\s*-\s*[A-Z]{2}\s*$/, ""),
     sujeito: /skid|suporte/i.test(bl?.tipo ?? "") ? "suportes" : /palet|pallet/i.test(bl?.tipo ?? "") ? "paletes" : nf?.itens.every((i) => /palet|pallet/i.test(i.descricao)) ? "paletes" : nf?.itens.every((i) => /suporte|skid/i.test(i.descricao)) ? "suportes" : "material",
     linhas,
+    qtdPorCiclo: linhas.length > 1 && linhas.some((l) => l.quantidade) && [...cicloDe.values()].some((c) => qtd.has(c)),
     // Mann Unidade Volante emite em Curitiba; as outras, na cidade delas (cadastro).
     localEmissao: empresa && soDigitos(empresa.cnpj) === CNPJ_MANN_VOLANTE ? "Curitiba - PR" : base.localEmissao,
   };
+  // Sem nota/BL com a quantidade: a soma das quantidades de cada ciclo ("90 x 252, 200 x 226" -> 290 paletes).
+  if (!dados.volumes.trim() && dados.qtdPorCiclo) {
+    const total = linhas.reduce((s, l) => s + (parseInt((l.quantidade ?? "").replace(/\./g, ""), 10) || 0), 0);
+    if (total) dados.volumes = volumesDaTabela({ pacotes: String(total), tipo: unidade } as DadosBL) ?? `${total} ${unidade}`;
+  }
   if (!dados.volumes.trim()) avisos.push("Não achei a quantidade de material na nota/BL: preencha em “Editar campos” (Cubagem/Volume).");
   if (!certs.length && mestres.length && ciclosDoc.length && !doRelatorio.length) avisos.push("Os certificados mestres soltos não são do ciclo da nota: confira.");
   // Nome no padrão das pastas: Mann "Declaração HT - Renascer NFe 7376 - Novozymes" / "Declaração HT - Marine
@@ -328,10 +361,11 @@ export function montarDeclaracaoPadrao(
   const mann = !!empresa && soDigitos(empresa.cnpj) === CNPJ_MANN_VOLANTE;
   // Referência: a nota; senão a fatura/invoice, o booking, o B/L; pedido sem documento: empresa do ciclo + ciclo ("Madex 964").
   const cicloRef = doRelatorio[0]?.ciclo ?? usados[0]?.mestre.ciclo ?? "";
-  const semDoc = !nf?.numero && !bl?.invoice && !bl?.booking && !bl?.bl;
+  const numNf = nf?.numero ?? bl?.nfe;
+  const semDoc = !numNf && !bl?.invoice && !bl?.booking && !bl?.bl;
   const nome = semDoc && cicloRef && doRelatorio[0]?.tomador ? curto(titulo(doRelatorio[0].tomador)) : curto(exportador);
-  const ref = nf?.numero
-    ? `NFe ${nf.numero}${mann && destinatario ? ` - ${curto(destinatario)}` : ""}`
+  const ref = numNf
+    ? `NFe ${numNf}${mann && destinatario ? ` - ${curto(destinatario)}` : ""}`
     : bl?.invoice || (bl?.booking ? (mann ? `- ${bl.booking}` : bl.booking) : "") || bl?.bl || (cicloRef ? semZeros(cicloRef) : certs[0]) || "";
   const arquivo = `${mann ? "Declaração HT -" : "DECL."} ${nome || "Cliente"} ${ref}`.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim() + ".docx";
   return { dados: completarComNihil(dados, op.campos as Parameters<typeof completarComNihil>[1]), avisos, arquivo };
@@ -347,6 +381,21 @@ export const montarDeclaracaoMann = montarDeclaracaoPadrao;
  */
 export function blsDoTexto(texto: string): DadosBL[] {
   const base = lerBL(texto);
+  // Pedido por e-mail com a quantidade de cada ciclo ("NFE 7399 / 90 - Pallet Ciclo Mann 0252 / 200 - … 0226"):
+  // uma declaração com os ciclos todos.
+  const ped = lerPedido(texto);
+  if (ped) {
+    const q = ped.itens.map((i) => ({ ...i, n: parseInt(i.quantidade.replace(/\./g, ""), 10) }));
+    const mesmoTipo = q.length > 0 && q.every((i) => i.item === q[0].item);
+    Object.assign(base, {
+      exportador: base.exportador ?? ped.cliente,
+      invoice: base.invoice ?? ped.fatura,
+      nfe: ped.nfe,
+      ciclos: [...new Set([...base.ciclos, ...q.map((i) => i.ciclo)])],
+      quantidades: Object.fromEntries(q.map((i) => [i.ciclo, `${i.quantidade} ${i.n === 1 ? i.item.replace(/s$/, "") : i.item}`])),
+      ...(mesmoTipo && !base.pacotes ? { pacotes: String(q.reduce((s, i) => s + (i.n || 0), 0)), tipo: q[0].item } : {}),
+    });
+  }
   const clientes = clientesDoPedido(texto);
   if (!clientes.length) return [base];
   return clientes.map((c) => ({ ...base, exportador: c.exportador, pacotes: c.quantidade, tipo: c.item }));
