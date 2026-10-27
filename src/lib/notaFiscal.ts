@@ -54,6 +54,18 @@ export function lotesDaObservacao(obs: string): LoteNota[] {
   return out;
 }
 
+/**
+ * Nº da nota pela chave de acesso (44 dígitos: UF, AAMM, CNPJ, modelo 55, série, nº com 9 dígitos…),
+ * quando o DANFE não traz "Nº 27905 Série" (Madeico: "000.027.905").
+ */
+function numeroDaChave(plano: string): string | null {
+  for (const m of plano.matchAll(/\b(?:\d{4}\s?){10}\d{4}\b/g)) {
+    const c = m[0].replace(/\s/g, "");
+    if (c.length === 44 && c.slice(20, 22) === "55") return String(parseInt(c.slice(25, 34), 10));
+  }
+  return null;
+}
+
 export function lerNotaFiscal(texto: string): NotaFiscal | null {
   const t = texto.replace(/[ \t]+/g, " ");
   if (!/DANFE|NF-e/i.test(t)) return null;
@@ -62,8 +74,10 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
   const dest = iDest >= 0 ? t.slice(iDest) : t;
   const plano = t.replace(/\s+/g, " ");
   const obs =
-    plano.match(/Inf\. Contribuinte:\s*([\s\S]*?)(?:\s*Trib aprox|\s*RESERVADO AO FISCO|$)/i)?.[1]?.trim() ??
-    plano.match(/INFORMA[ÇC][ÕO]ES COMPLEMENTARES\s*([\s\S]*?)RESERVADO AO FISCO/i)?.[1]?.trim() ??
+    plano.match(/Inf\. Contribuinte:\s*([\s\S]*?)(?:\s*Trib aprox|\s*RESERVADO AO FISCO|$)/i)?.[1]?.trim() ||
+    plano.match(/INFORMA[ÇC][ÕO]ES COMPLEMENTARES\s*([\s\S]*?)RESERVADO AO FISCO/i)?.[1]?.trim() ||
+    // Madeico: os rótulos "INFORMAÇÕES COMPLEMENTARES RESERVADO AO FISCO" juntos e o texto depois do quadro do ISSQN.
+    plano.match(/INFORMA[ÇC][ÕO]ES COMPLEMENTARES\s+RESERVADO AO FISCO\s+(?:.*C[ÁA]LCULO DO ISSQN\s*)?([\s\S]+)$/i)?.[1]?.replace(/\s*--\s*\d+ of \d+\s*--\s*$/, "").trim() ||
     null;
 
   // Itens: "141 PALLET MADEIRA 980X1170X135MM ME PLES02 44152000 000 6.101 UN 650,00 37,68 …"
@@ -75,6 +89,15 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
   }
   // Outro layout: código, NCM, CST, CFOP (sem ponto), unidade, quantidade… e a descrição no fim da linha
   // ("2940-014 44152000 051 5101 PC 100,0000 68,33 … 19.50 Pallet 1000 x 1200 HT Ped 4551417535").
+  // Madeico: NCM, CST, CFOP, unidade, valor unitário, valor total… e, depois dos tabs, a descrição, o
+  // código e a quantidade no fim ("44152000 051 5101 PC 63,1100 7.573,20 … 0 %\tPALETE … HT\t0864-01 120").
+  // Vale só se quantidade x unitário = total.
+  if (!itens.length) {
+    for (const l of texto.split("\n")) {
+      const m = l.match(/\b\d{8}\s+\d{3}\s+\d{4}\s+([A-Z]{1,4})\.?\s+([\d.]+,\d{2,4})\s+([\d.]+,\d{2})\s.*?\t\s*(.+?)\s*\t\s*\S+\s+(\d[\d.]*(?:,\d+)?)\s*$/);
+      if (m && Math.abs(num(m[5]) * num(m[2]) - num(m[3])) < 0.05) itens.push({ descricao: m[4].trim(), quantidade: num(m[5]), unidade: m[1] });
+    }
+  }
   if (!itens.length) {
     for (const l of t.split("\n")) {
       const m = l.match(/\b(\d{8})\s+\d{3}\s+\d{4}\s+([A-Z]{1,4})\.?\s+([\d.]+,\d{2,4})\s+((?:[\d.,]+\s+)*)(.*)$/);
@@ -83,8 +106,13 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
   }
 
   return {
-    numero: plano.match(/N[º°o]\.?:?\s*(\d{1,9})\s+S[ée]rie/i)?.[1] ?? null,
-    emissao: abaixo(dest, /DATA DE EMISS[ÃA]O/) ?? plano.match(/Emiss[ãa]o:\s*(\d{2}\/\d{2}\/\d{4})/i)?.[1] ?? null,
+    numero: plano.match(/N[º°o]\.?:?\s*(\d{1,9})\s+S[ée]rie/i)?.[1] ?? numeroDaChave(plano),
+    emissao:
+      abaixo(dest, /DATA DE EMISS[ÃA]O/) ??
+      plano.match(/Emiss[ãa]o:\s*(\d{2}\/\d{2}\/\d{4})/i)?.[1] ??
+      // "DATA EMISSÃO\nDATA ENTRADA/SAIDA\n26/10/2026": a 1ª data depois do rótulo.
+      dest.match(/DATA\s+(?:DE\s+)?EMISS[ÃA]O[\s\S]{0,120}?(\d{2}\/\d{2}\/\d{4})/i)?.[1] ??
+      null,
     destinatario: {
       razao: abaixo(dest, /RAZ[ÃA]O SOCIAL(?! FRETE)/),
       cnpj: abaixo(dest, /CNPJ\s*\/\s*CPF/),
@@ -140,6 +168,13 @@ export function ciclosDoTexto(texto: string): string[] {
   const out: string[] = [];
   for (const m of texto.matchAll(/\bCICLOS?\s*(?:MANN)?\s*[:#nNº°.]*\s*(\d{1,5}(?:\s*(?:[,/e]|\be\b)\s*\d{1,5})*)/gi)) {
     for (const n of m[1].split(/\s*(?:[,/]|\be\b)\s*/)) {
+      const c = String(parseInt(n, 10));
+      if (n && c !== "NaN" && !out.includes(c)) out.push(c);
+    }
+  }
+  // "MATERIAL TRATADO REFERENTE A UR: 553-573" (Madeico): os ciclos 553 e 573.
+  for (const m of texto.matchAll(/\bUR\s*:\s*(\d{1,5}(?:\s*(?:[-,/]|\be\b)\s*\d{1,5})*)/gi)) {
+    for (const n of m[1].split(/\s*(?:[-,/]|\be\b)\s*/)) {
       const c = String(parseInt(n, 10));
       if (n && c !== "NaN" && !out.includes(c)) out.push(c);
     }
