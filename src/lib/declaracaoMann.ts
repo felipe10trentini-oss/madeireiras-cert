@@ -198,6 +198,14 @@ function volumesDaNota(nf: NotaFiscal): string {
     .join("\n");
 }
 
+/**
+ * Clientes que sempre vão como importador de um mesmo exportador: o pedido diz só "Para Instituto Botânico
+ * La Selva", e a declaração da MD Paletes sai com a Barão de exportador e o Instituto de importador.
+ */
+const PARES_CLIENTE: { empresa: string; cliente: RegExp; exportador: string }[] = [
+  { empresa: "04456108000144", cliente: /instituto\s+bot[âa]nico/i, exportador: "Barão - Indústria e Comércio de Erva Mate e Chás S.A." },
+];
+
 /** "90 x 252" / "90 x 508 Rio Claro" no campo "Ciclos": a quantidade da remessa nesse ciclo. */
 export function quantidadeDigitada(c: string): { quantidade: string; ciclo: string } | null {
   const m = c.trim().match(/^(\d[\d.]*)\s*[x×]\s*(\d.*)$/i);
@@ -286,7 +294,11 @@ export function montarDeclaracaoPadrao(
 
   const base = dadosIniciais([], empresa, hoje);
   const m0 = usados[0];
-  const exportador = exportadorDoc || titulo(m0 ? tomadorDoMestre(m0.texto) : null) || titulo(doRelatorio[0]?.tomador);
+  const exportadorLido = exportadorDoc || titulo(m0 ? tomadorDoMestre(m0.texto) : null) || titulo(doRelatorio[0]?.tomador);
+  // Cliente que pede é o importador de um exportador fixo (MD: Instituto Botânico -> Barão).
+  const par = PARES_CLIENTE.find((p) => !!empresa && soDigitos(empresa.cnpj) === p.empresa && [exportadorLido, bl?.importador].some((n) => !!n && p.cliente.test(n)));
+  const exportador = par ? par.exportador : exportadorLido;
+  const importadorPar = par ? (par.cliente.test(exportadorLido) ? exportadorLido : bl?.importador ?? "") : "";
   const destinatario = (notaPropria ? "" : titulo(nf?.destinatario.razao)) || bl?.destinatario || "";
   // Quantidade do ciclo ("200 paletes") vai na linha do certificado mestre (Paletes Maringá). Duração:
   // a 56 °C as declarações levam 32 minutos (a curva às vezes fecha 31); mais longas ficam como estão.
@@ -327,7 +339,7 @@ export function montarDeclaracaoPadrao(
     container: bl?.container ?? "",
     destino: bl?.destino ?? "",
     // Da tabela vem em maiúsculas; do packing list já vem com as siglas certas ("Grivalmar USA LLC").
-    importador: (bl?.importador && bl.importador !== bl.importador.toUpperCase() ? bl.importador : titulo(bl?.importador)) || base.importador,
+    importador: importadorPar || (bl?.importador && bl.importador !== bl.importador.toUpperCase() ? bl.importador : titulo(bl?.importador)) || base.importador,
     fatura: bl?.invoice ?? base.fatura,
     pesoBruto: bl?.pesoBruto ? `${bl.pesoBruto} Kgs` : base.pesoBruto,
     pesoLiquido: bl?.pesoLiquido ? `${bl.pesoLiquido} Kgs` : base.pesoLiquido,
