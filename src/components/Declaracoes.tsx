@@ -27,6 +27,7 @@ import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { hojeBR, soDigitos } from "@/lib/util";
 import { lerFonte, ModeloDeclaracao, type ModeloSalvo } from "./ModeloDeclaracao";
+import { PreviaPdf } from "./PreviaPdf";
 import { PreviaWord } from "./PreviaWord";
 import { SoltarArquivos } from "./SoltarArquivos";
 
@@ -680,24 +681,18 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   }
 
   // Prévia em PDF (LG): o próprio PDF que será baixado.
-  const [previaPdf, setPreviaPdf] = useState<string | null>(null);
+  const [previaPdf, setPreviaPdf] = useState<Uint8Array | null>(null);
   useEffect(() => {
     if (!atual?.dados || !modelo?.bytes) return;
     let vivo = true;
-    let url: string | null = null;
     const t = setTimeout(() => {
       void pdfDe(atual.dados!)
-        .then((b) => {
-          if (!vivo) return;
-          url = URL.createObjectURL(new Blob([b as BlobPart], { type: PDF }));
-          setPreviaPdf(url);
-        })
+        .then((b) => vivo && setPreviaPdf(b))
         .catch(() => undefined);
     }, 400);
     return () => {
       vivo = false;
       clearTimeout(t);
-      if (url) URL.revokeObjectURL(url);
     };
     // pdfDe usa o modelo atual (dependência já listada)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1092,7 +1087,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
               </div>
               {modelo?.bytes ? (
                 previaPdf ? (
-                  <iframe title="Prévia do PDF" src={`${previaPdf}#navpanes=0&view=FitH`} style={{ width: "100%", height: 1100, border: "1px solid var(--border)", borderRadius: 8, background: "#fff" }} />
+                  <PreviaPdf bytes={previaPdf} />
                 ) : (
                   <p className="hint">Gerando a prévia…</p>
                 )
