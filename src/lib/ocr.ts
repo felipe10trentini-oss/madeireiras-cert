@@ -97,6 +97,33 @@ async function ler(worker: Worker, png: Buffer, psm: PSM): Promise<string> {
 }
 
 /**
+ * Print/foto de um pedaço do DANFE (quadros com rótulos pequenos, às vezes com marca-texto por cima do
+ * nome): amplia para ~2600 px, clareia o marca-texto (cinza pelo verde, que o rosa/amarelo não escurecem)
+ * e lê como um bloco só — assim cada linha de valores sai inteira ("TRENIER GRAFICA … S/A 85.021.657/0001-98").
+ */
+export async function ocrNota(buffer: Buffer): Promise<string> {
+  const img = await loadImage(buffer);
+  const escala = Math.max(1, Math.min(4, 2600 / img.width));
+  const canvas = createCanvas(Math.round(img.width * escala), Math.round(img.height * escala));
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const d = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < d.data.length; i += 4) {
+    const g = Math.max(d.data[i + 1], Math.min(d.data[i], d.data[i + 1], d.data[i + 2]));
+    d.data[i] = d.data[i + 1] = d.data[i + 2] = g;
+  }
+  ctx.putImageData(d, 0, 0);
+  const worker = await createWorker("por", undefined, { langPath: path.join(process.cwd(), "ocr"), gzip: true, cachePath: os.tmpdir() });
+  try {
+    return await ler(worker, canvas.toBuffer("image/png"), PSM.SINGLE_BLOCK);
+  } finally {
+    await worker.terminate();
+  }
+}
+
+/**
  * Texto de uma imagem solta (print do WhatsApp, foto do pedido do cliente) para o comunicado: amplia e,
  * se o fundo for escuro (WhatsApp no modo escuro), inverte as cores antes de ler.
  */

@@ -68,10 +68,17 @@ function numeroDaChave(plano: string): string | null {
 
 export function lerNotaFiscal(texto: string): NotaFiscal | null {
   const t = texto.replace(/[ \t]+/g, " ");
-  if (!/DANFE|NF-e/i.test(t)) return null;
+  // Print de um pedaço do DANFE (só o quadro do destinatário) também é nota.
+  if (!/DANFE|NF-e|DESTINAT[ÁA]RIO\s*\/\s*REMETENTE/i.test(t)) return null;
   // O 1º "RAZÃO SOCIAL" sozinho na linha é o do destinatário (o do transportador vem com "FRETE").
   const iDest = t.search(/DESTINAT[ÁA]RIO\s*\/\s*REMETENTE/i);
   const dest = iDest >= 0 ? t.slice(iDest) : t;
+  // Print/foto (OCR): os rótulos saem tortos ("CNP) / CPF") e o nome pode nem ter rótulo; a linha do
+  // destinatário é a 1ª com CNPJ depois de "DESTINATÁRIO": o nome antes do CNPJ.
+  const linhaCnpj = iDest >= 0 ? dest.split("\n").slice(1).find((l) => /\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/.test(l)) : undefined;
+  const mOcr = linhaCnpj?.match(/^(.*?)\s*(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/);
+  const razaoOcr = mOcr?.[1].replace(/^[^A-ZÀ-Ú]+/, "").replace(/[\s|:;,.-]+$/, "").trim();
+  const ocr = { razao: razaoOcr && /[A-ZÀ-Ú]{3,}.*\s.*[A-ZÀ-Ú]{2,}/.test(razaoOcr) ? razaoOcr : null, cnpj: mOcr?.[2] ?? null };
   const plano = t.replace(/\s+/g, " ");
   const obs =
     plano.match(/Inf\. Contribuinte:\s*([\s\S]*?)(?:\s*Trib aprox|\s*RESERVADO AO FISCO|$)/i)?.[1]?.trim() ||
@@ -108,14 +115,15 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
   return {
     numero: plano.match(/N[º°o]\.?:?\s*(\d{1,9})\s+S[ée]rie/i)?.[1] ?? numeroDaChave(plano),
     emissao:
-      abaixo(dest, /DATA DE EMISS[ÃA]O/) ??
+      // No print (OCR) a linha de baixo traz nome, CNPJ e data juntos: fica só a data.
+      ((v) => (v && /\d{2}\/\d{2}\/\d{4}/.test(v) ? v.match(/\d{2}\/\d{2}\/\d{4}/)![0] : v))(abaixo(dest, /DATA DE EMISS[ÃA]O/)) ??
       plano.match(/Emiss[ãa]o:\s*(\d{2}\/\d{2}\/\d{4})/i)?.[1] ??
       // "DATA EMISSÃO\nDATA ENTRADA/SAIDA\n26/10/2026": a 1ª data depois do rótulo.
       dest.match(/DATA\s+(?:DE\s+)?EMISS[ÃA]O[\s\S]{0,120}?(\d{2}\/\d{2}\/\d{4})/i)?.[1] ??
       null,
     destinatario: {
-      razao: abaixo(dest, /RAZ[ÃA]O SOCIAL(?! FRETE)/),
-      cnpj: abaixo(dest, /CNPJ\s*\/\s*CPF/),
+      razao: ((r) => (r && !/CNP[J)]|CPF|DATA DE/i.test(r) ? r : (ocr.razao ?? r)))(abaixo(dest, /RAZ[ÃA]O SOCIAL(?! FRETE)/)),
+      cnpj: abaixo(dest, /CNPJ\s*\/\s*CPF/) ?? ocr.cnpj,
       endereco: abaixo(dest, /ENDERE[ÇC]O/),
       bairro: abaixo(dest, /BAIRRO\s*\/\s*DISTRITO/),
       cep: abaixo(dest, /\bCEP/),

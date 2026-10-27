@@ -256,12 +256,15 @@ export function montarDeclaracaoPadrao(
     });
   const ciclosDoc = digitados.length ? [...new Set(digitados)] : [...new Set([...(nf?.ciclos ?? []), ...bls.flatMap((b) => b.ciclos)])];
 
-  // A nota é da própria empresa (venda do palete)? Então o exportador é quem comprou.
+  // A nota é da própria empresa (venda do palete)? Então o exportador é quem comprou. Print de um pedaço
+  // da nota sem o emitente (só o quadro do destinatário, TLP): também é o destinatário.
+  const semEmitente = !!nf && !nf.emitente?.razao && !nf.emitente?.cnpj && !!nf.destinatario.razao;
   const notaPropria =
-    !!nf &&
-    !!empresa &&
-    ((!!nf.emitente?.cnpj && soDigitos(nf.emitente.cnpj) === soDigitos(empresa.cnpj)) ||
-      (!!nf.emitente?.razao && primeira(nf.emitente.razao) === primeira(empresa.razaoSocial)));
+    semEmitente ||
+    (!!nf &&
+      !!empresa &&
+      ((!!nf.emitente?.cnpj && soDigitos(nf.emitente.cnpj) === soDigitos(empresa.cnpj)) ||
+        (!!nf.emitente?.razao && primeira(nf.emitente.razao) === primeira(empresa.razaoSocial))));
   const exportadorDoc = (notaPropria ? titulo(nf?.destinatario.razao) : titulo(nf?.emitente?.razao)) || titulo(bl?.exportador);
   const cnpjTomador = (notaPropria ? nf?.destinatario.cnpj : nf?.emitente?.cnpj) ?? null;
 

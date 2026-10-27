@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { lerSessao, respostaNaoAutorizado } from "@/lib/auth";
 import { lerCertificadoMestre } from "@/lib/certificadoMestre";
 import { juntarDanfe, lerCartaCorrecao, lerNotaFiscal } from "@/lib/notaFiscal";
-import { ocrImagem, ocrTabela } from "@/lib/ocr";
+import { ocrImagem, ocrNota, ocrTabela } from "@/lib/ocr";
 import { extractPdf } from "@/lib/pdfText";
 
 export const runtime = "nodejs";
@@ -26,7 +26,12 @@ export async function POST(req: Request) {
     const ehImagem = !ehPdf && (/^image\//.test(arq.type) || /\.(png|jpe?g|webp|gif|bmp)$/i.test(arq.name));
     if (!ehPdf && !ehImagem) return NextResponse.json({ error: "Envie PDF ou imagem (PNG/JPG)." }, { status: 415 });
     // Imagem: tabela (print de e-mail/planilha com cabeçalho) lida por coluna; senão o texto corrido.
-    const text = ehPdf ? (await extractPdf(buf)).text : ((await ocrTabela(buf).catch(() => null)) ?? (await ocrImagem(buf)));
+    let text = ehPdf ? (await extractPdf(buf)).text : ((await ocrTabela(buf).catch(() => null)) ?? (await ocrImagem(buf)));
+    // Print/foto da nota (ou de um pedaço dela): relê do jeito do DANFE, que acerta os quadros.
+    if (ehImagem && /DANFE|DESTINAT[ÁA]RIO|NATUREZA DA OPERA/i.test(text)) {
+      const danfe = await ocrNota(buf).catch(() => "");
+      if (danfe.trim().length > text.trim().length * 0.8) text = danfe;
+    }
     if (!text.trim()) return NextResponse.json({ error: ehPdf ? "PDF sem texto (escaneado): não consigo ler." : "Não consegui ler a imagem." }, { status: 422 });
     // A carta de correção também fala de "NF-e": vem antes da nota.
     const cc = lerCartaCorrecao(text);
@@ -40,8 +45,10 @@ export async function POST(req: Request) {
           .catch((e) => (console.error("Leitura do DANFE por posição falhou", e), null))
       : null;
     const nf = lida ? juntarDanfe(lida, pos) : null;
-    const mestre = nf?.numero ? null : lerCertificadoMestre(text);
-    return NextResponse.json({ nf: nf?.numero ? nf : null, mestre: mestre?.numero ? mestre : null, texto: text.slice(0, 200_000) });
+    // Pedaço da nota sem o nº (print só do quadro do destinatário) também vale como nota.
+    const ehNota = !!nf && (!!nf.numero || (!ehPdf && !!nf.destinatario.razao && !!nf.destinatario.cnpj));
+    const mestre = ehNota ? null : lerCertificadoMestre(text);
+    return NextResponse.json({ nf: ehNota ? nf : null, mestre: mestre?.numero ? mestre : null, texto: text.slice(0, 200_000) });
   } catch (err) {
     console.error("Falha ao ler documento da remessa", err);
     return NextResponse.json({ error: "Não foi possível ler o PDF." }, { status: 422 });
