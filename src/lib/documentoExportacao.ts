@@ -13,6 +13,10 @@ export interface DocumentoExportacaoLido {
   invoice: string | null;
   booking: string | null;
   bl: string | null;
+  /** Packing list: "BUYER / IMPORTER" e "Total Pallets 52". */
+  importador?: string | null;
+  pacotes?: string | null;
+  tipo?: string | null;
 }
 
 const CNPJ = /\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b/;
@@ -24,7 +28,7 @@ const titulo = (s: string) =>
   s
     .toLowerCase()
     .replace(/(^|[\s(/.-])(\p{L})/gu, (_, a: string, b: string) => a + b.toUpperCase())
-    .replace(/\b(Ltda|Llc|Spa|Ltd|Inc)\b/gi, (m) => (m.length <= 3 ? m.toUpperCase() : m.charAt(0).toUpperCase() + m.slice(1).toLowerCase()))
+    .replace(/\b(Ltda|Llc|Spa|Ltd|Inc|Usa)\b/gi, (m) => (m.length <= 3 ? m.toUpperCase() : m.charAt(0).toUpperCase() + m.slice(1).toLowerCase()))
     .replace(/\bS\/a\b/gi, "S/A")
     .replace(/\bS\.a\./gi, "S.A.")
     .replace(/(?<=\s)(De|Da|Do|Das|Dos|E)(?=\s)/g, (m) => m.toLowerCase())
@@ -45,6 +49,17 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   const ls = texto.replace(/\r/g, "").split("\n").map((l) => l.trim()).filter(Boolean);
   const plano = ls.join(" ");
   const proxValor = (i: number) => ls.slice(i + 1).find((l) => !ehRotulo(l) && l.length > 1) ?? null;
+  // Rótulo com o valor na mesma linha ("Port of Discharge: GUAYAQUIL / ECUADOR"); "—" é vazio.
+  const naLinha = (rotulo: RegExp) =>
+    ls
+      .map((l) => l.match(new RegExp(`^(?:${rotulo.source})\\s*:\\s*(.+)$`, "i"))?.[1].trim())
+      .find((v) => v && !/^[—–-]+$/.test(v) && !/^\(/.test(v) && !ehRotulo(v) && !ehRascunho(v)) ?? null;
+  // Rótulo sozinho na linha ("CONSIGNEE", "BUYER / IMPORTER") com a empresa na linha de baixo.
+  const debaixo = (rotulo: RegExp) => {
+    const i = ls.findIndex((l) => new RegExp(`^(?:${rotulo.source})\\s*:?$`, "i").test(l));
+    const v = i >= 0 ? ls[i + 1] : null;
+    return v && !ENDERECO.test(v) && !ehRotulo(v) ? empresaEm(ls, i + 1) : null;
+  };
 
   // Exportador: o nome de empresa logo acima do (1º) CNPJ, ou na mesma linha depois de um tab.
   let exportador: string | null = null;
@@ -67,8 +82,8 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   }
 
   // Destinatário: a 1ª empresa depois do endereço do exportador; sem CNPJ, o que vem depois do rótulo CONSIGNEE.
-  let destinatario: string | null = null;
-  if (fimExportador >= 0) {
+  let destinatario: string | null = debaixo(/CONSIGNEE/);
+  if (!destinatario && fimExportador >= 0) {
     for (let k = fimExportador + 1; k < Math.min(ls.length, fimExportador + 14); k++) {
       const l = ls[k].split("\t")[0].trim();
       if (ENDERECO.test(l) || ehRotulo(l) || l !== l.toUpperCase() || l.length < 6 || /^(SOLD TO|BUYER|DATA|DATE)$/i.test(l)) continue;
@@ -86,6 +101,7 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
 
   // Navio: "Vessel MSC AMALFI Voyage 26N", rótulo VESSEL, ou linha de armador com viagem ("NYK DIANA V.025N").
   let navio: string | null =
+    naLinha(/Vessel\s*(?:\/|&|and)\s*Voyage(?:\s*No\.?)?/) ??
     [...plano.matchAll(/\bVessel\s+(.+?)\s+Voyage\s+(\S+)/gi)].map((m) => `${m[1]} ${m[2]}`).find((v) => !/[(&]|\bNO\.?$|\bNR\b|FLAG/i.test(v)) ?? null;
   // "MSC INSA - NA642R" (draft da MSC): navio - viagem.
   const ARMADOR = /^(MSC|NYK|MAERSK|CMA CGM|CMA|HAPAG|HAMBURG|ONE|EVER|COSCO|ZIM|HMM|YM|YANG MING|LOG-IN|ALIAN[CÇ]A|SEALAND|OOCL|PIL|WAN HAI)\s+[A-Z].*?(?:\bV\.?\s*\/?\s*[A-Z0-9]{2,6}|\s\/\s*[A-Z0-9]{3,6}|\s\d{2,3}[A-Z]|\s-\s[A-Z]{1,3}\d{2,4}[A-Z]?)\s*$/i;
@@ -105,7 +121,9 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
 
   // Destino: Place of delivery / Port of discharge; porto com código ("MOBILE (USMOB)"); o porto
   // estrangeiro que mais se repete; no packing list, o país do destinatário.
-  let destino: string | null = plano.match(/\bPort of Discharge\s+([A-Z][A-Z ,.]+?)(?:\s{2,}|\s+(?:Place|Marks|$))/)?.[1]?.trim() ?? null;
+  let destino: string | null =
+    naLinha(/Port of Discharge|Place of Delivery/) ??
+    plano.match(/\bPort of Discharge\s+([A-Z][A-Z ,.]+?)(?:\s{2,}|\s+(?:Place|Marks|$))/)?.[1]?.trim() ?? null;
   const comCodigo = ls.filter((l) => /\(([A-Z]{5})\)\s*$/.test(l) && !/^(ITAJA|PARANAGU|SANTOS|NAVEGANTES|ITAPO|RIO GRANDE|S[AÃ]O FRANCISCO)/i.test(l));
   if (comCodigo.length) destino = comCodigo[comCodigo.length - 1];
   if (!destino) {
@@ -152,7 +170,11 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   const invoice =
     plano.match(/\bINVOICE\s*(?:N[º°o.]*|#)?\s*:?\s*([A-Z0-9]{1,6}(?:\/[A-Z0-9]{1,6}){1,3})\b/i)?.[1] ??
     plano.match(/\b([A-Z]{1,5}\/[A-Z]{1,5}\/\d{2,4}\/\d{4})\b/)?.[1] ??
+    // Packing list/commercial invoice com o nº no cabeçalho: "N.º: AQ1492026" (é o da invoice).
+    (/PACKING LIST|COMMERCIAL INVOICE/i.test(plano) ? plano.match(/\bN[º°o.]*\s*:\s*([A-Z]{1,5}\d{5,12})\b/)?.[1] : null) ??
     null;
+  // "Total Pallets 52".
+  const total = plano.match(/\bTotal\s+(Pallets?|Paletes?|Skids?|Crates?)\s*:?\s*(\d[\d.]*)/i);
   // Booking: rótulo, ou os formatos dos armadores (EBKG/SAOG + 8 dígitos); contêiner (4 letras + 7 dígitos) não.
   const booking =
     plano.match(/\bBooking\s*(?:N[º°o.]*|#|No\.?)?\s*:?\s*([A-Z0-9]{8,14})\b/i)?.[1] ?? plano.match(/\b((?:EBKG|SAOG|BKG)\d{8,10})\b/)?.[1] ?? null;
@@ -170,6 +192,12 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
     invoice,
     booking: booking && booking !== bl ? booking : booking,
     bl,
+    importador: (() => {
+      const v = debaixo(/BUYER\s*\/\s*IMPORTER|IMPORTER|BUYER/);
+      return v ? titulo(v) : null;
+    })(),
+    pacotes: total?.[2] ?? null,
+    tipo: total?.[1] ?? null,
   };
 }
 

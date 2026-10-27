@@ -120,6 +120,9 @@ export function lerBL(texto: string): DadosBL {
     destinatario: doc.destinatario ?? rotulos.destinatario,
     exportador: doc.exportador ?? rotulos.exportador,
     invoice: doc.invoice,
+    importador: doc.importador,
+    pacotes: doc.pacotes,
+    tipo: doc.tipo,
   };
 }
 
@@ -323,7 +326,8 @@ export function montarDeclaracaoPadrao(
     booking: bl?.booking ?? "",
     container: bl?.container ?? "",
     destino: bl?.destino ?? "",
-    importador: titulo(bl?.importador) || base.importador,
+    // Da tabela vem em maiúsculas; do packing list já vem com as siglas certas ("Grivalmar USA LLC").
+    importador: (bl?.importador && bl.importador !== bl.importador.toUpperCase() ? bl.importador : titulo(bl?.importador)) || base.importador,
     fatura: bl?.invoice ?? base.fatura,
     pesoBruto: bl?.pesoBruto ? `${bl.pesoBruto} Kgs` : base.pesoBruto,
     pesoLiquido: bl?.pesoLiquido ? `${bl.pesoLiquido} Kgs` : base.pesoLiquido,

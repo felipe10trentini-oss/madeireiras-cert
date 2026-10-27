@@ -455,6 +455,18 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     };
   }
 
+  /** Ciclos da declaração como aparecem no campo: os digitados, os do pedido/nota ou os das linhas. */
+  const ciclosDe = (x: Item): string[] =>
+    (x.mann?.ciclos ?? (x.mann && ciclosComQuantidade(x.mann.bls)) ?? x.nf?.ciclos ?? x.dados?.linhas.map((l) => l.lote || l.ciclo) ?? []).filter(Boolean);
+  const novoCiclo = useRef<HTMLInputElement>(null);
+  /** "+ Adicionar ciclo": mais um ciclo na mesma declaração (o tratamento dele vem do relatório). */
+  function adicionarCiclo(i: number) {
+    const c = novoCiclo.current?.value.trim();
+    if (!c) return;
+    trocarCiclos(i, [...ciclosDe(itens[i]), c].join(", "));
+    novoCiclo.current!.value = "";
+  }
+
   /** Ciclos digitados (a nota não traz): puxa o tratamento deles do relatório/mestres. */
   function trocarCiclos(i: number, texto: string) {
     // Separados por vírgula, ponto e vírgula ou "e" antes de número; cada um pode ter o cliente
@@ -979,11 +991,37 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                     <input
                       id="d-ciclos"
                       key={`${sel}-${(atual.mann.ciclos ?? atual.nf?.ciclos ?? []).join(",")}`}
-                      defaultValue={(atual.mann.ciclos ?? ciclosComQuantidade(atual.mann.bls) ?? atual.nf?.ciclos ?? atual.dados.linhas.map((l) => l.lote || l.ciclo)).join(", ")}
+                      defaultValue={ciclosDe(atual).join(", ")}
                       placeholder="ex.: 249, 256 · 972 e 973 · ciclo + cliente: 508 Rio Claro · quantidade x ciclo: 90 x 252, 200 x 226"
                       onBlur={(e) => trocarCiclos(sel, e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && trocarCiclos(sel, (e.target as HTMLInputElement).value)}
                     />
+                  </div>
+                  <div className="toolbar" style={{ marginTop: 8, flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                    {ciclosDe(atual).map((c, k) => (
+                      <span key={`${c}-${k}`} className="btn btn-sm" style={{ cursor: "default" }}>
+                        Ciclo {c}
+                        <button
+                          type="button"
+                          aria-label={`Tirar o ciclo ${c}`}
+                          title="Tirar este ciclo"
+                          onClick={() => trocarCiclos(sel, ciclosDe(atual).filter((_, j) => j !== k).join(", "))}
+                          style={{ marginLeft: 6, border: 0, background: "none", cursor: "pointer", font: "inherit" }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      ref={novoCiclo}
+                      aria-label="Novo ciclo"
+                      placeholder="nº do ciclo"
+                      style={{ width: 130 }}
+                      onKeyDown={(e) => e.key === "Enter" && adicionarCiclo(sel)}
+                    />
+                    <button type="button" className="btn btn-sm" onClick={() => adicionarCiclo(sel)}>
+                      + Adicionar ciclo
+                    </button>
                   </div>
                   {relatorio &&
                     (atual.mann.ciclos ?? atual.nf?.ciclos ?? atual.mann.bls.flatMap((b) => b.ciclos)).map((cd) => {
