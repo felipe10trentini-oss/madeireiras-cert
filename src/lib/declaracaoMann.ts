@@ -221,6 +221,8 @@ export interface OpcoesDeclaracao {
   ciclos?: string[];
   /** Linha do relatório escolhida na tela para cada ciclo (o ciclo se repete entre as unidades): ciclo -> nº do certificado. */
   escolhas?: Record<string, string>;
+  /** NF-e digitada ao lado dos ciclos (o documento não traz, ou traz outra): vale no lugar da lida. */
+  nfe?: string;
   /** Campos que o Word da empresa tem: o que o documento base não trouxe vai "Nihil". */
   campos?: Set<string> | null;
 }
@@ -334,7 +336,7 @@ export function montarDeclaracaoPadrao(
     exportador,
     enderecoExportador: "",
     destinatario,
-    nfe: nf?.numero ?? bl?.nfe ?? "",
+    nfe: op.nfe?.trim() || nf?.numero || bl?.nfe || "",
     navio: bl?.navio ?? "",
     bl: bl?.bl ?? "",
     booking: bl?.booking ?? "",
@@ -379,7 +381,7 @@ export function montarDeclaracaoPadrao(
   const mann = !!empresa && soDigitos(empresa.cnpj) === CNPJ_MANN_VOLANTE;
   // Referência: a nota; senão a fatura/invoice, o booking, o B/L; pedido sem documento: empresa do ciclo + ciclo ("Madex 964").
   const cicloRef = doRelatorio[0]?.ciclo ?? usados[0]?.mestre.ciclo ?? "";
-  const numNf = nf?.numero ?? bl?.nfe;
+  const numNf = op.nfe?.trim() || nf?.numero || bl?.nfe;
   const semDoc = !numNf && !bl?.invoice && !bl?.booking && !bl?.bl;
   const nome = semDoc && cicloRef && doRelatorio[0]?.tomador ? curto(titulo(doRelatorio[0].tomador)) : curto(exportador);
   const ref = numNf

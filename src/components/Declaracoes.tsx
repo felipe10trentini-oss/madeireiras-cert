@@ -45,7 +45,7 @@ interface Item {
   /** A nota como veio (sem a carta de correção), para refazer quando a carta chegar depois. */
   original?: NotaFiscal;
   /** Modelo padrão (todas menos a LG): a nota e/ou os BLs desta declaração (para refazer quando chegar o mestre). */
-  mann?: { nf: NotaFiscal | null; bls: DadosBL[]; ciclos?: string[]; escolhas?: Record<string, string> };
+  mann?: { nf: NotaFiscal | null; bls: DadosBL[]; ciclos?: string[]; escolhas?: Record<string, string>; nfe?: string };
 }
 
 /** Ciclos do pedido com a quantidade de cada um, como se digita no campo: "90 x 252, 200 x 226". */
@@ -449,15 +449,24 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   }
 
   /** Refaz uma declaração do modelo padrão (mestre ou relatório novo, ciclos digitados). */
-  function remontar(x: Item, mestres: MestreLido[], rel: LinhaRelatorio[] | null, ciclos?: string[], escolhas?: Record<string, string>): Item {
+  function remontar(x: Item, mestres: MestreLido[], rel: LinhaRelatorio[] | null, ciclos?: string[], escolhas?: Record<string, string>, nfe?: string): Item {
     if (!x.mann) return x;
     const cs = ciclos ?? x.mann.ciclos;
     const es = escolhas ?? x.mann.escolhas;
+    const nf = nfe ?? x.mann.nfe;
     return {
       ...x,
-      ...montarDeclaracaoPadrao(x.mann.nf, x.mann.bls, mestres, empresa, x.dados?.data ?? hojeBR(), { relatorio: rel, ciclos: cs, escolhas: es, campos: camposModelo }),
-      mann: { ...x.mann, ciclos: cs, escolhas: es },
+      ...montarDeclaracaoPadrao(x.mann.nf, x.mann.bls, mestres, empresa, x.dados?.data ?? hojeBR(), { relatorio: rel, ciclos: cs, escolhas: es, nfe: nf, campos: camposModelo }),
+      mann: { ...x.mann, ciclos: cs, escolhas: es, nfe: nf },
     };
+  }
+
+  /** NF-e digitada ao lado dos ciclos: refaz a declaração com ela (campo NF-e e nome do arquivo). */
+  function trocarNfe(i: number, nfe: string) {
+    // Sem mudança, não refaz (refazer perde o que foi editado à mão nos campos).
+    const atualNf = itens[i]?.mann?.nfe ?? (itens[i]?.dados?.nfe === "Nihil" ? "" : itens[i]?.dados?.nfe ?? "");
+    if (atualNf === nfe.trim()) return;
+    setItens((xs) => xs.map((x, j) => (j === i ? remontar(x, mestresMann, relatorio?.linhas ?? null, undefined, undefined, nfe.trim()) : x)));
   }
 
   /** Ciclos da declaração como aparecem no campo: os digitados, os do pedido/nota ou os das linhas. */
@@ -987,7 +996,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
               )}
               {atual.mann && (
                 <div className="card" style={{ marginBottom: 14 }}>
-                  <div className="field" style={{ maxWidth: 420 }}>
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <div className="field" style={{ flex: "1 1 320px", maxWidth: 420 }}>
                     <label htmlFor="d-ciclos">Ciclos / lotes do tratamento (do relatório)</label>
                     <input
                       id="d-ciclos"
@@ -997,6 +1007,18 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                       onBlur={(e) => trocarCiclos(sel, e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && trocarCiclos(sel, (e.target as HTMLInputElement).value)}
                     />
+                  </div>
+                  <div className="field" style={{ flex: "0 1 180px" }}>
+                    <label htmlFor="d-nfe">NF-e (se precisar)</label>
+                    <input
+                      id="d-nfe"
+                      key={`${sel}-nfe-${atual.dados.nfe}`}
+                      defaultValue={atual.mann.nfe ?? (atual.dados.nfe === "Nihil" ? "" : atual.dados.nfe)}
+                      placeholder="ex.: 7399"
+                      onBlur={(e) => trocarNfe(sel, e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && trocarNfe(sel, (e.target as HTMLInputElement).value)}
+                    />
+                  </div>
                   </div>
                   <div className="toolbar" style={{ marginTop: 8, flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                     {ciclosDe(atual).map((c, k) => (
