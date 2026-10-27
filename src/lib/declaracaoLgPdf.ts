@@ -638,6 +638,11 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
   texto(pg, d.localTratamento, ME + 8 + largura(b, "Local do tratamento / Place of treatment:", 7.6) + 5, yl + 5, r, 8.2, TINTA);
   caixa(pg, ME, topo, LARG, hTotal, 5, { borda: VERDE, esp: 0.9 });
   y = topo + hTotal + 16;
+  // KD (secagem): a umidade fica fora da tabela, como campo.
+  if (o.geral && d.linhas.some((l) => l.tipo === "KD") && d.umidade.trim()) {
+    linhaCampo("UMIDADE CONTIDA", "Moisture", d.umidade);
+    y += 8;
+  }
   }
   if (o.geral && !o.tabela) {
     const tt = textoTratamento(d);
