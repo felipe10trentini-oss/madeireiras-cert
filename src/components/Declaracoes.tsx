@@ -1003,7 +1003,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                       id="d-ciclos"
                       key={`${sel}-${(atual.mann.ciclos ?? atual.nf?.ciclos ?? []).join(",")}`}
                       defaultValue={ciclosDe(atual).join(", ")}
-                      placeholder="ex.: 249, 256 · 972 e 973 · ciclo + cliente: 508 Rio Claro · quantidade x ciclo: 90 x 252, 200 x 226"
+                      placeholder="ex.: 249, 256 · 972 e 973 · ciclo + cliente: 508 Rio Claro · estufa-ciclo: 1-326 · quantidade x ciclo: 90 x 252"
                       onBlur={(e) => trocarCiclos(sel, e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && trocarCiclos(sel, (e.target as HTMLInputElement).value)}
                     />
@@ -1078,7 +1078,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                     })}
                   <p className="hint" style={{ margin: "4px 0 0" }}>
                     {relatorio
-                      ? "Digite os ciclos (ou lotes) e tecle Enter: o certificado, o mês e a duração vêm do relatório. Ciclo repetido entre os veículos: digite ciclo + cliente (ex.: 508 Rio Claro) ou escolha na lista. Vários ciclos com quantidades diferentes: quantidade x ciclo (ex.: 90 x 252, 200 x 226, 100 x 227)."
+                      ? "Digite os ciclos (ou lotes) e tecle Enter: o certificado, o mês e a duração vêm do relatório. Ciclo repetido entre os veículos: digite ciclo + cliente (ex.: 508 Rio Claro) ou escolha na lista. Empresa com mais de uma estufa (Madeval): estufa-ciclo (ex.: 1-326). Vários ciclos com quantidades diferentes: quantidade x ciclo (ex.: 90 x 252, 200 x 226, 100 x 227)."
                       : "Solte o relatório do MAPA da empresa na área acima para puxar o tratamento pelos ciclos."}
                   </p>
                 </div>

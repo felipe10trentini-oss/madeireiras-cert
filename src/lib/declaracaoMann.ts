@@ -9,7 +9,7 @@ import type { DeclaracaoMontada } from "./declaracaoLg";
 import type { Madeireira } from "./madeireiras";
 import { ciclosDoTexto, type NotaFiscal } from "./notaFiscal";
 import { regraDe } from "./certificado";
-import { escolherLinha, linhaDoRelatorio, linhasDoCiclo, type LinhaRelatorio } from "./relatorioMapa";
+import { escolherLinha, estufaCiclo, linhaDoRelatorio, linhasDoCiclo, type LinhaRelatorio } from "./relatorioMapa";
 import { clientesDoPedido, lerDocumentoExportacao, lerPedido } from "./documentoExportacao";
 import { completarComNihil } from "./preencherModelo";
 import { snMinusculo, soDigitos } from "./util";
@@ -282,7 +282,11 @@ export function montarDeclaracaoPadrao(
       const cands = rel ? linhasDoCiclo(rel, c) : [];
       const escolhida = op.escolhas?.[c] ? cands.find((x) => x.certificado === op.escolhas![c]) : undefined;
       const l = escolhida ?? (rel ? escolherLinha(cands, { cnpj: cnpjTomador, nome: exportadorDoc }) : null);
-      if (l && cands.length > 1 && !escolhida && !/\s/.test(c.trim())) {
+      // Mais de uma estufa (a unidade de tratamento é um número): o ciclo vai com a estufa, "1-326".
+      const estufas = [...new Set(cands.map((x) => (x.unidade ?? "").trim()))];
+      if (l && cands.length > 1 && !escolhida && !estufaCiclo(c) && estufas.length > 1 && estufas.every((u) => /^\d{1,3}$/.test(u))) {
+        avisos.push(`Ciclo ${numDo(c)}: está em ${estufas.length} estufas (${estufas.join(", ")}) — digite estufa-ciclo (ex.: “${l.unidade}-${numDo(c)}”) ou escolha na lista.`);
+      } else if (l && cands.length > 1 && !escolhida && !/\s/.test(c.trim())) {
         avisos.push(`Ciclo ${numDo(c)}: há ${cands.length} tratamentos com esse nº no relatório (unidades diferentes) — confira o escolhido ou digite ciclo + cliente (ex.: “${numDo(c)} ${(l.tomador.split(/\s+/)[0] ?? "").toLowerCase()}”).`);
       }
       if (l) {
@@ -310,7 +314,12 @@ export function montarDeclaracaoPadrao(
   const daRemessa = (x: MestreLido | LinhaRelatorio) => qtd.get(cicloDe.get(x) ?? "");
   const linhas = [
     ...usados.map((m) => ({ ...linhaDoMestre(m.mestre), quantidade: daRemessa(m) ?? (m.mestre.quantidade || "") })),
-    ...doRelatorio.map((l) => ({ ...linhaDoRelatorio(l), ...(daRemessa(l) ? { quantidade: daRemessa(l) } : {}) })),
+    ...doRelatorio.map((l) => ({
+      ...linhaDoRelatorio(l),
+      // Digitado estufa-ciclo ("1-326"): a declaração mostra assim, como a Madeval escreve.
+      ...(estufaCiclo(cicloDe.get(l) ?? "") ? { ciclo: cicloDe.get(l)! } : {}),
+      ...(daRemessa(l) ? { quantidade: daRemessa(l) } : {}),
+    })),
   ].map((l) => {
     const min = parseInt(l.duracao, 10);
     const t = parseFloat(l.temperatura.replace(",", "."));

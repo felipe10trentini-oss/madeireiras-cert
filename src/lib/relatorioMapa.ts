@@ -129,14 +129,25 @@ const semZeros = (c: string) => (/^\d+$/.test(c) ? String(parseInt(c, 10)) : c.t
 
 const chave = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 
+/** "1-326" -> estufa 1, ciclo 326 (só números, para não confundir com o código da curva). */
+export function estufaCiclo(s: string): { estufa: string; ciclo: string } | null {
+  const m = s.trim().match(/^(\d{1,3})\s*-\s*(\d{1,5})$/);
+  return m ? { estufa: m[1], ciclo: m[2] } : null;
+}
+
 /**
  * Linhas do relatório do ciclo (ou lote) pedido. Aceita ciclo + cliente ("508 Rio Claro", "964 Madex"):
- * o mesmo nº de ciclo se repete entre as unidades (os 5 veículos da Mann), e o cliente separa.
+ * o mesmo nº de ciclo se repete entre as unidades (os 5 veículos da Mann), e o cliente separa. E estufa-ciclo
+ * ("1-326"): empresa com mais de uma estufa (Madeval), a estufa na "Identificação da unidade de tratamento".
  */
 export function linhasDoCiclo(rel: LinhaRelatorio[], ciclo: string): LinhaRelatorio[] {
   const [num, ...resto] = ciclo.trim().split(/\s+/);
-  const c = semZeros(num ?? "");
-  const todas = rel.filter((l) => semZeros(l.ciclo) === c || (l.lote && l.lote === c));
+  const estufa = estufaCiclo(num ?? "");
+  const c = semZeros(estufa?.ciclo ?? num ?? "");
+  // A mesma linha em dois relatórios (o do mês repete o acumulado do ano) conta uma vez só.
+  const todas = rel
+    .filter((l) => (semZeros(l.ciclo) === c || (l.lote && l.lote === c)) && (!estufa || semZeros((l.unidade ?? "").trim()) === semZeros(estufa.estufa)))
+    .filter((l, i, xs) => xs.findIndex((x) => x.certificado === l.certificado && x.ciclo === l.ciclo && x.unidade === l.unidade) === i);
   const filtro = chave(resto.join(" "));
   if (!filtro) return todas;
   const doCliente = todas.filter((l) => chave(l.tomador).includes(filtro) || filtro.split(" ").every((p) => chave(l.tomador).includes(p)));
