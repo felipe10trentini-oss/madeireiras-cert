@@ -21,6 +21,7 @@ import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { textoDaPlanilha, textoDoWord } from "@/lib/textoDeArquivo";
 import { soDigitos } from "@/lib/util";
+import { SeiCard } from "./SeiCard";
 import { SoltarArquivos } from "./SoltarArquivos";
 
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -337,6 +338,9 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
         </select>
         <div className="kpi-sub">Só as empresas que emitem comunicado (as outras usam programação).</div>
       </div>
+
+      {/* Login e senha do SEI do RT da empresa, para peticionar o comunicado com o RT certo. */}
+      {empresa && <SeiCard key={empresa.cnpj} senha={senha} empresa={empresa} valores={null} onToast={setToast} />}
 
       {erro && (
         <div className="alert-box critical" role="alert">
