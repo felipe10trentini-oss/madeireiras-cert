@@ -70,10 +70,12 @@ function daTabela(texto: string): Partial<DadosBL> | null {
     destinatario: de(/consignee|destinat/),
     importador: de(/cliente|importer|importador|buyer|notify/),
     exportador: de(/exportador|exporter|shipper/),
-    invoice: de(/invoice|fatura/),
+    // O OCR às vezes separa os pontos: "325247 .26.3" -> "325247.26.3".
+    invoice: de(/invoice|fatura/)?.replace(/\s*\.\s*/g, ".") ?? null,
     pesoBruto: de(/gross|bruto/),
     pesoLiquido: de(/net\s*weight|l[íi]quido/),
-    pacotes: de(/packages|volumes|pacotes|qtd.*volumes/),
+    // "Total Packages" em duas linhas: o OCR às vezes só pega o "Total".
+    pacotes: de(/packages|volumes|pacotes|qtd.*volumes/) ?? de(/^total\b(?!.*(weight|peso|gross|net|bruto|l[íi]quido|valor|amount|value))/),
     tipo: de(/tipo|certif|descri|produto|material/),
   };
   return Object.values(r).some(Boolean) ? r : null;

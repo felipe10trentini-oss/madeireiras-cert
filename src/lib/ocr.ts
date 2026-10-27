@@ -152,16 +152,18 @@ export async function ocrTabela(buffer: Buffer): Promise<string | null> {
     const i = (y * W + x) * 4;
     return (d[i] + d[i + 1] + d[i + 2]) / 3;
   };
-  // Cabeçalho: a primeira faixa de linhas de pixels escura (média < 120).
-  const mediaLinha = (y: number) => {
-    let s2 = 0;
-    for (let x = 0; x < W; x += 3) s2 += lum(x, y);
-    return s2 / Math.ceil(W / 3);
+  // Cabeçalho: a primeira faixa de linhas de pixels escura (a maior parte dos pixels < 120; pela média, a
+  // linha que corta as letras brancas do título parecia clara e o cabeçalho acabava no meio).
+  const fracao = (y: number, f: (l: number) => boolean) => {
+    let n = 0;
+    for (let x = 0; x < W; x += 3) if (f(lum(x, y))) n++;
+    return n / Math.ceil(W / 3);
   };
   let ini = 0;
-  while (ini < H && mediaLinha(ini) >= 120) ini++;
+  while (ini < H && fracao(ini, (l) => l < 120) <= 0.55) ini++;
+  // Acaba quando a linha fica quase toda clara (o corpo da tabela); as letras brancas não contam.
   let fim = ini;
-  while (fim < H && mediaLinha(fim) < 120) fim++;
+  while (fim < H && fracao(fim, (l) => l > 200) < 0.7) fim++;
   if (ini >= H || fim - ini < 12 * escala) return null;
   // Colunas: dentro do cabeçalho, as colunas de pixels quase todas claras são os separadores.
   const sep: boolean[] = [];
@@ -195,7 +197,18 @@ export async function ocrTabela(buffer: Buffer): Promise<string | null> {
     if (c - topo > 14 * escala) limitesLinhas.push([topo, c]);
     topo = c;
   }
-  if (H - topo > 14 * escala && !cortes.length) limitesLinhas.push([topo, H]);
+  if (!cortes.length) {
+    if (H - topo > 14 * escala) limitesLinhas.push([topo, H]);
+  } else {
+    // Última linha sem grade embaixo (a tabela acaba no fundo branco do e-mail): vai até o branco.
+    const branca = (y: number) => {
+      for (let x2 = xa; x2 < xb; x2 += 3) if (lum(x2, y) < 245) return false;
+      return true;
+    };
+    let fimTabela = topo;
+    while (fimTabela < H && !branca(fimTabela)) fimTabela++;
+    if (fimTabela - topo > 14 * escala) limitesLinhas.push([topo, fimTabela]);
+  }
   if (!limitesLinhas.length) return null;
 
   const worker = await createWorker("por", undefined, { langPath: path.join(process.cwd(), "ocr"), gzip: true, cachePath: os.tmpdir() });

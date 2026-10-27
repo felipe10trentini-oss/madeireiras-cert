@@ -27,6 +27,7 @@ import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { hojeBR, soDigitos } from "@/lib/util";
 import { lerFonte, ModeloDeclaracao, type ModeloSalvo } from "./ModeloDeclaracao";
+import { ColarPedido } from "./ColarPedido";
 import { PreviaPdf } from "./PreviaPdf";
 import { PreviaWord } from "./PreviaWord";
 import { SoltarArquivos } from "./SoltarArquivos";
@@ -382,7 +383,9 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     }
     // PDF ou imagem (foto/print da nota, do BL…: lida por OCR).
     const pdfs = files.filter((f) => /\.(pdf|png|jpe?g|webp)$/i.test(f.name) || f.type.startsWith("image/"));
-    if (!pdfs.length) {
+    // Pedido escrito/colado na caixa (ColarPedido): lido aqui mesmo, como o texto de um print.
+    const textos = files.filter((f) => f.type === "text/plain" || /\.txt$/i.test(f.name));
+    if (!pdfs.length && !textos.length) {
       if (rel && rel !== relatorio) {
         const r = rel;
         setItens((xs) => xs.map((x) => (x.mann ? remontar(x, mestresMann, r.linhas) : x)));
@@ -395,6 +398,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     const bls: { f: File; bl: DadosBL }[] = [];
     const novosMestres: MestreLido[] = [];
     const erros: Item[] = [];
+    for (const f of textos) for (const bl of blsDoTexto(await f.text())) bls.push({ f, bl });
     for (const f of pdfs) {
       try {
         const form = new FormData();
@@ -783,6 +787,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
             ocupado={carregando}
             onArquivos={(fs) => void soltar(fs)}
           />
+          <ColarPedido texto={false} ocupado={carregando} onArquivos={(fs) => void soltar(fs)} />
           <div className="actions" style={{ marginTop: 0 }}>
             <span className={`badge ${dr ? "pago" : "pendente"}`}>{drArquivo ? `DR: ${drArquivo}` : "DR ainda não carregada"}</span>
             {nfs.length > 0 && <span className="hint">{nfs.length} nota(s) lida(s)</span>}
@@ -811,6 +816,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
             ocupado={carregando}
             onArquivos={(fs) => void soltarMann(fs)}
           />
+          <ColarPedido ocupado={carregando} onArquivos={(fs) => void soltarMann(fs)} />
           <div className="actions" style={{ marginTop: 0 }}>
             <span className={`badge ${relatorio ? "pago" : "pendente"}`}>
               {relatorio
