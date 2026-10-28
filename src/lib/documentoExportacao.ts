@@ -99,8 +99,23 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
     if (v && !ENDERECO.test(v) && v === v.toUpperCase() && EMPRESA.test(v)) destinatario = empresaEm(ls, ls.indexOf(v, iCons));
   }
 
+  // BL da RST International Logistics: as caixas saem fora de ordem no texto, mas sempre no mesmo lugar —
+  // 1ª linha o booking, 2ª o nº do B/L, a linha "NAVIO | VIAGEM" ("BREMERHAVEN EXPRESS | NA643R") e, logo
+  // abaixo do rótulo "VESSEL AND VOYAGE", o porto de descarga ("Bremerhaven / Alemanha").
+  const rst = /RST INTERNATIONAL LOGISTICS/i.test(plano);
+  const iVv = rst ? ls.findIndex((l) => /^VESSEL AND VOYAGE$/i.test(l.trim())) : -1;
+  const rstDados = rst
+    ? {
+        booking: /^(?:\d{8,10}|(?:EBKG|SAOG|BKG)\d{8,10})$/.test(ls[0] ?? "") ? ls[0] : null,
+        bl: /^[A-Z]{2,5}\d{2}[A-Z0-9]{3,12}$/.test(ls[1] ?? "") ? ls[1] : null,
+        navio: ls.find((l) => /^[A-Z][A-Z0-9 .'-]{2,40}\s\|\s*[A-Z0-9]{3,8}$/.test(l)) ?? null,
+        destino: iVv >= 0 && ls[iVv + 1] && !ehRotulo(ls[iVv + 1]) ? ls[iVv + 1] : null,
+      }
+    : null;
+
   // Navio: "Vessel MSC AMALFI Voyage 26N", rótulo VESSEL, ou linha de armador com viagem ("NYK DIANA V.025N").
   let navio: string | null =
+    rstDados?.navio ??
     naLinha(/Vessel\s*(?:\/|&|and)\s*Voyage(?:\s*No\.?)?/) ??
     [...plano.matchAll(/\bVessel\s+(.+?)\s+Voyage\s+(\S+)/gi)]
       // "VESSEL AND VOYAGE PAPEETE…" é o rótulo seguido de outra caixa, não o navio.
@@ -126,6 +141,7 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   // Destino: Place of delivery / Port of discharge; porto com código ("MOBILE (USMOB)"); o porto
   // estrangeiro que mais se repete; no packing list, o país do destinatário.
   let destino: string | null =
+    rstDados?.destino ??
     naLinha(/Port of Discharge|Place of Delivery/) ??
     plano.match(/\bPort of Discharge\s+([A-Z][A-Z ,.]+?)(?:\s{2,}|\s+(?:Place|Marks|$))/)?.[1]?.trim() ?? null;
   const comCodigo = ls.filter((l) => /\(([A-Z]{5})\)\s*$/.test(l) && !/^(ITAJA|PARANAGU|SANTOS|NAVEGANTES|ITAPO|RIO GRANDE|S[AÃ]O FRANCISCO)/i.test(l));
@@ -189,9 +205,13 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   const total = plano.match(/\bTotal\s+(Pallets?|Paletes?|Skids?|Crates?)\s*:?\s*(\d[\d.]*)/i);
   // Booking: rótulo, ou os formatos dos armadores (EBKG/SAOG + 8 dígitos); contêiner (4 letras + 7 dígitos) não.
   const booking =
-    plano.match(/\bBooking\s*(?:N[º°o.]*|#|No\.?)?\s*:?\s*([A-Z0-9]{8,14})\b/i)?.[1] ?? plano.match(/\b((?:EBKG|SAOG|BKG)\d{8,10})\b/)?.[1] ?? null;
+    rstDados?.booking ??
+    plano.match(/\bBooking\s*(?:N[º°o.]*|#|No\.?)?\s*:?\s*([A-Z0-9]{8,14})\b/i)?.[1] ??
+    plano.match(/\b((?:EBKG|SAOG|BKG)\d{8,10})\b/)?.[1] ??
+    null;
   const blRotulo = plano.match(/\b(?:B\/L\s*No\.?|BILL OF LADING\s*NO\.?|Sea Waybill No\.?)\s*:?\s*([A-Z0-9]{8,18})\b/i)?.[1];
   const bl =
+    rstDados?.bl ??
     (ehRascunho(blRotulo) ? null : blRotulo) ??
     plano.match(/\b(BRZSE\d{8}|ONEY[A-Z]{4}\d{8}|MEDU[A-Z0-9]{8}|HLCU[A-Z0-9]{10,14})\b/)?.[1] ??
     // "B/L NUMBER" sem valor ao lado (BL da RST: o nº vem no alto da página, logo abaixo do booking,
