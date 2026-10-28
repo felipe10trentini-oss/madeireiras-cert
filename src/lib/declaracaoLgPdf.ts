@@ -596,8 +596,18 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
   const comCiclo = o.geral && d.linhas.some((l) => l.ciclo);
   // Vários ciclos com a quantidade de cada um na remessa (pedido "90 - Pallet Ciclo 0252 / 200 - … 0226").
   const comQtd = comCiclo && !!d.qtdPorCiclo;
+  // Ciclo pelo código da curva e o lote ao lado (DR da Pinustan: "UR010655PR190726" | "1-655").
+  const comLote = comCiclo && d.linhas.some((l) => l.lote && l.lote !== l.ciclo);
   const cols = (
-    comQtd ? [0, 0.1, 0.22, 0.32, 0.43, 0.64, 0.85, 1] : comCiclo ? [0, 0.13, 0.25, 0.38, 0.62, 0.86, 1] : [0, 0.16, 0.34, 0.6, 0.86, 1]
+    comLote && comQtd
+      ? [0, 0.17, 0.25, 0.34, 0.42, 0.51, 0.68, 0.86, 1]
+      : comLote
+        ? [0, 0.18, 0.27, 0.37, 0.48, 0.67, 0.86, 1]
+        : comQtd
+          ? [0, 0.1, 0.22, 0.32, 0.43, 0.64, 0.85, 1]
+          : comCiclo
+            ? [0, 0.13, 0.25, 0.38, 0.62, 0.86, 1]
+            : [0, 0.16, 0.34, 0.6, 0.86, 1]
   ).map((f) => ME + f * LARG);
   const topo = y;
   const hFaixa = 17;
@@ -611,6 +621,7 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
   pg.drawRectangle({ x: ME, y: A4.h - topo - hFaixa - hCab, width: LARG, height: hCab, color: VERDE_CLARO });
   const cab: [string, string][] = [
     ...(comCiclo ? ([["Ciclo", "Cycle"]] as [string, string][]) : []),
+    ...(comLote ? ([["Lote", "Lot"]] as [string, string][]) : []),
     ...(comQtd ? ([["Quantidade", "Quantity"]] as [string, string][]) : []),
     ["Tratamento", "Treatment"],
     ["Temperatura", "Temperature"],
@@ -627,8 +638,8 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
   const dh = (v: string) => v.replace(/^(\d{2}\/\d{2}\/\d{4})\s+(\d{2}h\d{2}m)$/, "$1  ·  $2");
   linhas.forEach((l, k) => {
     if (k % 2 === 1) pg.drawRectangle({ x: ME, y: A4.h - yl - hLin, width: LARG, height: hLin, color: CINZA_FUNDO });
-    const vals = [...(comCiclo ? [l.ciclo] : []), ...(comQtd ? [l.quantidade ?? ""] : []), l.tipo, l.temperatura ? `${l.temperatura} °C` : "", dh(l.inicio), dh(l.fim), l.duracao];
-    vals.forEach((v, i) => centro(pg, v || "—", (cols[i] + cols[i + 1]) / 2, yl + 5, i === (comCiclo ? 1 : 0) + (comQtd ? 1 : 0) ? b : r, 8.4, TINTA));
+    const vals = [...(comCiclo ? [l.ciclo] : []), ...(comLote ? [l.lote] : []), ...(comQtd ? [l.quantidade ?? ""] : []), l.tipo, l.temperatura ? `${l.temperatura} °C` : "", dh(l.inicio), dh(l.fim), l.duracao];
+    vals.forEach((v, i) => centro(pg, v || "—", (cols[i] + cols[i + 1]) / 2, yl + 5, i === (comCiclo ? 1 : 0) + (comLote ? 1 : 0) + (comQtd ? 1 : 0) ? b : r, 8.4, TINTA));
     linhaH(pg, ME, MD, yl, 0.4, CINZA_LINHA);
     yl += hLin;
   });

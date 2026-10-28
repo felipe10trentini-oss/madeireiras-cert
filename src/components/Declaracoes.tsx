@@ -27,6 +27,7 @@ import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { hojeBR, soDigitos } from "@/lib/util";
 import { lerFonte, ModeloDeclaracao, type ModeloSalvo } from "./ModeloDeclaracao";
+import { lerDrHt, linhaDaDr, type DrHt } from "@/lib/drHt";
 import { ColarPedido } from "./ColarPedido";
 import { PreviaPdf } from "./PreviaPdf";
 import { PreviaWord } from "./PreviaWord";
@@ -241,6 +242,10 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   const [mestresMann, setMestresMann] = useState<MestreLido[]>([]);
   // Relatório do MAPA da empresa (aba TÉRMICO): o tratamento de cada ciclo, no lugar dos mestres.
   const [relatorio, setRelatorio] = useState<{ nome: string; linhas: LinhaRelatorio[]; atualizado?: string } | null>(null);
+  // DR em Excel da empresa (Pinustan): o tratamento sai da aba CONSOLIDADOS HT (ou do lote digitado, na
+  // DADOS HT). No ref para as remontagens logo depois de soltar verem a DR nova.
+  const [drHt, setDrHt] = useState<{ nome: string; dr: DrHt } | null>(null);
+  const drRef = useRef<DrHt | null>(null);
   // Rótulos que o Word da empresa tem (o que faltar nos documentos vai "Nihil").
   const [camposModelo, setCamposModelo] = useState<Set<string> | null>(null);
   // Editor dos campos da declaração aberta (abre sozinho quando falta a quantidade).
@@ -334,6 +339,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     setCartas(new Map());
     setMestresMann([]);
     setRelatorio(null);
+    setDrHt(null);
+    drRef.current = null;
   }
 
   /**
@@ -350,7 +357,16 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     // Relatório do MAPA (.xlsx): refaz as declarações que já estão na lista com o tratamento dele.
     let rel = relatorio;
     const planilha = files.find((f) => /\.xlsx$/i.test(f.name));
-    if (planilha) {
+    // A DR em Excel (abas CONSOLIDADOS HT / DADOS HT) no lugar do relatório.
+    const dr = planilha ? await lerDrHt(await planilha.arrayBuffer()).catch(() => null) : null;
+    if (planilha && dr) {
+      drRef.current = dr;
+      setDrHt({ nome: planilha.name, dr });
+      setToast(
+        `DR lida: ${dr.consolidado.length ? `aba CONSOLIDADOS HT com ${dr.consolidado.map((l) => l.lote).join(", ")}` : "aba CONSOLIDADOS HT vazia"} · ${dr.historico.length} lotes na DADOS HT.`
+      );
+    }
+    if (planilha && !dr) {
       try {
         const linhas = await lerRelatorioTermico(await planilha.arrayBuffer());
         if (!linhas.length) setToast("Não achei tratamentos na aba TÉRMICO deste relatório.");
@@ -386,9 +402,9 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     // Pedido escrito/colado na caixa (ColarPedido): lido aqui mesmo, como o texto de um print.
     const textos = files.filter((f) => f.type === "text/plain" || /\.txt$/i.test(f.name));
     if (!pdfs.length && !textos.length) {
-      if (rel && rel !== relatorio) {
+      if ((rel && rel !== relatorio) || dr) {
         const r = rel;
-        setItens((xs) => xs.map((x) => (x.mann ? remontar(x, mestresMann, r.linhas) : x)));
+        setItens((xs) => xs.map((x) => (x.mann ? remontar(x, mestresMann, r?.linhas ?? null) : x)));
       }
       return;
     }
@@ -422,7 +438,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     const montarMann = (arquivoNf: string, nf: NotaFiscal | null, b: DadosBL[], data: string): Item => ({
       arquivoNf,
       nf,
-      ...montarDeclaracaoPadrao(nf, b, mestres, empresa, data, { relatorio: rel?.linhas, campos: camposModelo }),
+      ...montarDeclaracaoPadrao(nf, b, mestres, empresa, data, { relatorio: rel?.linhas, dr: drRef.current, campos: camposModelo }),
       mann: { nf, bls: b },
     });
     const out: Item[] = [];
@@ -456,7 +472,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     const nf = nfe ?? x.mann.nfe;
     return {
       ...x,
-      ...montarDeclaracaoPadrao(x.mann.nf, x.mann.bls, mestres, empresa, x.dados?.data ?? hojeBR(), { relatorio: rel, ciclos: cs, escolhas: es, nfe: nf, campos: camposModelo }),
+      ...montarDeclaracaoPadrao(x.mann.nf, x.mann.bls, mestres, empresa, x.dados?.data ?? hojeBR(), { relatorio: rel, ciclos: cs, escolhas: es, nfe: nf, dr: drRef.current, campos: camposModelo }),
       mann: { ...x.mann, ciclos: cs, escolhas: es, nfe: nf },
     };
   }
@@ -818,7 +834,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                 Solte aqui a <b>nota fiscal</b> e/ou o <b>BL, booking ou packing list</b> (PDF) e o <b>relatório do MAPA</b> da empresa (.xlsx, o de
                 RELATÓRIOS 2025; fica guardado para as próximas vezes), ou clique para escolher. A declaração só precisa do mês: o ciclo escrito na nota (ex.: “CICLO MANN 0249”) puxa o
                 certificado, a data e a duração do relatório. Sem ciclo na nota, digite-o no campo “Ciclos”. O certificado mestre (PDF) também serve.
-                Várias notas de uma vez: uma declaração por nota.
+                Várias notas de uma vez: uma declaração por nota. Empresa que usa a DR em Excel (Pinustan): solte a “… - DR.xlsx” — o tratamento sai da
+                aba CONSOLIDADOS HT.
               </>
             }
             accept=".pdf,.xlsx,.docx,.png,.jpg,.jpeg,.webp,image/*"
@@ -832,6 +849,11 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                 ? `Relatório: ${relatorio.nome} · ${relatorio.linhas.length} tratamentos${relatorio.atualizado ? ` · guardado em ${new Date(relatorio.atualizado).toLocaleDateString("pt-BR")}` : ""}`
                 : "Relatório do MAPA ainda não carregado"}
             </span>
+            {drHt && (
+              <span className="badge pago">
+                DR: {drHt.nome} · CONSOLIDADOS HT: {drHt.dr.consolidado.map((l) => l.lote).join(", ") || "vazia"}
+              </span>
+            )}
             {mestresMann.length > 0 && (
               <span className="badge pago">
                 Mestres: {mestresMann.map((m) => `${m.mestre.numero}${m.mestre.ciclo ? ` (ciclo ${parseInt(m.mestre.ciclo, 10) || m.mestre.ciclo})` : ""}`).join(", ")}
@@ -1050,6 +1072,8 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                     (atual.mann.ciclos ?? atual.nf?.ciclos ?? atual.mann.bls.flatMap((b) => b.ciclos)).map((cd) => {
                       const c = quantidadeDigitada(cd)?.ciclo ?? cd;
                       // O mesmo nº de ciclo em mais de uma unidade (os veículos da Mann): escolhe qual.
+                      // Lote que veio da DR: não há o que escolher no relatório.
+                      if (drRef.current && linhaDaDr(drRef.current, c)) return null;
                       const cands = linhasDoCiclo(relatorio.linhas, c);
                       if (cands.length < 2) return null;
                       const atualCert = atual.mann?.escolhas?.[c] ?? atual.dados?.linhas.find((l) => cands.some((k) => k.certificado === l.certificado))?.certificado ?? "";

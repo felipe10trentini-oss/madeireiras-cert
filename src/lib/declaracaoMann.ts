@@ -4,7 +4,8 @@
 // o exportador); empresa que vende o palete (Paletes Maringá -> Avenorte): a nota é dela, e o exportador
 // é o destinatário da nota.
 import type { CertificadoMestre } from "./certificadoMestre";
-import { dadosIniciais, linhaDoMestre, type DadosDeclaracao } from "./declaracao";
+import { dadosIniciais, linhaDoMestre, type DadosDeclaracao, type LinhaTratamento } from "./declaracao";
+import { linhaDaDr, type DrHt } from "./drHt";
 import type { DeclaracaoMontada } from "./declaracaoLg";
 import type { Madeireira } from "./madeireiras";
 import { ciclosDoTexto, type NotaFiscal } from "./notaFiscal";
@@ -223,6 +224,8 @@ export interface OpcoesDeclaracao {
   escolhas?: Record<string, string>;
   /** NF-e digitada ao lado dos ciclos (o documento não traz, ou traz outra): vale no lugar da lida. */
   nfe?: string;
+  /** DR em Excel da empresa (Pinustan): o tratamento sai das abas CONSOLIDADOS HT / DADOS HT. */
+  dr?: DrHt | null;
   /** Campos que o Word da empresa tem: o que o documento base não trouxe vai "Nihil". */
   campos?: Set<string> | null;
 }
@@ -274,8 +277,19 @@ export function montarDeclaracaoPadrao(
   const usados: MestreLido[] = [];
   const doRelatorio: LinhaRelatorio[] = [];
   const cicloDe = new Map<MestreLido | LinhaRelatorio, string>();
-  if (ciclosDoc.length) {
+  // DR em Excel (Pinustan): o tratamento vem dela — a aba CONSOLIDADOS HT, ou o lote digitado na DADOS HT.
+  const dosDr: LinhaTratamento[] = [];
+  // Sem lote digitado, valem sempre as linhas da CONSOLIDADOS HT (mesmo que a nota traga ciclo).
+  const usarConsolidado = !!op.dr?.consolidado.length && !digitados.length;
+  if (usarConsolidado) dosDr.push(...op.dr!.consolidado);
+  if (ciclosDoc.length && !usarConsolidado) {
     for (const c of ciclosDoc) {
+      const naDr = op.dr ? linhaDaDr(op.dr, c.trim().split(/\s+/)[0]) : null;
+      if (naDr) {
+        const q = qtd.get(numDo(c));
+        dosDr.push(q ? { ...naDr, quantidade: q } : naDr);
+        continue;
+      }
       const m = doMestre(c);
       if (m) {
         usados.push(m);
@@ -295,9 +309,9 @@ export function montarDeclaracaoPadrao(
       if (l) {
         doRelatorio.push(l);
         cicloDe.set(l, numDo(c));
-      } else avisos.push(rel || mestres.length ? `Ciclo ${c}: não achei no relatório nem nos certificados mestres.` : `Ciclo ${c}: solte o relatório do MAPA da empresa (ou o certificado mestre).`);
+      } else avisos.push(op.dr ? `Lote ${c}: não achei na DR (abas CONSOLIDADOS HT e DADOS HT).` : rel || mestres.length ? `Ciclo ${c}: não achei no relatório nem nos certificados mestres.` : `Ciclo ${c}: solte o relatório do MAPA da empresa (ou o certificado mestre).`);
     }
-  } else {
+  } else if (!dosDr.length) {
     usados.push(...mestres);
     if (mestres.length) avisos.push(nf ? "A nota não traz o nº do ciclo: entraram os certificados mestres soltos junto — confira se são os desta remessa." : "O BL/booking não traz o nº do ciclo: confira o certificado mestre.");
     else avisos.push("A nota/BL não traz o nº do ciclo: digite os ciclos (ou lotes) no campo “Ciclos” para puxar o tratamento do relatório.");
@@ -323,6 +337,8 @@ export function montarDeclaracaoPadrao(
       ...(estufaCiclo(cicloDe.get(l) ?? "") ? { ciclo: cicloDe.get(l)! } : {}),
       ...(daRemessa(l) ? { quantidade: daRemessa(l) } : {}),
     })),
+    // Da DR: ciclo (UR…), lote, início/final com hora; a coluna do certificado às vezes repete o lote.
+    ...dosDr.map((l) => ({ ...l, certificado: /^\d{1,4}\/\d{4}$/.test(l.certificado) ? l.certificado : "" })),
   ].map((l) => {
     const min = parseInt(l.duracao, 10);
     const t = parseFloat(l.temperatura.replace(",", "."));
@@ -338,6 +354,7 @@ export function montarDeclaracaoPadrao(
   const locais = [
     ...usados.map((m) => m.mestre.enderecoTrat),
     ...doRelatorio.map((l) => (prestadora ? tomadores[l.tomadorCnpj]?.endereco || l.local : empresa?.endereco || l.local)),
+    ...(dosDr.length ? [empresa?.endereco] : []),
   ].filter((x): x is string => !!x);
   if (doRelatorio.length && prestadora && doRelatorio.some((l) => !tomadores[l.tomadorCnpj]?.endereco)) {
     avisos.push("Local do tratamento: o relatório só traz a cidade e o cliente não está no Cadastro de terceiros — confira o endereço.");
@@ -392,7 +409,7 @@ export function montarDeclaracaoPadrao(
   };
   const mann = !!empresa && soDigitos(empresa.cnpj) === CNPJ_MANN_VOLANTE;
   // Referência: a nota; senão a fatura/invoice, o booking, o B/L; pedido sem documento: empresa do ciclo + ciclo ("Madex 964").
-  const cicloRef = doRelatorio[0]?.ciclo ?? usados[0]?.mestre.ciclo ?? "";
+  const cicloRef = doRelatorio[0]?.ciclo ?? usados[0]?.mestre.ciclo ?? dosDr[0]?.lote ?? "";
   const numNf = op.nfe?.trim() || nf?.numero || bl?.nfe;
   const semDoc = !numNf && !bl?.invoice && !bl?.booking && !bl?.bl;
   const nome = semDoc && cicloRef && doRelatorio[0]?.tomador ? curto(titulo(doRelatorio[0].tomador)) : curto(exportador);
