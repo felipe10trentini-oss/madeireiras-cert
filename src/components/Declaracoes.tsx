@@ -356,20 +356,26 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     }
     // Relatório do MAPA (.xlsx): refaz as declarações que já estão na lista com o tratamento dele.
     let rel = relatorio;
-    const planilha = files.find((f) => /\.xlsx$/i.test(f.name));
-    // A DR em Excel (abas CONSOLIDADOS HT / DADOS HT) no lugar do relatório.
-    const dr = planilha ? await lerDrHt(await planilha.arrayBuffer()).catch(() => null) : null;
-    if (planilha && dr) {
-      drRef.current = dr;
-      setDrHt({ nome: planilha.name, dr });
-      setToast(
-        `DR lida: ${dr.consolidado.length ? `aba CONSOLIDADOS HT com ${dr.consolidado.map((l) => l.lote).join(", ")}` : "aba CONSOLIDADOS HT vazia"} · ${dr.historico.length} lotes na DADOS HT.`
-      );
+    // Planilhas soltas: a DR em Excel (abas CONSOLIDADOS HT / DADOS HT) e/ou o relatório do MAPA, juntas ou não.
+    let dr: DrHt | null = null;
+    let planilha: File | undefined;
+    for (const f of files.filter((x) => /\.xlsx$/i.test(x.name))) {
+      const lida = await lerDrHt(await f.arrayBuffer()).catch(() => null);
+      if (lida) {
+        dr = lida;
+        drRef.current = lida;
+        setDrHt({ nome: f.name, dr: lida });
+        setToast(
+          `DR lida: ${lida.consolidado.length ? `aba CONSOLIDADOS HT com ${lida.consolidado.map((l) => l.lote).join(", ")}` : "aba CONSOLIDADOS HT vazia"} · ${lida.historico.length} lotes na DADOS HT.`
+        );
+      } else planilha ??= f;
     }
-    if (planilha && !dr) {
+    if (planilha) {
       try {
         const linhas = await lerRelatorioTermico(await planilha.arrayBuffer());
-        if (!linhas.length) setToast("Não achei tratamentos na aba TÉRMICO deste relatório.");
+        // Empresa da DR (Pinustan): o certificado no relatório é o lote ("2-540") e o tratamento HT vem da DR.
+        if (!linhas.length && drRef.current) setToast("O relatório do MAPA não é usado aqui: o tratamento sai da DR (aba CONSOLIDADOS HT), que já está carregada.");
+        else if (!linhas.length) setToast("Não achei tratamentos na aba TÉRMICO deste relatório.");
         else {
           // O relatório novo troca o do mesmo ano; o do outro ano guardado continua valendo.
           const anoDe = (ls: LinhaRelatorio[]) => {
