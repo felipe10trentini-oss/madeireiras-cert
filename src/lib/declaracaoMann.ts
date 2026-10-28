@@ -17,6 +17,8 @@ import { snMinusculo, soDigitos } from "./util";
 
 export const CNPJ_MANN_VOLANTE = "00093600000141";
 const CNPJ_PINUSTAN = "03298956000100";
+/** Quem fabrica o palete que a Mann trata e vai como exportador da declaração (o cliente vira o destinatário). */
+const FORNECEDORES_MANN = /\brenascer\b/i;
 
 export interface MestreLido {
   mestre: CertificadoMestre;
@@ -271,6 +273,7 @@ export function montarDeclaracaoPadrao(
         (!!nf.emitente?.razao && primeira(nf.emitente.razao) === primeira(empresa.razaoSocial))));
   const exportadorDoc = (notaPropria ? titulo(nf?.destinatario.razao) : titulo(nf?.emitente?.razao)) || titulo(bl?.exportador);
   const cnpjTomador = (notaPropria ? nf?.destinatario.cnpj : nf?.emitente?.cnpj) ?? null;
+  const mannVolante = !!empresa && soDigitos(empresa.cnpj) === CNPJ_MANN_VOLANTE;
 
   // Cada ciclo: o mestre dele (se veio) ou a linha do relatório (a do tomador da remessa, se o ciclo se repete).
   const numDo = (c: string) => semZeros(c.trim().split(/\s+/)[0]);
@@ -299,7 +302,10 @@ export function montarDeclaracaoPadrao(
       }
       const cands = rel ? linhasDoCiclo(rel, c) : [];
       const escolhida = op.escolhas?.[c] ? cands.find((x) => x.certificado === op.escolhas![c]) : undefined;
-      const l = escolhida ?? (rel ? escolherLinha(cands, { cnpj: cnpjTomador, nome: exportadorDoc }) : null);
+      // Mann: o ciclo se repete entre os veículos e nenhum é do cliente do pedido -> o da Renascer (o palete é dela).
+      const doCliente = cands.some((x) => !!exportadorDoc && primeira(x.tomador) === primeira(exportadorDoc));
+      const daFornecedora = mannVolante && !doCliente ? cands.filter((x) => FORNECEDORES_MANN.test(x.tomador)) : [];
+      const l = escolhida ?? (rel ? escolherLinha(daFornecedora.length ? daFornecedora : cands, { cnpj: cnpjTomador, nome: exportadorDoc }) : null);
       // Mais de uma estufa (a unidade de tratamento é um número): o ciclo vai com a estufa, "1-326".
       const estufas = [...new Set(cands.map((x) => (x.unidade ?? "").trim()))];
       if (l && cands.length > 1 && !escolhida && !estufaCiclo(c) && estufas.length > 1 && estufas.every((u) => /^\d{1,3}$/.test(u))) {
@@ -323,9 +329,20 @@ export function montarDeclaracaoPadrao(
   const exportadorLido = exportadorDoc || titulo(m0 ? tomadorDoMestre(m0.texto) : null) || titulo(doRelatorio[0]?.tomador);
   // Cliente que pede é o importador de um exportador fixo (MD: Instituto Botânico -> Barão).
   const par = PARES_CLIENTE.find((p) => !!empresa && soDigitos(empresa.cnpj) === p.empresa && [exportadorLido, bl?.importador].some((n) => !!n && p.cliente.test(n)));
-  const exportador = par ? par.exportador : exportadorLido;
   const importadorPar = par ? (par.cliente.test(exportadorLido) ? exportadorLido : bl?.importador ?? "") : "";
-  const destinatario = (notaPropria ? "" : titulo(nf?.destinatario.razao)) || bl?.destinatario || "";
+  const destinatarioLido = (notaPropria ? "" : titulo(nf?.destinatario.razao)) || bl?.destinatario || "";
+  // Mann Unid. Volante tratando palete da Renascer (pela nota ou pelo tomador do ciclo no relatório/mestre):
+  // a Renascer é a exportadora e o cliente (quem pediu / comprou) o destinatário — o pedido diz só o cliente.
+  const fornecedor =
+    !!empresa && soDigitos(empresa.cnpj) === CNPJ_MANN_VOLANTE
+      ? [nf?.emitente?.razao, ...doRelatorio.map((l) => l.tomador), ...usados.map((m) => tomadorDoMestre(m.texto)), exportadorLido].find(
+          (n): n is string => !!n && FORNECEDORES_MANN.test(n)
+        )
+      : undefined;
+  const exportador = par ? par.exportador : fornecedor ? titulo(fornecedor) : exportadorLido;
+  const destinatario = fornecedor
+    ? [destinatarioLido, exportadorLido].find((n) => !!n && !FORNECEDORES_MANN.test(n)) ?? ""
+    : destinatarioLido;
   // Quantidade do ciclo ("200 paletes") vai na linha do certificado mestre (Paletes Maringá). Duração:
   // a 56 °C as declarações levam 32 minutos (a curva às vezes fecha 31); mais longas ficam como estão.
   // Com a quantidade de cada ciclo (pedido/digitada), ela vale no lugar da do ciclo inteiro.
