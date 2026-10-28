@@ -36,6 +36,8 @@ export interface DadosDeclaracao {
   container: string;
   navio: string;
   marcas: string;
+  /** Lote que a nota informa ("10/26", "09/26 e 10/26") — Pinustan. */
+  loteRemessa?: string;
   produto: string;
   volumes: string;
   pesoLiquido: string;
@@ -74,6 +76,7 @@ export const CAMPOS_REMESSA: { k: keyof DadosDeclaracao; pt: string; en: string;
   { k: "container", pt: "Contêiner", en: "Container" },
   { k: "navio", pt: "Navio", en: "Vessel" },
   { k: "marcas", pt: "Marcas", en: "Marks" },
+  { k: "loteRemessa", pt: "Nº do lote", en: "Lot number", dica: "ex.: 10/26 (o lote que a nota informa)" },
   { k: "produto", pt: "Natureza do produto", en: "Kind of product" },
   { k: "volumes", pt: "Quantidade", en: "Quantity", dica: "ex.: 40 paletes de madeira / wooden pallets" },
   { k: "pesoLiquido", pt: "Peso líquido", en: "Net weight" },
@@ -256,7 +259,7 @@ export interface ItemTabela {
 /** Campos curtos lado a lado (duas colunas) para a declaração caber em uma página. */
 const GRUPOS_REMESSA: (keyof DadosDeclaracao)[][] = [
   ["exportador"], ["enderecoExportador"], ["importador"], ["destinatario"], ["fatura", "nfe"], ["booking", "bl"], ["navio", "container"],
-  ["marcas"], ["volumes"], ["produto"], ["pesoLiquido", "pesoBruto"], ["origem", "destino"],
+  ["marcas", "loteRemessa"], ["volumes"], ["produto"], ["pesoLiquido", "pesoBruto"], ["origem", "destino"],
 ];
 
 /** Linhas preenchidas da remessa, na ordem do documento (1 ou 2 campos por linha). */

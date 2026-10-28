@@ -31,6 +31,16 @@ export interface NotaFiscal {
   emitente?: { razao: string | null; cnpj: string | null };
   /** Ciclos escritos na nota ("CICLO MANN 0249" na observação ou na descrição do item). */
   ciclos?: string[];
+  /** Lote mês/ano da remessa ("LOTE 10/26", "LOTES 09/26 E 10/26") — Pinustan. */
+  loteRemessa?: string | null;
+}
+
+/** "LOTE 10/26", "LOTE: 09/26 E 10/26", "LOTES 09/26, 10/26" -> "10/26" / "09/26 e 10/26" (só mês/ano). */
+export function loteMesAno(texto: string): string | null {
+  const m = texto.match(/\bLOTES?\s*(?:N[º°o.]*)?\s*:?\s*(\d{2}\/\d{2}(?:\s*(?:\be\b|,|;|&)\s*\d{2}\/\d{2})*)(?!\d|\/\d)/i);
+  if (!m) return null;
+  const ls = m[1].split(/\s*(?:\be\b|,|;|&)\s*/i).filter(Boolean);
+  return ls.length > 1 ? `${ls.slice(0, -1).join(", ")} e ${ls[ls.length - 1]}` : ls[0];
 }
 
 const num = (s: string) => parseFloat(s.replace(/\./g, "").replace(",", "."));
@@ -137,6 +147,7 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
     // Ciclo na observação/itens; o código da curva (UR…) vale em qualquer lugar da nota (a Maxi escreve
     // "CICLO DE TRATAMENTO SKIDS UR010164SC180826" nos dados adicionais).
     ciclos: [...new Set([...ciclosDoTexto(`${obs ?? ""} ${itens.map((i) => i.descricao).join(" ")}`), ...(plano.match(/\bUR\d{6}[A-Z]{2}\d{6}\b/g) ?? [])])],
+    loteRemessa: loteMesAno(`${obs ?? ""} ${itens.map((i) => i.descricao).join(" ")}`) ?? loteMesAno(plano),
   };
 }
 

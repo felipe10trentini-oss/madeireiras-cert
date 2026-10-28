@@ -16,6 +16,7 @@ import { completarComNihil } from "./preencherModelo";
 import { snMinusculo, soDigitos } from "./util";
 
 export const CNPJ_MANN_VOLANTE = "00093600000141";
+const CNPJ_PINUSTAN = "03298956000100";
 
 export interface MestreLido {
   mestre: CertificadoMestre;
@@ -378,7 +379,9 @@ export function montarDeclaracaoPadrao(
     pesoLiquido: bl?.pesoLiquido ? `${bl.pesoLiquido} Kgs` : base.pesoLiquido,
     volumes: volumesDaTabela(bl) ?? (nf ? volumesDaNota(nf) : ""),
     produto: "",
-    origem: "",
+    // Pinustan: a declaração sempre leva "PROCEDÊNCIA/ORIGIN: BRASIL" e o lote que a nota informa.
+    origem: empresa && soDigitos(empresa.cnpj) === CNPJ_PINUSTAN ? "Brasil / Brazil" : "",
+    loteRemessa: nf?.loteRemessa ?? "",
     comunicado: "",
     localTratamento: snMinusculo([...new Set(locais)].join("; ")).replace(/\s*-\s*[A-Z]{2}\s*$/, ""),
     sujeito: /skid|suporte/i.test(bl?.tipo ?? "") ? "suportes" : /palet|pallet/i.test(bl?.tipo ?? "") ? "paletes" : nf?.itens.every((i) => /palet|pallet/i.test(i.descricao)) ? "paletes" : nf?.itens.every((i) => /suporte|skid/i.test(i.descricao)) ? "suportes" : "material",

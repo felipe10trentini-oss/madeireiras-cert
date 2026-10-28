@@ -557,6 +557,7 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
     dois(["BOOKING", "Booking", d.booking], ["B/L", "Bill of lading", d.bl]);
     dois(["NAVIO", "Vessel", d.navio], ["CONTÊINER", "Container", d.container]);
     um("MARCAS", "Marks", d.marcas);
+    um("Nº DO LOTE", "Lot number", d.loteRemessa ?? "");
     um("QUANTIDADE", "Quantity", d.volumes);
     um("NATUREZA DO PRODUTO", "Kind of product", ptDe(d.produto || ""));
     dois(["PESO LÍQUIDO", "Net weight", d.pesoLiquido], ["PESO BRUTO", "Gross weight", d.pesoBruto]);
