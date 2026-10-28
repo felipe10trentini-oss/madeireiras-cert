@@ -20,7 +20,7 @@ export interface DocumentoExportacaoLido {
 }
 
 const CNPJ = /\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b/;
-const EMPRESA = /\b(LTDA|LTD|S\.?\/?A\.?|EIRELI|ME|EPP|SPA|S\.?R\.?L\.?|LLC|INC|GMBH|B\.?V\.?|CORP|CO\.?)\b/i;
+const EMPRESA = /\b(LTDA|LTD|S\.?\/?A\.?|EIRELI|ME|EPP|SPA|SARL|SAS|S\.?R\.?L\.?|LLC|INC|GMBH|B\.?V\.?|CORP|CO\.?)\b/i;
 // Linha de endereço/contato (não é nome de empresa).
 const ENDERECO = /\d|@|\b(RUA|AV\.?|AVENIDA|RODOVIA|ESTRADA|CEP|FONE|PHONE|TEL|FAX|CONTACT|CONTATO|CNPJ|CUIT|EORI|BRASIL|BRAZIL|CX POSTAL|BAIRRO|STREET|BOULEVARD|BLVD|STRADA|ROAD|ZONE|Z\.I\.)\b/i;
 const PORTOS_BR = /\b(PARANAGU[AÁ]|ITAJA[IÍ]|NAVEGANTES|SANTOS|ITAPO[AÁ]|RIO GRANDE|S[AÃ]O FRANCISCO|PECEM|SUAPE|SALVADOR|VIT[OÓ]RIA|IMBITUBA|MANAUS)\b/i;
@@ -102,9 +102,13 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   // Navio: "Vessel MSC AMALFI Voyage 26N", rótulo VESSEL, ou linha de armador com viagem ("NYK DIANA V.025N").
   let navio: string | null =
     naLinha(/Vessel\s*(?:\/|&|and)\s*Voyage(?:\s*No\.?)?/) ??
-    [...plano.matchAll(/\bVessel\s+(.+?)\s+Voyage\s+(\S+)/gi)].map((m) => `${m[1]} ${m[2]}`).find((v) => !/[(&]|\bNO\.?$|\bNR\b|FLAG/i.test(v)) ?? null;
-  // "MSC INSA - NA642R" (draft da MSC): navio - viagem.
-  const ARMADOR = /^(MSC|NYK|MAERSK|CMA CGM|CMA|HAPAG|HAMBURG|ONE|EVER|COSCO|ZIM|HMM|YM|YANG MING|LOG-IN|ALIAN[CÇ]A|SEALAND|OOCL|PIL|WAN HAI)\s+[A-Z].*?(?:\bV\.?\s*\/?\s*[A-Z0-9]{2,6}|\s\/\s*[A-Z0-9]{3,6}|\s\d{2,3}[A-Z]|\s-\s[A-Z]{1,3}\d{2,4}[A-Z]?)\s*$/i;
+    [...plano.matchAll(/\bVessel\s+(.+?)\s+Voyage\s+(\S+)/gi)]
+      // "VESSEL AND VOYAGE PAPEETE…" é o rótulo seguido de outra caixa, não o navio.
+      .filter((m) => !/^(and|&)$/i.test(m[1].trim()))
+      .map((m) => `${m[1]} ${m[2]}`)
+      .find((v) => !/[(&]|\bNO\.?$|\bNR\b|FLAG/i.test(v)) ?? null;
+  // "MSC INSA - NA642R" (draft da MSC) e "MSC BASEL V | UA643R" (RST): navio - viagem.
+  const ARMADOR = /^(MSC|NYK|MAERSK|CMA CGM|CMA|HAPAG|HAMBURG|ONE|EVER|COSCO|ZIM|HMM|YM|YANG MING|LOG-IN|ALIAN[CÇ]A|SEALAND|OOCL|PIL|WAN HAI)\s+[A-Z].*?(?:\bV\.?\s*\/?\s*[A-Z0-9]{2,6}|\s\/\s*[A-Z0-9]{3,6}|\s\|\s*[A-Z0-9]{3,8}|\s\d{2,3}[A-Z]|\s-\s[A-Z]{1,3}\d{2,4}[A-Z]?)\s*$/i;
   if (!navio) navio = ls.find((l) => ARMADOR.test(l) && l.length < 40) ?? null;
   // "NYK RUMINA / 078N ITAJAI, BRAZIL": o navio no começo da linha, até a viagem.
   if (!navio) {
@@ -129,8 +133,13 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   if (!destino) {
     // "PORT OF DISCHARGE AGENT:" é o agente (endereço), não o porto; valor que é porto brasileiro
     // (o draft da MSC embaralha as caixas: "Navegantes / SC") também não.
+    // O valor na linha logo abaixo do rótulo: mais longe já é outra caixa (BL da RST: o agente).
     const v = ls
-      .map((l, i) => (/PORT OF DISCHARGE|PLACE OF DELIVERY/i.test(l) && l.length <= 70 && !/\bAGENT\b/i.test(l) ? proxValor(i) : null))
+      .map((l, i) => {
+        if (!/PORT OF DISCHARGE|PLACE OF DELIVERY/i.test(l) || l.length > 70 || /\bAGENT\b/i.test(l)) return null;
+        const p = proxValor(i);
+        return p && ls.indexOf(p, i + 1) - i <= 1 ? p : null;
+      })
       .find((x) => x && x.length <= 60 && !PORTOS_BR.test(x));
     // "ROTTERDAM, NETHERLANDS LE HAVRE, FRANCE": o último (lugar de entrega).
     if (v) {
@@ -138,9 +147,12 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
       destino = ult.replace(/^(?:NETHERLANDS|BELGIUM|GERMANY|FRANCE|ITALY|SPAIN|PORTUGAL|UNITED KINGDOM|USA|CHINA|BRAZIL)\s+/i, "");
     }
   }
+  // Para contar repetições, só a 1ª página (BL com as páginas iguais repete tudo, até o nome do agente).
+  const fimPag1 = ls.findIndex((l) => /^--\s*1 of \d+\s*--$/.test(l));
+  const pag1 = fimPag1 > 0 ? ls.slice(0, fimPag1) : ls;
   if (!destino) {
     const cont = new Map<string, number>();
-    for (const l of ls) if (/^[A-Z][A-Z ]{3,20}$/.test(l) && !PORTOS_BR.test(l) && !EMPRESA.test(l) && !ehRascunho(l)) cont.set(l, (cont.get(l) ?? 0) + 1);
+    for (const l of pag1) if (/^[A-Z][A-Z ]{3,20}$/.test(l) && !PORTOS_BR.test(l) && !EMPRESA.test(l) && !ehRascunho(l)) cont.set(l, (cont.get(l) ?? 0) + 1);
     const rep = [...cont.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1])[0];
     if (rep) destino = rep[0];
   }
@@ -156,7 +168,7 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   // e "Montoir-De-Bretagne".
   if (!destino) {
     const cont = new Map<string, { n: number; v: string }>();
-    for (const l of ls) {
+    for (const l of pag1) {
       const c = l.split(",")[0].trim();
       if (!/^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' -]{3,30}$/.test(c) || ENDERECO.test(c) || PORTOS_BR.test(c) || EMPRESA.test(c) || ehRotulo(c) || ehRascunho(c)) continue;
       const k = c.toLowerCase();
@@ -182,6 +194,13 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   const bl =
     (ehRascunho(blRotulo) ? null : blRotulo) ??
     plano.match(/\b(BRZSE\d{8}|ONEY[A-Z]{4}\d{8}|MEDU[A-Z0-9]{8}|HLCU[A-Z0-9]{10,14})\b/)?.[1] ??
+    // "B/L NUMBER" sem valor ao lado (BL da RST: o nº vem no alto da página, logo abaixo do booking,
+    // "RS26C03689"): o código de letras e números das primeiras linhas que não é booking nem contêiner.
+    (/\bB\/L\s*NUMBER\b/i.test(plano)
+      ? ls
+          .slice(0, 6)
+          .find((l) => /^[A-Z]{2,5}\d{2}[A-Z0-9]{3,12}$/.test(l) && /\d{4}/.test(l) && l !== booking && !/^[A-Z]{4}\d{7}$/.test(l) && !/^(EBKG|SAOG|BKG)\d/.test(l))
+      : undefined) ??
     null;
 
   return {

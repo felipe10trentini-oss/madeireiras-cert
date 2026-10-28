@@ -135,7 +135,8 @@ export function lerBL(texto: string): DadosBL {
 /** Leitura antiga, pelos rótulos "Booking:", "Vessel:"… (BL com o valor logo depois do rótulo). */
 function lerBLPorRotulo(t: string, plano: string): DadosBL {
   return {
-    bl: plano.match(/\b(?:B\/L|BILL OF LADING)\s*(?:N[ºo°.]*|NO\.?|NUMBER|#)?\s*:?\s*([A-Z]{2,6}[A-Z0-9-]{5,20})/i)?.[1] ?? null,
+    // O nº tem dígitos ("CARRIER" do rótulo seguinte não é o B/L).
+    bl: plano.match(/\b(?:B\/L|BILL OF LADING)\s*(?:N[ºo°.]*|NO\.?|NUMBER|#)?\s*:?\s*((?=[A-Z0-9-]*\d{3})[A-Z]{2,6}[A-Z0-9-]{5,20})/i)?.[1] ?? null,
     booking: plano.match(/\bBOOKING\s*(?:N[ºo°.]*|NO\.?|NUMBER|REF\.?|#)?\s*:?\s*([A-Z0-9-]{6,20})/i)?.[1] ?? null,
     navio: linhaApos(t, /\b(?:OCEAN\s+)?VESSEL(?:\s*(?:\/|&)\s*VOYAGE(?:\s*NO\.?)?)?|\bNAVIO\b/i),
     destino: linhaApos(t, /\bPORT\s+OF\s+DISCHARGE|\bPLACE\s+OF\s+DELIVERY|\bPORTO\s+DE\s+DESCARGA|\bDESTINO\b/i),
