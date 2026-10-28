@@ -75,13 +75,33 @@ export function SeiCard({ senha, empresa, valores, onToast, comRelatorio }: Prop
   const cnpj = valores?.cnpj || empresa.cnpj;
   const razao = valores?.razao || empresa.razaoSocial;
   const a = dados?.acesso;
-  const linhas: { rotulo: string; valor: string | null | undefined; secreto?: boolean }[] = [
-    { rotulo: "CNPJ", valor: cnpj },
-    ...(comRelatorio ? [{ rotulo: "Nº do relatório (SEI)", valor: dados?.relatorio?.numero }] : []),
-    { rotulo: "Razão social", valor: razao },
+  type Linha = { rotulo: string; valor: string | null | undefined; secreto?: boolean };
+  // Acesso do RT logo abaixo do nome dele; abaixo da linha, os dados da empresa.
+  const linhasRt: Linha[] = [
     { rotulo: "E-mail do RT no SEI", valor: a?.login },
     { rotulo: "Senha do RT no SEI", valor: a?.senha, secreto: true },
   ];
+  const linhas: Linha[] = [
+    { rotulo: "CNPJ", valor: cnpj },
+    ...(comRelatorio ? [{ rotulo: "Nº do relatório (SEI)", valor: dados?.relatorio?.numero }] : []),
+    { rotulo: "Razão social", valor: razao },
+  ];
+  const item = (l: Linha) => (
+    <div className="sei-item" key={l.rotulo}>
+      <span className="kpi-sub">{l.rotulo}</span>
+      <span className="mono sei-valor">{l.valor ? (l.secreto && !mostrar ? "••••••••" : l.valor) : "—"}</span>
+      <span className="sei-botoes">
+        {l.secreto && l.valor && (
+          <button type="button" className="link" onClick={() => setMostrar((m) => !m)}>
+            {mostrar ? "ocultar" : "mostrar"}
+          </button>
+        )}
+        <button type="button" className="btn" disabled={!l.valor} onClick={() => copiar(l.rotulo, l.valor)}>
+          Copiar
+        </button>
+      </span>
+    </div>
+  );
 
   return (
     <div className="card sei-card" style={{ marginBottom: 14 }}>
@@ -96,6 +116,7 @@ export function SeiCard({ senha, empresa, valores, onToast, comRelatorio }: Prop
               {a.certeza === "media" ? " — confira (achado só pelo primeiro nome)" : ""}
             </span>
           )}
+          <div className="sei-grid" style={{ marginTop: 10 }}>{linhasRt.map(item)}</div>
         </div>
         <div className="sei-uf">
           <span className="sei-rotulo">Estado no MAPA</span>
@@ -108,24 +129,7 @@ export function SeiCard({ senha, empresa, valores, onToast, comRelatorio }: Prop
           </span>
         </div>
       </div>
-      <div className="sei-grid">
-        {linhas.map((l) => (
-          <div className="sei-item" key={l.rotulo}>
-            <span className="kpi-sub">{l.rotulo}</span>
-            <span className="mono sei-valor">{l.valor ? (l.secreto && !mostrar ? "••••••••" : l.valor) : "—"}</span>
-            <span className="sei-botoes">
-              {l.secreto && l.valor && (
-                <button type="button" className="link" onClick={() => setMostrar((m) => !m)}>
-                  {mostrar ? "ocultar" : "mostrar"}
-                </button>
-              )}
-              <button type="button" className="btn" disabled={!l.valor} onClick={() => copiar(l.rotulo, l.valor)}>
-                Copiar
-              </button>
-            </span>
-          </div>
-        ))}
-      </div>
+      <div className="sei-grid">{linhas.map(item)}</div>
       {erro && <p className="hint">{erro}</p>}
       {comRelatorio && dados && !dados.relatorio && (
         <p className="hint">
