@@ -25,6 +25,8 @@ interface Props {
   empresa: MadeireiraSalva;
   valores: ValoresCertificado | null;
   onToast: (msg: string) => void;
+  /** Aba Comunicados: mostra também o nº do relatório (SEI - Relatórios do Controle de Curvas). */
+  comRelatorio?: boolean;
 }
 
 /**
@@ -32,8 +34,13 @@ interface Props {
  * certificado — na Inexport Capivari, a matriz) e o login/senha do SEI do RT da empresa, para não
  * peticionar com o RT errado.
  */
-export function SeiCard({ senha, empresa, valores, onToast }: Props) {
-  const [dados, setDados] = useState<{ rt: string | null; acesso: Acesso | null } | null>(null);
+export function SeiCard({ senha, empresa, valores, onToast, comRelatorio }: Props) {
+  const [dados, setDados] = useState<{
+    rt: string | null;
+    acesso: Acesso | null;
+    relatorio?: { numero: string; empresa: string } | null;
+    erroRelatorio?: string | null;
+  } | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [mostrar, setMostrar] = useState(false);
 
@@ -41,7 +48,7 @@ export function SeiCard({ senha, empresa, valores, onToast }: Props) {
   // sem erro e com a senha oculta.
   useEffect(() => {
     let vivo = true;
-    fetch(`/api/madeireiras/sei?cnpj=${encodeURIComponent(empresa.cnpj)}`, { headers: cabecalhoSenha(senha), cache: "no-store" })
+    fetch(`/api/madeireiras/sei?cnpj=${encodeURIComponent(empresa.cnpj)}${comRelatorio ? "&relatorio=1" : ""}`, { headers: cabecalhoSenha(senha), cache: "no-store" })
       .then(async (res) => {
         const d = await res.json().catch(() => ({}));
         if (!vivo) return;
@@ -52,7 +59,7 @@ export function SeiCard({ senha, empresa, valores, onToast }: Props) {
     return () => {
       vivo = false;
     };
-  }, [empresa.cnpj, senha]);
+  }, [empresa.cnpj, senha, comRelatorio]);
 
   async function copiar(rotulo: string, valor: string | null | undefined) {
     if (!valor) return;
@@ -70,6 +77,7 @@ export function SeiCard({ senha, empresa, valores, onToast }: Props) {
   const a = dados?.acesso;
   const linhas: { rotulo: string; valor: string | null | undefined; secreto?: boolean }[] = [
     { rotulo: "CNPJ", valor: cnpj },
+    ...(comRelatorio ? [{ rotulo: "Nº do relatório (SEI)", valor: dados?.relatorio?.numero }] : []),
     { rotulo: "Razão social", valor: razao },
     { rotulo: "E-mail do RT no SEI", valor: a?.login },
     { rotulo: "Senha do RT no SEI", valor: a?.senha, secreto: true },
@@ -119,6 +127,11 @@ export function SeiCard({ senha, empresa, valores, onToast }: Props) {
         ))}
       </div>
       {erro && <p className="hint">{erro}</p>}
+      {comRelatorio && dados && !dados.relatorio && (
+        <p className="hint">
+          {dados.erroRelatorio ?? "Não achei o nº do relatório desta empresa na aba Peticionamento SEI do Controle de Curvas."}
+        </p>
+      )}
       {dados && !a && (
         <p className="hint">
           Não achei o acesso do SEI de {dados.rt ?? "o RT"}. Cadastre o RT na aba Cadastros (botão “Cadastrar RT”)

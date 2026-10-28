@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
-import { assinarSessao, respostaNaoAutorizado } from "@/lib/auth";
+import { assinarSessao, lerSessao, respostaNaoAutorizado } from "@/lib/auth";
 import { autenticar } from "@/lib/operadores";
 
 export const runtime = "nodejs";
+
+/** Confere uma sessão (o Controle de Curvas usa para validar o cert_token antes de responder). */
+export async function GET(req: Request) {
+  const s = lerSessao(req);
+  if (!s) return respostaNaoAutorizado();
+  return NextResponse.json({ login: s.login, nome: s.nome }, { headers: { "Cache-Control": "no-store" } });
+}
 
 /** Login do operador: devolve a sessão assinada (token) com nome e perfil. */
 export async function POST(req: Request) {

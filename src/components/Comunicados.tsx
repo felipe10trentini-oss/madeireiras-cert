@@ -340,7 +340,7 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
       </div>
 
       {/* Login e senha do SEI do RT da empresa, para peticionar o comunicado com o RT certo. */}
-      {empresa && <SeiCard key={empresa.cnpj} senha={senha} empresa={empresa} valores={null} onToast={setToast} />}
+      {empresa && <SeiCard key={empresa.cnpj} senha={senha} empresa={empresa} valores={null} onToast={setToast} comRelatorio />}
 
       {erro && (
         <div className="alert-box critical" role="alert">

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { lerSessao, podeAcessar, respostaNaoAutorizado } from "@/lib/auth";
 import { acessoDoRt, salvarAcessos, type AcessoSei } from "@/lib/acessoSei";
 import { listarMadeireiras } from "@/lib/madeireirasDb";
+import { buscarRelatorioSei } from "@/lib/relatorioSei";
 import { rtCompleto } from "@/lib/responsaveis";
 import { soDigitos } from "@/lib/util";
 
@@ -13,13 +14,29 @@ const txt = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.
 /** Acesso do SEI do RT da empresa (para copiar na emissão). */
 export async function GET(req: Request) {
   if (!lerSessao(req)) return respostaNaoAutorizado();
-  const cnpj = soDigitos(new URL(req.url).searchParams.get("cnpj") ?? "");
+  const url = new URL(req.url);
+  const cnpj = soDigitos(url.searchParams.get("cnpj") ?? "");
   try {
     const empresa = (await listarMadeireiras()).find((e) => soDigitos(e.cnpj) === cnpj);
     if (!empresa) return NextResponse.json({ error: "Empresa não encontrada." }, { status: 404 });
     const acesso = await acessoDoRt(empresa);
+    // ?relatorio=1 (aba Comunicados): nº "SEI - Relatórios" do Controle de Curvas; falhar lá não derruba o resto.
+    let relatorio: { numero: string; empresa: string } | null = null;
+    let erroRelatorio: string | null = null;
+    if (url.searchParams.get("relatorio") === "1") {
+      try {
+        relatorio = await buscarRelatorioSei(empresa, req.headers.get("authorization") ?? "");
+      } catch (err) {
+        erroRelatorio = err instanceof Error ? err.message : "Erro.";
+      }
+    }
     return NextResponse.json(
-      { rt: rtCompleto(empresa.rt), acesso: acesso && { nome: acesso.nome, login: acesso.login, senha: acesso.senha, certeza: acesso.certeza } },
+      {
+        rt: rtCompleto(empresa.rt),
+        acesso: acesso && { nome: acesso.nome, login: acesso.login, senha: acesso.senha, certeza: acesso.certeza },
+        relatorio,
+        erroRelatorio,
+      },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (err) {
