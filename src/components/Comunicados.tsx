@@ -7,17 +7,17 @@ import { useEffect, useMemo, useState } from "react";
 import { regraDe } from "@/lib/certificado";
 import {
   lerModeloComunicado,
-  logoDoModelo,
   preencherComunicado,
   proximoNumero,
   ROTULOS_COMUNICADO,
   type CampoComunicado,
   type ModeloComunicado,
 } from "@/lib/comunicadoModelo";
-import { gerarPdfComunicado } from "@/lib/comunicadoPdf";
 import { interpretarTexto, separarPedidos } from "@/lib/comunicadoTexto";
 import { baixarFontes } from "@/lib/declaracaoLgPdf";
+import { excelParaPdf } from "@/lib/excelPdf";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
+import { escolherPasta, maiorNumero, pastaLembrada, pastaSuportada, permissao, ultimoDaPasta, type Pasta, type UltimoDaPasta } from "@/lib/pastaComunicados";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { textoDaPlanilha, textoDoWord } from "@/lib/textoDeArquivo";
 import { soDigitos } from "@/lib/util";
@@ -28,6 +28,9 @@ const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 // Empresas se descredenciando (26/10/2026): não emitem mais comunicado pelo site.
 const SEM_COMUNICADO = new Set(["Flavia", "JJR", "Megga", "Vale Norte"]);
+
+// Duração padrão de todos os comunicados (28/10/2026).
+const DURACAO = "32 min";
 
 /** Cidade do endereço ("… - Salto - SP" / "… Salto/SP") para a coluna LOCAL da tabela (CJ). */
 function cidadeDe(endereco: string): string {
@@ -106,6 +109,29 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
   const [toast, setToast] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [versao, setVersao] = useState(0);
+  // Pasta "Madeireiras 2" do computador: o último comunicado emitido (PDF/Excel) da empresa.
+  const [pasta, setPasta] = useState<{ p: Pasta; ok: boolean } | null>(null);
+  const [daPasta, setDaPasta] = useState<UltimoDaPasta | null | "lendo">(null);
+
+  useEffect(() => {
+    if (!pastaSuportada()) return;
+    void pastaLembrada().then(async (p) => p && setPasta({ p, ok: (await permissao(p)) === "granted" }));
+  }, []);
+
+  // Ao escolher a empresa (com a pasta liberada): o maior número da pasta dela.
+  useEffect(() => {
+    if (!cnpj || !pasta?.ok) return;
+    const e = (empresas ?? []).find((x) => x.cnpj === cnpj);
+    if (!e) return;
+    let vivo = true;
+    setDaPasta("lendo");
+    ultimoDaPasta(pasta.p, e)
+      .then((r) => vivo && setDaPasta(r))
+      .catch(() => vivo && setDaPasta(null));
+    return () => {
+      vivo = false;
+    };
+  }, [cnpj, pasta, empresas]);
 
   useEffect(() => {
     fetch("/api/madeireiras", { headers: cabecalhoSenha(senha), cache: "no-store" })
@@ -127,6 +153,10 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
     [empresas]
   );
   const empresa = lista.find((e) => e.cnpj === cnpj) ?? null;
+  const numeroDaPasta = daPasta && daPasta !== "lendo" ? daPasta.numero : null;
+  // Último emitido = o maior entre o site, o Excel do modelo e a pasta (PDF/Excel).
+  const ultimoEmitido = maiorNumero(maiorNumero(salvo?.ultimoNumero, modelo?.campos.numero?.valor), numeroDaPasta);
+  const numeroEhAviso = !!modelo?.campos.aviso && modelo.campos.aviso.valor === modelo.campos.numero?.valor;
   // Os terceiros cadastrados e a própria empresa (a Madepallete/TLP também tratam o material delas).
   const tomadores = useMemo(() => {
     if (!empresa) return [];
@@ -155,7 +185,8 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
           if (!vivo) return;
           setModelo(m);
           const base = Object.fromEntries(Object.values(m.campos).map((c) => [c!.campo, c!.valor])) as Partial<Record<CampoComunicado, string>>;
-          base.numero = proximoNumero(j.ultimoNumero ?? m.campos.numero?.valor, new Date().getFullYear());
+          base.numero = proximoNumero(maiorNumero(j.ultimoNumero, m.campos.numero?.valor), new Date().getFullYear());
+          if (m.campos.duracao) base.duracao = DURACAO;
           setPedidos([{ valores: completarTabela(m, base), achados: [], avisos: [] }]);
           setSel(0);
         } catch (e) {
@@ -168,6 +199,21 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
     };
   }, [cnpj, senha, sair, versao]);
 
+  // A pasta achou um número maior que o do site (emitido pelo Excel ou no outro computador): a numeração
+  // dos comunicados em edição segue a partir dele.
+  useEffect(() => {
+    if (!numeroDaPasta || numeroEhAviso) return;
+    const ano = new Date().getFullYear();
+    setPedidos((ps) => {
+      let n = ultimoEmitido;
+      return ps.map((x) => {
+        n = proximoNumero(n, ano);
+        return { ...x, valores: { ...x.valores, numero: n } };
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [numeroDaPasta]);
+
   function escolher(c: string) {
     setCnpj(c);
     setSalvo(null);
@@ -177,6 +223,22 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
     setUltimoExcel(null);
     setTexto("");
     setErro(null);
+    setDaPasta(null);
+  }
+
+  async function ligarPasta() {
+    try {
+      if (pasta && !pasta.ok) {
+        const ok = (await permissao(pasta.p, true)) === "granted";
+        setPasta({ p: pasta.p, ok });
+        if (!ok) setToast("Sem permissão para ler a pasta.");
+        return;
+      }
+      const p = await escolherPasta();
+      if (p) setPasta({ p, ok: true });
+    } catch {
+      // cancelou a escolha
+    }
   }
 
   async function carregarModelo(files: File[]) {
@@ -246,8 +308,7 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
     if (!modelo || !empresa) return;
     const doModelo = Object.fromEntries(Object.values(modelo.campos).map((c) => [c!.campo, c!.valor])) as Partial<Record<CampoComunicado, string>>;
     // Um comunicado por tratamento; números em sequência (na Mann/Exata, o número do aviso).
-    const numeroEhAviso = !!modelo.campos.aviso && modelo.campos.aviso.valor === modelo.campos.numero?.valor;
-    let numero = salvo?.ultimoNumero ?? modelo.campos.numero?.valor ?? "";
+    let numero = ultimoEmitido ?? "";
     let data = "";
     const lidos = separarPedidos(textoUsado).map((bloco) => {
       const r = interpretarTexto(bloco, { tomadores, prestadora: !!regraDe(empresa).prestadora, modelo: doModelo });
@@ -256,6 +317,7 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
         numero = proximoNumero(numero, new Date().getFullYear());
         r.valores.numero = numero;
       }
+      if (modelo.campos.duracao) r.valores.duracao = DURACAO;
       // Sem data no bloco: a do comunicado anterior.
       if (r.achados.includes("data")) data = r.valores.data!;
       else if (data) {
@@ -291,11 +353,16 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
     }
     setOcupado(true);
     try {
-      const [fontes, logo] = await Promise.all([baixarFontes(), logoDoModelo(salvo.bytes)]);
+      const fontes = await baixarFontes();
       const pdfs: { nome: string; bytes: Uint8Array }[] = [];
+      // O PDF é o próprio Excel do modelo preenchido, desenhado como o Excel imprime (idêntico ao Excel).
+      // Todos os campos são escritos (os modelos da Mann/Exata têm fórmulas que puxariam o anterior).
+      const celulas = Object.values(modelo.campos).map((c) => c!.celula);
+      const preenchido = (v: Partial<Record<CampoComunicado, string>>) =>
+        preencherComunicado(salvo.bytes!, modelo, Object.fromEntries(Object.keys(modelo.campos).map((k) => [k, v[k as CampoComunicado] ?? ""])));
       for (const x of pedidos) {
         const numero = x.valores.numero!.trim();
-        const bytes = await gerarPdfComunicado(modelo, x.valores, empresa, logo, fontes);
+        const bytes = await excelParaPdf(await preenchido(x.valores), fontes, { aba: modelo.aba, ajustar: celulas });
         pdfs.push({ nome: nomeDoArquivo(salvo.nomeModelo, numero, empresa.apelido).replace(/\.xlsx$/i, ".pdf"), bytes });
       }
       if (pdfs.length === 1) baixar(pdfs[0].bytes, pdfs[0].nome, "application/pdf");
@@ -304,10 +371,9 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
         for (const p of pdfs) zip.file(p.nome, p.bytes);
         baixar(await zip.generateAsync({ type: "uint8array" }), `Comunicados ${empresa.apelido} ${pedidos[0].valores.numero!.replace(/\//g, "-")} a ${pedidos[pedidos.length - 1].valores.numero!.replace(/\//g, "-")}.zip`, "application/zip");
       }
-      // Excel do último emitido: todos os campos (os modelos da Mann/Exata têm fórmulas que puxariam o anterior).
+      // Excel do último emitido: fica como o modelo da empresa.
       const ultimo = pedidos[pedidos.length - 1];
-      const todos = Object.fromEntries(Object.keys(modelo.campos).map((k) => [k, ultimo.valores[k as CampoComunicado] ?? ""]));
-      const excel = await preencherComunicado(salvo.bytes, modelo, todos);
+      const excel = await preenchido(ultimo.valores);
       const numeroUltimo = ultimo.valores.numero!.trim();
       setUltimoExcel({ bytes: excel, nome: nomeDoArquivo(salvo.nomeModelo, numeroUltimo, empresa.apelido) });
       const res = await fetch("/api/comunicados/modelo", {
@@ -362,8 +428,46 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
         <div className="toolbar" style={{ marginBottom: 10 }}>
           <span className="hint">
             Modelo: {salvo.salvo ? `“${salvo.nomeModelo ?? "comunicado.xlsx"}”` : "ainda não carregado"}
-            {salvo.ultimoNumero ? ` · último comunicado: ${salvo.ultimoNumero}` : ""}
+            {ultimoEmitido ? ` · último comunicado: ${ultimoEmitido}` : ""}
           </span>
+        </div>
+      )}
+
+      {empresa && salvo && !numeroEhAviso && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <div className="kpi-label">Último comunicado na pasta da empresa</div>
+          {!pastaSuportada() ? (
+            <p className="hint">Para conferir pela pasta do OneDrive, abra o site no Chrome ou no Edge.</p>
+          ) : !pasta?.ok ? (
+            <div className="actions">
+              <button type="button" className="btn" onClick={() => void ligarPasta()}>
+                {pasta ? "Liberar a leitura da pasta" : "Escolher a pasta “Madeireiras 2”"}
+              </button>
+              <span className="hint">
+                O site lê os nomes dos PDFs “COMUNICADO 363-2026…” e o Excel da pasta da empresa para seguir do último emitido. Nada sai do
+                computador.
+              </span>
+            </div>
+          ) : daPasta === "lendo" ? (
+            <p className="hint">Lendo a pasta…</p>
+          ) : !daPasta ? (
+            <p className="hint">
+              Não achei a pasta de {empresa.apelido} dentro de “{pasta.p.name}”.{" "}
+              <button type="button" className="link" onClick={() => void ligarPasta()}>
+                Escolher outra pasta
+              </button>
+            </p>
+          ) : (
+            <p className="hint">
+              Pasta “{daPasta.pasta}”: {daPasta.numero ? <b>{daPasta.numero}</b> : "nenhum comunicado deste ano"}
+              {daPasta.arquivo ? ` (${daPasta.arquivo})` : ""}
+              {daPasta.numero && maiorNumero(salvo.ultimoNumero, daPasta.numero) === daPasta.numero && daPasta.numero !== salvo.ultimoNumero
+                ? " — mais novo que o do site: a numeração segue a pasta."
+                : salvo.ultimoNumero && daPasta.numero !== salvo.ultimoNumero
+                  ? ` — o site já está no ${salvo.ultimoNumero} (o PDF dele ainda não foi salvo na pasta?).`
+                  : " — confere com o site."}
+            </p>
+          )}
         </div>
       )}
 

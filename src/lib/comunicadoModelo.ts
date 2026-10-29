@@ -254,12 +254,3 @@ export function proximoNumero(ultimo: string | null | undefined, ano: number): s
   if (anoUlt !== ano) return `${"1".padStart(digitos, "0")}/${ano}`;
   return `${String(+m[1] + 1).padStart(digitos, "0")}/${ano}`;
 }
-
-/** Logo do modelo (a 1ª imagem PNG/JPG do Excel), para o PDF. */
-export async function logoDoModelo(bytes: ArrayBuffer | Uint8Array): Promise<Uint8Array | null> {
-  const zip = await JSZip.loadAsync(bytes);
-  const nome = Object.keys(zip.files)
-    .filter((n) => /^xl\/media\/.+\.(png|jpe?g)$/i.test(n))
-    .sort()[0];
-  return nome ? zip.file(nome)!.async("uint8array") : null;
-}
