@@ -304,9 +304,12 @@ function acharTomador(t: string, op: OpcoesPedido): { tom: Tomador | null; cnpj:
 /** Número com vírgula e as casas decimais do modelo ("30" + modelo "30,0 m³" -> "30,0"). */
 function numeroNoEstilo(v: string, modelo: string | undefined): string {
   const casas = (modelo ?? "").match(/\d+,(\d+)/)?.[1]?.length;
+  // Ponto decimal no modelo ("21.86" da MART; "1.500" com 3 casas é milhar, não conta).
+  const casasPonto = (modelo ?? "").match(/\d\.(\d{1,2})(?!\d)/)?.[1]?.length;
   const n = parseFloat(v.replace(",", "."));
   if (!Number.isFinite(n)) return v;
   if (casas != null) return n.toFixed(casas).replace(".", ",");
+  if (casasPonto != null) return n.toFixed(casasPonto);
   return v.replace(".", ",");
 }
 
