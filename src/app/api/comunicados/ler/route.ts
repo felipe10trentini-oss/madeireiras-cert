@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { lerSessao, respostaNaoAutorizado } from "@/lib/auth";
-import { ocrImagem, ocrTabela, ocrPrimeiraPagina } from "@/lib/ocr";
+import { ocrGrade, ocrImagem, ocrTabela, ocrPrimeiraPagina } from "@/lib/ocr";
 import { extractPdf } from "@/lib/pdfText";
 
 export const runtime = "nodejs";
@@ -28,8 +28,10 @@ export async function POST(req: Request) {
     if (!/^image\//.test(arq.type) && !/\.(png|jpe?g|webp|gif|bmp)$/i.test(arq.name)) {
       return NextResponse.json({ error: "Formato não aceito: mande imagem (PNG/JPG), PDF ou a planilha .xlsx." }, { status: 415 });
     }
-    // Tabela (print de e-mail/planilha com cabeçalho) lida por coluna; senão o texto corrido.
-    return NextResponse.json({ texto: (await ocrTabela(buf).catch(() => null)) ?? (await ocrImagem(buf)), ocr: true });
+    // Print de planilha com grade (TLP) lido célula a célula; tabela de e-mail com cabeçalho escuro por
+    // coluna; senão o texto corrido.
+    const texto = (await ocrGrade(buf).catch(() => null)) ?? (await ocrTabela(buf).catch(() => null)) ?? (await ocrImagem(buf));
+    return NextResponse.json({ texto, ocr: true });
   } catch (err) {
     console.error("Falha ao ler o pedido do comunicado", err);
     return NextResponse.json({ error: "Não consegui ler o arquivo (imagem muito escura ou pequena?). Digite os dados." }, { status: 422 });

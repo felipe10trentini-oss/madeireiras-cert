@@ -28,7 +28,36 @@ const ITENS: { re: RegExp; produto: string; plural: string }[] = [
   { re: /tampas?/i, produto: "Tampas", plural: "tampas" },
   { re: /cavaletes?/i, produto: "Cavaletes", plural: "cavaletes" },
   { re: /bobinas?|carret[ée]is/i, produto: "Bobinas", plural: "bobinas" },
+  { re: /caibros?/i, produto: "Caibros", plural: "caibros" },
 ];
+
+/**
+ * Quadro com um item por coluna (TLP: "CLIENTE | CAIXA | ENG | PALLET | TÁBUAS | CAIBROS" e a linha "TOTAL"):
+ * vira "28 caixas" / "5 paletes" — pela linha TOTAL, ou somando as linhas dos clientes. Null se não for esse quadro.
+ */
+function quadroDeItens(linhas: string[]): { inicio: number; fim: number; frases: string[] } | null {
+  const nomeColuna = (c: string) => {
+    const t = semAcento(c).toLowerCase().trim();
+    if (/^eng(?:radados?)?\.?$/.test(t)) return "engradados";
+    const item = ITENS.find((i) => new RegExp(`^(?:${i.re.source})$`, "i").test(t));
+    return item ? t : null;
+  };
+  const iCab = linhas.findIndex((l) => l.includes("|") && l.split("|").filter((c) => nomeColuna(c)).length >= 2);
+  if (iCab < 0) return null;
+  const cab = linhas[iCab].split("|").map((c) => nomeColuna(c));
+  let fim = iCab + 1;
+  while (fim < linhas.length && linhas[fim].includes("|")) fim++;
+  const corpo = linhas.slice(iCab + 1, fim).map((l) => l.split("|").map((c) => c.trim()));
+  const total = corpo.find((c) => /^total\b/i.test(c[0] ?? ""));
+  const num = (s: string | undefined) => +(s ?? "").replace(/\D/g, "") || 0;
+  const frases: string[] = [];
+  cab.forEach((nome, j) => {
+    if (!nome) return;
+    const q = total ? num(total[j]) : corpo.reduce((s, c) => s + num(c[j]), 0);
+    if (q > 0) frases.push(`${q} ${nome}`);
+  });
+  return frases.length ? { inicio: iCab, fim, frases } : null;
+}
 
 /** "50 kit caixas (1000x1200x680mm)", "300 paletes 1000x1200", "8 PALETES" -> itens com quantidade e medida. */
 function itensDoTexto(texto: string): { qtd: string; item: (typeof ITENS)[number]; medida: string }[] {
@@ -71,6 +100,8 @@ function horaDoTexto(t: string): string | null {
 function tabelaEmFrases(texto: string): { texto: string; itensTabela: string[] } {
   const linhas = texto.split("\n");
   const itensTabela: string[] = [];
+  const quadro = quadroDeItens(linhas);
+  if (quadro) return { texto: [...linhas.slice(0, quadro.inicio), quadro.frases.join(" e "), ...linhas.slice(quadro.fim)].join("\n"), itensTabela };
   const iCab = linhas.findIndex((l) => l.includes("|") && /quant|qtd|qtde/i.test(l) && /produto|material|mercadoria|descri|item|embalage/i.test(l));
   if (iCab < 0) return { texto, itensTabela };
   const cab = linhas[iCab].split("|").map((c) => semAcento(c).toLowerCase().trim());
@@ -99,6 +130,9 @@ function tabelaEmFrases(texto: string): { texto: string; itensTabela: string[] }
  * As linhas antes do primeiro bloco (saudação, cliente, data) valem para todos.
  */
 export function separarPedidos(texto: string): string[] {
+  // Vários arquivos soltos juntos (os Word da Madepallete): cada arquivo é um pedido.
+  const porArquivo = texto.split(/\n?^-{3,} próximo arquivo -{3,}$\n?/m).filter((p) => p.trim());
+  if (porArquivo.length > 1) return porArquivo.flatMap(separarPedidos);
   const { texto: t } = tabelaEmFrases(texto.replace(/\r/g, ""));
   const linhas = t.split("\n").map((l) => l.trim()).filter(Boolean);
   const temHora = (l: string) => !!horaDoTexto(l.replace(/\b\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?\b/g, " "));
@@ -111,7 +145,8 @@ export function separarPedidos(texto: string): string[] {
   else if (t !== texto.replace(/\r/g, "")) {
     // Tabela: as frases das linhas (vêm com " | ") que têm data ou hora própria.
     inicios = linhas.map((l, i) => (l.includes("|") && temItem(l) && (temHora(l) || temData(l)) ? i : -1)).filter((i) => i >= 0);
-  } else {
+  }
+  if (inicios.length < 2) {
     const comHora = linhas.map((l, i) => (temHora(l) ? i : -1)).filter((i) => i >= 0);
     const horas = new Set(comHora.map((i) => horaDoTexto(linhas[i])));
     if (comHora.length >= 2 && horas.size >= 2) {
@@ -150,13 +185,29 @@ export function interpretarTexto(
   const chave = (s: string) => semAcento(s).toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
   const planoChave = ` ${chave(plano)} `;
   const porCnpj = op.tomadores.find((x) => cnpjs.includes(soDigitos(x.cnpj)));
-  const porNome = porCnpj
+  // "EMPRESA: TLP EMBALAGENS" (a TLP escreve ali o tomador): o terceiro cujo nome tem todas essas palavras.
+  const GENERICAS = /^(LTDA|ME|EIRELI|SA|EPP|IND|COM|E|DE|DO|DA|DOS|DAS)$/;
+  const palavrasDe = (s: string) => chave(s).split(" ").filter((p) => p && !GENERICAS.test(p));
+  const rotulo = t.match(/(?:^|\n)\s*(?:empresa|tomador(?: de servi[çc]o)?|cliente)\s*:\s*\|?\s*([^|\n]+)/i)?.[1]?.trim();
+  const casa = (a: string, b: string) => a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)));
+  const porRotulo =
+    porCnpj || !rotulo || palavrasDe(rotulo).length === 0
+      ? null
+      : (() => {
+          const ps = palavrasDe(rotulo);
+          const cands = op.tomadores.filter((x) => {
+            const nome = palavrasDe(x.razao);
+            return ps.every((p) => nome.some((n) => casa(p, n)));
+          });
+          return cands.length === 1 ? cands[0] : null;
+        })();
+  const porNome = porCnpj || porRotulo
     ? null
     : op.tomadores
         .map((x) => ({ x, nome: chave(x.razao).replace(/\b(LTDA|ME|EIRELI|S A|SA|EPP|IND|COM|E|DE|DO|DA)\b/g, " ").replace(/\s+/g, " ").trim() }))
         .filter(({ nome }) => nome.length >= 4 && planoChave.includes(` ${nome.split(" ").slice(0, 2).join(" ")} `))
         .sort((a, b) => b.nome.length - a.nome.length)[0]?.x;
-  const tom = porCnpj ?? porNome ?? null;
+  const tom = porCnpj ?? porRotulo ?? porNome ?? null;
   if (tom) {
     marcar("tomador", `${tom.razao} - CNPJ ${tom.cnpj}`);
     // Prestadora (trata no cliente): o local é o do cliente.

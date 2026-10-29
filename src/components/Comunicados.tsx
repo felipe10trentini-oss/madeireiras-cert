@@ -127,7 +127,13 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
     [empresas]
   );
   const empresa = lista.find((e) => e.cnpj === cnpj) ?? null;
-  const tomadores = useMemo(() => Object.values(empresa?.relatorio?.tomadores ?? {}).sort((a, b) => a.razao.localeCompare(b.razao, "pt-BR")), [empresa]);
+  // Os terceiros cadastrados e a própria empresa (a Madepallete/TLP também tratam o material delas).
+  const tomadores = useMemo(() => {
+    if (!empresa) return [];
+    const terceiros = Object.values(empresa.relatorio?.tomadores ?? {});
+    const propria = { razao: empresa.razaoSocial, cnpj: empresa.cnpj, endereco: empresa.endereco ?? "", telefone: empresa.telefone ?? "", email: empresa.email ?? "" };
+    return [...terceiros.filter((t) => soDigitos(t.cnpj) !== soDigitos(empresa.cnpj)), propria].sort((a, b) => a.razao.localeCompare(b.razao, "pt-BR"));
+  }, [empresa]);
 
   // Modelo da empresa (pasta privada) e o próximo número.
   useEffect(() => {
@@ -228,9 +234,10 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
     } finally {
       setOcupado(false);
     }
-    const lido = partes.map((x) => x.trim()).filter(Boolean).join("\n");
+    // Um pedido por arquivo: a linha separadora fica na caixa e o separarPedidos corta nela.
+    const lido = partes.map((x) => x.trim()).filter(Boolean).join("\n--- próximo arquivo ---\n");
     if (!lido) return;
-    const novo = [texto.trim(), lido].filter(Boolean).join("\n");
+    const novo = [texto.trim(), lido].filter(Boolean).join("\n--- próximo arquivo ---\n");
     setTexto(novo);
     identificar(novo);
   }

@@ -273,6 +273,99 @@ export async function ocrTabela(buffer: Buffer): Promise<string | null> {
   }
 }
 
+/**
+ * Print de planilha com grade (TLP: "TRATAMENTO HT DIA: | 29/10/26 | HORA: | 12:00:00", "CLIENTE | CAIXA |
+ * ENG | PALLET…", "TOTAL | 28 | 0 | 5…"): acha as linhas pretas da grade (horizontais na tabela toda; as
+ * verticais dentro de cada faixa, porque há células mescladas) e lê cada célula à parte. O texto acima da
+ * grade ("1º TRATAMENTO") vem como primeira linha. Devolve "a | b | c" por linha, ou null sem grade.
+ */
+export async function ocrGrade(buffer: Buffer): Promise<string | null> {
+  const img = await loadImage(buffer);
+  const escala = Math.max(1, Math.min(4, 2400 / img.width));
+  const W = Math.round(img.width * escala);
+  const H = Math.round(img.height * escala);
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, W, H);
+  ctx.drawImage(img, 0, 0, W, H);
+  const d = ctx.getImageData(0, 0, W, H).data;
+  const escuro = (x: number, y: number) => {
+    const i = (y * W + x) * 4;
+    return d[i] + d[i + 1] + d[i + 2] < 3 * 100;
+  };
+  // Linhas horizontais: a maior parte da largura escura.
+  const linhaH = (y: number) => {
+    let n = 0;
+    for (let x = 0; x < W; x += 2) if (escuro(x, y)) n++;
+    return n / Math.ceil(W / 2) > 0.6;
+  };
+  const agrupar = (marcas: boolean[]) => {
+    const out: [number, number][] = [];
+    for (let i = 0; i < marcas.length; i++) {
+      if (!marcas[i]) continue;
+      const a = i;
+      while (i < marcas.length && marcas[i]) i++;
+      out.push([a, i]);
+    }
+    return out;
+  };
+  const hs = agrupar(Array.from({ length: H }, (_, y) => linhaH(y)));
+  if (hs.length < 3) return null;
+  const faixas: [number, number][] = [];
+  for (let k = 0; k + 1 < hs.length; k++) if (hs[k + 1][0] - hs[k][1] > 10 * escala) faixas.push([hs[k][1], hs[k + 1][0]]);
+  if (faixas.length < 2) return null;
+
+  const worker = await createWorker("por", undefined, { langPath: path.join(process.cwd(), "ocr"), gzip: true, cachePath: os.tmpdir() });
+  const ler1 = async (x0: number, y0: number, x1: number, y1: number) => {
+    const m = Math.round(2 * escala);
+    const w = x1 - x0 - 2 * m;
+    const h = y1 - y0 - 2 * m;
+    if (w < 6 || h < 6) return "";
+    // Célula sem tinta (só a cor de fundo): vazia, sem gastar OCR.
+    let tinta = 0;
+    for (let y = y0 + m; y < y1 - m; y += 2) for (let x = x0 + m; x < x1 - m; x += 2) if (escuro(x, y)) tinta++;
+    if (tinta < 8) return "";
+    const c = createCanvas(w + 40, h + 40);
+    const k = c.getContext("2d");
+    k.fillStyle = "#fff";
+    k.fillRect(0, 0, c.width, c.height);
+    k.drawImage(canvas, x0 + m, y0 + m, w, h, 20, 20, w, h);
+    // Fundo colorido (amarelo/laranja) vira branco: só o texto escuro fica.
+    const id = k.getImageData(0, 0, c.width, c.height);
+    for (let i = 0; i < id.data.length; i += 4) {
+      const v = id.data[i] + id.data[i + 1] + id.data[i + 2] < 3 * 140 ? 0 : 255;
+      id.data[i] = id.data[i + 1] = id.data[i + 2] = v;
+    }
+    k.putImageData(id, 0, 0);
+    return (await worker.recognize(c.toBuffer("image/png"))).data.text.replace(/\s+/g, " ").replace(/[|“”"]/g, "").trim();
+  };
+  try {
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
+    const linhas: string[] = [];
+    if (hs[0][0] > 10 * escala) {
+      const t = await ler1(0, 0, W, hs[0][0]);
+      if (t) linhas.push(t);
+    }
+    for (const [y0, y1] of faixas) {
+      // Verticais desta faixa: colunas de pixels escuras em quase toda a altura.
+      const vs = agrupar(
+        Array.from({ length: W }, (_, x) => {
+          let n = 0;
+          for (let y = y0; y < y1; y++) if (escuro(x, y)) n++;
+          return n / (y1 - y0) > 0.85;
+        })
+      );
+      const vals: string[] = [];
+      for (let k = 0; k + 1 < vs.length; k++) if (vs[k + 1][0] - vs[k][1] > 8 * escala) vals.push(await ler1(vs[k][1], y0, vs[k + 1][0], y1));
+      if (vals.some(Boolean)) linhas.push(vals.join(" | "));
+    }
+    return linhas.length >= 2 ? linhas.join("\n") : null;
+  } finally {
+    await worker.terminate();
+  }
+}
+
 export async function ocrPrimeiraPagina(buffer: Buffer): Promise<string> {
   const png = await imagemDaPagina(buffer);
   if (!png) return "";
