@@ -13,11 +13,21 @@ export const runtime = "nodejs";
 const pasta = () => getSupabaseServerClient().storage.from("declaracoes");
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+interface Emitido {
+  numero: string;
+  data: string;
+  horario: string;
+}
+
 interface Config {
   nomeModelo?: string;
   ultimoNumero?: string;
   atualizado?: string;
+  /** Últimos comunicados emitidos pelo site (para "três amanhã, mesmos horários"). */
+  historico?: Emitido[];
 }
+
+const txt = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
 
 async function lerConfig(cnpj: string): Promise<Config> {
   const { data } = await pasta().download(`${cnpj}/comunicado.json`);
@@ -40,6 +50,7 @@ export async function GET(req: Request) {
       nomeModelo: cfg.nomeModelo ?? null,
       ultimoNumero: cfg.ultimoNumero ?? null,
       atualizado: cfg.atualizado ?? null,
+      historico: cfg.historico ?? [],
       modelo: modelo ? Buffer.from(await modelo.arrayBuffer()).toString("base64") : null,
     },
     { headers: { "Cache-Control": "no-store" } }
@@ -52,7 +63,14 @@ export async function GET(req: Request) {
  * do último comunicado (`emitido`), que passa a ser o modelo — a planilha fica sempre com o último emitido.
  */
 export async function PUT(req: Request) {
-  const b = (await req.json().catch(() => null)) as { cnpj?: unknown; nome?: unknown; modelo?: unknown; emitido?: unknown; ultimoNumero?: unknown } | null;
+  const b = (await req.json().catch(() => null)) as {
+    cnpj?: unknown;
+    nome?: unknown;
+    modelo?: unknown;
+    emitido?: unknown;
+    ultimoNumero?: unknown;
+    emitidos?: unknown;
+  } | null;
   const cnpj = soDigitos(typeof b?.cnpj === "string" ? b.cnpj : "");
   if (cnpj.length !== 14) return NextResponse.json({ error: "Informe o CNPJ." }, { status: 400 });
   if (b?.modelo != null ? !podeAcessar(req, "madeireiras") : !lerSessao(req)) {
@@ -73,6 +91,15 @@ export async function PUT(req: Request) {
       ...atual,
       ...(typeof b?.nome === "string" ? { nomeModelo: b.nome.slice(0, 160) } : {}),
       ...(typeof b?.ultimoNumero === "string" ? { ultimoNumero: b.ultimoNumero.slice(0, 40) } : {}),
+      // Os emitidos agora entram no histórico (os 60 mais recentes; o mesmo número é trocado).
+      ...(Array.isArray(b?.emitidos)
+        ? {
+            historico: [
+              ...(atual.historico ?? []).filter((h) => !(b.emitidos as Record<string, unknown>[]).some((n) => txt(n?.numero, 40) === h.numero)),
+              ...(b.emitidos as Record<string, unknown>[]).slice(0, 60).map((n) => ({ numero: txt(n?.numero, 40), data: txt(n?.data, 10), horario: txt(n?.horario, 10) })),
+            ].slice(-60),
+          }
+        : {}),
       atualizado: new Date().toISOString(),
     };
     const up = await pasta().upload(`${cnpj}/comunicado.json`, Buffer.from(JSON.stringify(cfg)), { contentType: "application/json", upsert: true });

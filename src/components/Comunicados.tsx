@@ -13,7 +13,7 @@ import {
   type CampoComunicado,
   type ModeloComunicado,
 } from "@/lib/comunicadoModelo";
-import { interpretarTexto, separarPedidos } from "@/lib/comunicadoTexto";
+import { interpretarPedido } from "@/lib/comunicadoTexto";
 import { baixarFontes } from "@/lib/declaracaoLgPdf";
 import { excelParaPdf } from "@/lib/excelPdf";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
@@ -31,6 +31,13 @@ const SEM_COMUNICADO = new Set(["Flavia", "JJR", "Megga", "Vale Norte"]);
 
 // Duração padrão de todos os comunicados (28/10/2026).
 const DURACAO = "32 min";
+
+// Mistas: emitem comunicado e programação (MART: 3º tratamento do dia, fim de semana e feriado; Madeval:
+// HT de embalagem como prestadora). Ficam na aba mesmo marcadas como "programação" no cadastro.
+const MISTAS = new Set(["Madeval", "MART"]);
+
+// Horários de sempre, quando o pedido diz "mesmos horários" e o site ainda não tem o histórico (29/10/2026).
+const HORARIOS_PADRAO: Record<string, string[]> = { "33039086000115": ["07h00m", "11h00m", "15h00m"] }; // DM
 
 /** Cidade do endereço ("… - Salto - SP" / "… Salto/SP") para a coluna LOCAL da tabela (CJ). */
 function cidadeDe(endereco: string): string {
@@ -57,6 +64,7 @@ interface Salvo {
   nomeModelo: string | null;
   ultimoNumero: string | null;
   bytes: Uint8Array | null;
+  historico: { numero: string; data: string; horario: string }[];
 }
 
 const deBase64 = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -148,7 +156,7 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
   const lista = useMemo(
     () =>
       (empresas ?? [])
-        .filter((e) => e.documento === "comunicado" && !e.config?.inativa && !SEM_COMUNICADO.has(e.apelido))
+        .filter((e) => (e.documento === "comunicado" || MISTAS.has(e.apelido)) && !e.config?.inativa && !SEM_COMUNICADO.has(e.apelido))
         .sort((a, b) => a.apelido.localeCompare(b.apelido, "pt-BR")),
     [empresas]
   );
@@ -175,7 +183,7 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
         const j = await r.json();
         if (!vivo) return;
         const bytes = j.modelo ? deBase64(j.modelo) : null;
-        setSalvo({ salvo: !!j.salvo, nomeModelo: j.nomeModelo, ultimoNumero: j.ultimoNumero, bytes });
+        setSalvo({ salvo: !!j.salvo, nomeModelo: j.nomeModelo, ultimoNumero: j.ultimoNumero, bytes, historico: j.historico ?? [] });
         if (!bytes) {
           setModelo(null);
           return;
@@ -309,21 +317,21 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
     const doModelo = Object.fromEntries(Object.values(modelo.campos).map((c) => [c!.campo, c!.valor])) as Partial<Record<CampoComunicado, string>>;
     // Um comunicado por tratamento; números em sequência (na Mann/Exata, o número do aviso).
     let numero = ultimoEmitido ?? "";
-    let data = "";
-    const lidos = separarPedidos(textoUsado).map((bloco) => {
-      const r = interpretarTexto(bloco, { tomadores, prestadora: !!regraDe(empresa).prestadora, modelo: doModelo });
+    const lidos = interpretarPedido(textoUsado, {
+      tomadores,
+      prestadora: !!regraDe(empresa).prestadora,
+      credenciada: empresa.modalidade === "Credenciada",
+      empresa,
+      modelo: doModelo,
+      historico: salvo?.historico ?? [],
+      horariosPadrao: HORARIOS_PADRAO[soDigitos(empresa.cnpj)],
+    }).map((r) => {
       if (numeroEhAviso && r.achados.includes("aviso")) r.valores.numero = r.valores.aviso!;
       else {
         numero = proximoNumero(numero, new Date().getFullYear());
         r.valores.numero = numero;
       }
       if (modelo.campos.duracao) r.valores.duracao = DURACAO;
-      // Sem data no bloco: a do comunicado anterior.
-      if (r.achados.includes("data")) data = r.valores.data!;
-      else if (data) {
-        r.valores.data = data;
-        r.avisos = r.avisos.filter((a) => !/data do tratamento/.test(a));
-      }
       return { valores: completarTabela(modelo, r.valores), achados: r.achados, avisos: r.avisos };
     });
     setPedidos(lidos);
@@ -400,9 +408,23 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
       const res = await fetch("/api/comunicados/modelo", {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...cabecalhoSenha(senha) },
-        body: JSON.stringify({ cnpj: empresa.cnpj, ultimoNumero: numeroUltimo, emitido: paraBase64(excel) }),
+        body: JSON.stringify({
+          cnpj: empresa.cnpj,
+          ultimoNumero: numeroUltimo,
+          emitido: paraBase64(excel),
+          emitidos: pedidos.map((x) => ({ numero: x.valores.numero ?? "", data: x.valores.data ?? "", horario: x.valores.horario ?? "" })),
+        }),
       });
-      setSalvo((s) => (s ? { ...s, ultimoNumero: numeroUltimo, bytes: excel } : s));
+      setSalvo((s) =>
+        s
+          ? {
+              ...s,
+              ultimoNumero: numeroUltimo,
+              bytes: excel,
+              historico: [...s.historico, ...pedidos.map((x) => ({ numero: x.valores.numero ?? "", data: x.valores.data ?? "", horario: x.valores.horario ?? "" }))].slice(-60),
+            }
+          : s
+      );
       if (salvosNaPasta.length && destino) setDaPasta({ ...destino, numero: maiorNumero(destino.numero, numeroUltimo), arquivo: salvosNaPasta[salvosNaPasta.length - 1] });
       setToast(
         res.ok

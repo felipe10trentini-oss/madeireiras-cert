@@ -1,6 +1,8 @@
-// Interpreta o texto colado (mensagem do cliente, e-mail, lista) para o comunicado de tratamento: tomador
-// (pelo CNPJ ou pelo nome no Cadastro de terceiros), data, horário, itens e quantidades, aviso e unidade
-// volante. O que não vier no texto fica como no modelo da empresa (último comunicado), e o operador confere.
+// Interpreta o pedido do cliente (mensagem do WhatsApp, e-mail, Word, planilha, print) para o comunicado
+// de tratamento: separa os tratamentos, acha tomador, data, horário, itens/quantidade e volume. O estilo
+// segue o último comunicado da empresa (o modelo): se lá a quantidade é só o número, sai só o número; se é
+// "30,0 m³", sai em m³; o produto fica o do modelo quando é o mesmo tipo de item. O que não vier no texto
+// fica como no modelo, e o operador confere.
 import type { CampoComunicado } from "./comunicadoModelo";
 import type { Tomador } from "./relatorio";
 import { snMinusculo, soDigitos } from "./util";
@@ -12,6 +14,23 @@ export interface Interpretado {
   avisos: string[];
 }
 
+export interface OpcoesPedido {
+  /** Cadastro de terceiros da empresa (e a própria empresa). */
+  tomadores: Tomador[];
+  /** Trata no cliente (Mann móvel, ALR): o local é o do tomador. */
+  prestadora: boolean;
+  /** Credenciada: sem tomador no texto, o tomador é a própria empresa. */
+  credenciada?: boolean;
+  empresa?: { razaoSocial: string; cnpj: string };
+  hoje?: Date;
+  /** Valores do último comunicado (o modelo). */
+  modelo: Partial<Record<CampoComunicado, string>>;
+  /** Comunicados emitidos antes (data e horário), para "três amanhã, mesmos horários". */
+  historico?: { data: string; horario: string }[];
+  /** Horários de sempre, quando ainda não há histórico (DM: 07h, 11h e 15h). */
+  horariosPadrao?: string[];
+}
+
 const semAcento = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
 const pad2 = (n: number) => String(n).padStart(2, "0");
 const fmtCnpj = (d: string) => d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
@@ -20,20 +39,25 @@ const fmtCnpj = (d: string) => d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/
 const ITENS: { re: RegExp; produto: string; plural: string }[] = [
   { re: /kits?\s+(?:de\s+)?caixas?/i, produto: "Kit caixas", plural: "kit caixas" },
   { re: /kits?\s+(?:de\s+)?embalage\w*/i, produto: "Kit embalagens", plural: "kit embalagens" },
+  { re: /kits?\s+(?:de\s+)?engradados?|engradados?\s+em\s+kits?/i, produto: "Kit engradados", plural: "kit engradados" },
   { re: /kits?/i, produto: "Kit caixas", plural: "kits" },
   { re: /pal+et+e?s?|pal+ets?/i, produto: "Paletes", plural: "paletes" },
-  { re: /caixas?|engradados?/i, produto: "Caixas", plural: "caixas" },
+  { re: /engradados?/i, produto: "Engradados", plural: "engradados" },
+  { re: /caixas?/i, produto: "Caixas", plural: "caixas" },
   { re: /skids?|suportes?/i, produto: "Suportes", plural: "suportes" },
   { re: /t[áa]buas?|ripas?|sarrafos?/i, produto: "Tábuas", plural: "tábuas" },
   { re: /tampas?/i, produto: "Tampas", plural: "tampas" },
   { re: /cavaletes?/i, produto: "Cavaletes", plural: "cavaletes" },
   { re: /bobinas?|carret[ée]is/i, produto: "Bobinas", plural: "bobinas" },
   { re: /caibros?/i, produto: "Caibros", plural: "caibros" },
+  { re: /grades?|fardos?/i, produto: "Madeira serrada", plural: "fardos" },
 ];
+
+type Item = { qtd: string; item: (typeof ITENS)[number]; medida: string };
 
 /**
  * Quadro com um item por coluna (TLP: "CLIENTE | CAIXA | ENG | PALLET | TÁBUAS | CAIBROS" e a linha "TOTAL"):
- * vira "28 caixas" / "5 paletes" — pela linha TOTAL, ou somando as linhas dos clientes. Null se não for esse quadro.
+ * vira "28 kit caixas" / "5 paletes" — pela linha TOTAL, ou somando as linhas dos clientes. Null se não for esse quadro.
  */
 function quadroDeItens(linhas: string[]): { inicio: number; fim: number; frases: string[] } | null {
   const nomeColuna = (c: string) => {
@@ -61,39 +85,97 @@ function quadroDeItens(linhas: string[]): { inicio: number; fim: number; frases:
   return frases.length ? { inicio: iCab, fim, frases } : null;
 }
 
-/** "50 kit caixas (1000x1200x680mm)", "300 paletes 1000x1200", "8 PALETES" -> itens com quantidade e medida. */
-function itensDoTexto(texto: string): { qtd: string; item: (typeof ITENS)[number]; medida: string }[] {
-  const out: { qtd: string; item: (typeof ITENS)[number]; medida: string }[] = [];
+/** "50 kit caixas (1000x1200x680mm)", "300 paletes 1000x1200", "352 - PALLETS", "40-Engradados em kits". */
+function itensDoTexto(texto: string): Item[] {
+  const out: Item[] = [];
   const nomes = ITENS.map((i) => i.re.source).join("|");
-  const re = new RegExp(`(\\d[\\d.]*)\\s*(?:un(?:idades?|d\\.?)?\\s*(?:de\\s+)?)?(${nomes})(?:\\s+de\\s+madeira)?\\s*(\\(?\\s*\\d{2,4}\\s*[xX×]\\s*\\d{2,4}(?:\\s*[xX×]\\s*\\d{2,4})?\\s*(?:mm|cm)?\\s*\\)?)?`, "gi");
+  const re = new RegExp(
+    `(?<![\\d.,/])(\\d{1,3}(?:\\.\\d{3})+|\\d+)\\s*-?\\s*(?:un(?:idades?|d\\.?)?\\s*(?:de\\s+)?)?(${nomes})(?:\\s+de\\s+madeiras?)?\\s*(\\(?\\s*\\d{2,4}\\s*[xX×]\\s*\\d{2,4}(?:\\s*[xX×]\\s*\\d{2,4})?\\s*(?:mm|cm)?\\s*\\)?)?`,
+    "gi"
+  );
   for (const m of texto.matchAll(re)) {
     const item = ITENS.find((i) => new RegExp(`^(?:${i.re.source})$`, "i").test(m[2].trim())) ?? ITENS.find((i) => i.re.test(m[2]))!;
     const medida = (m[3] ?? "").replace(/[()\s]/g, "").replace(/×/g, "x").toLowerCase();
-    out.push({ qtd: m[1].replace(/\./g, ""), item, medida: medida && !/mm|cm$/.test(medida) ? `${medida}mm` : medida });
+    out.push({ qtd: m[1], item, medida: medida && !/mm|cm$/.test(medida) ? `${medida}mm` : medida });
   }
   return out;
 }
 
-/** Data do texto: "27/10", "27/10/2026", "27.10.26", "hoje", "amanhã". */
-function dataDoTexto(t: string, hoje: Date): string | null {
-  const m = t.match(/\b(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?\b/);
-  if (m) {
-    const ano = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : hoje.getFullYear();
-    if (+m[1] >= 1 && +m[1] <= 31 && +m[2] >= 1 && +m[2] <= 12) return `${pad2(+m[1])}/${pad2(+m[2])}/${ano}`;
-  }
-  const rel = semAcento(t).toLowerCase();
-  const d = new Date(hoje);
-  if (/\bamanha\b/.test(rel)) d.setDate(d.getDate() + 1);
-  else if (!/\bhoje\b/.test(rel)) return null;
-  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+/** Quantidade sem item: "Quantidade 300", "Quantidade: 720", "450 unidades", "2 de 413" (413). */
+function qtdSolta(t: string): string | null {
+  const m =
+    t.match(/\bquantidade\s*:?\s*(\d[\d.]*)/i) ??
+    t.match(/(?<![\d.,])(\d[\d.]*)\s*(?:unidades|unid\.?|und\.?|pe[çc]as|p[çc]s)\b/i) ??
+    t.match(/^\s*\d{1,2}\s+de\s+(\d[\d.]*)\s*$/im);
+  return m ? m[1].replace(/\./g, "") : null;
 }
 
-/** Horário: "13:30", "13h30", "13h", "às 8 horas" -> "13h30m". */
-function horaDoTexto(t: string): string | null {
-  const m = t.match(/\b(\d{1,2})\s*(?::|h(?:oras?)?|hs)\s*(\d{2})?\s*(?:m(?:in)?)?\b/i);
-  if (!m || +m[1] > 23) return null;
-  return `${pad2(+m[1])}h${m[2] ?? "00"}m`;
+/** Volume em m³: "85,000m³", "30 m cubicos", "48m3", "48m pinus", "Total de 21.86 m3". */
+function volumeDoTexto(t: string): string | null {
+  const m =
+    t.match(/\btotal\s+(?:de\s+)?(\d+(?:[.,]\d+)?)\s*(?:m3|m³|m\s*c[uú]bicos?)/i) ??
+    t.match(/(?<![\d.,])(\d+(?:[.,]\d+)?)\s*(?:m3|m³|m\s*c[uú]bicos?|metros?\s*c[uú]bicos?|m(?=\s+(?:de\s+)?(?:pinus|eucalipto|madeira)))/i);
+  return m ? m[1] : null;
 }
+
+const NUM_POR_EXTENSO: Record<string, number> = { um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6, sete: 7, oito: 8 };
+const DIAS_SEMANA = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
+const fmtData = (d: Date) => `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+
+/** Data do texto: "27/10", "27/10/2026", "19.08.26", "dia 27", "segunda", "amanhã", "hoje". */
+function dataDoTexto(t: string, hoje: Date): string | null {
+  // "dd/mm(/aa)"; com ponto ou hífen só com o ano ("19.08.26"), para não pegar "1.500" ou "352-PALLETS".
+  // Vírgula colada ("24/09," / ",19.08.26") vale; "85,000" ou "1.500" não.
+  for (const m of t.matchAll(/(?<!\d)(?<!\d[.,/])(\d{1,2})(?:\/(\d{1,2})(?:\/(\d{2,4}))?|([.-])(\d{1,2})\4(\d{2,4}))(?!\d|[.,/]\d)/g)) {
+    const dia = +m[1];
+    const mes = +(m[2] ?? m[5]);
+    const a = m[3] ?? m[6];
+    if (dia < 1 || dia > 31 || mes < 1 || mes > 12) continue;
+    const ano = a ? (a.length === 2 ? 2000 + +a : +a) : hoje.getFullYear();
+    return `${pad2(dia)}/${pad2(mes)}/${ano}`;
+  }
+  const rel = semAcento(t).toLowerCase();
+  // "dia 27" (sem mês; não o "Bom dia" nem "dia 2º"): este mês, ou o próximo se o dia já passou há mais
+  // de alguns dias (mensagem lida com atraso continua no mês).
+  const dia = rel.match(/(?<!\bbom\s)\bdia\s+(\d{1,2})(?![\dº°ª]|\s*[/.:h]|\s*(?:o|a)\s)/);
+  if (dia && +dia[1] >= 1 && +dia[1] <= 31) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth(), +dia[1]);
+    if (hoje.getDate() - +dia[1] > 3) d.setMonth(d.getMonth() + 1);
+    return fmtData(d);
+  }
+  const d = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+  if (/\bamanha\b/.test(rel)) {
+    d.setDate(d.getDate() + 1);
+    return fmtData(d);
+  }
+  if (/\bhoje\b/.test(rel)) return fmtData(d);
+  // "segunda", "segunda-feira", "domingo": o próximo dia com esse nome.
+  const ds = rel.match(/\b(domingo|segunda|terca|quarta|quinta|sexta|sabado)(?:[-\s]feira)?\b/);
+  if (ds) {
+    const alvo = DIAS_SEMANA.indexOf(ds[1]);
+    let n = (alvo - d.getDay() + 7) % 7;
+    if (n === 0) n = 7;
+    d.setDate(d.getDate() + n);
+    return fmtData(d);
+  }
+  return null;
+}
+
+const SEM_DATAS = (t: string) => t.replace(/(?<!\d)(?<!\d[.,/])\d{1,2}(?:\/\d{1,2}(?:\/\d{2,4})?|([.-])\d{1,2}\1\d{2,4})(?!\d|[.,/]\d)/g, " ");
+
+/** Horários: "13:30", "13h30", "9h00", "7 horas", "9hs", "19hs", "9hrs", "8,30 horas", "07:00hs" -> "07h00m". */
+function horasDoTexto(t: string): string[] {
+  const out: string[] = [];
+  const re = /(?<![\d.,/])(\d{1,2})(?:\s*[:h]\s*(\d{2})(?!\d)|[,.](\d{2})\s*(?=h)|\s*(?=(?:hs|hrs?|horas?|h)\b))\s*(?:hs|hrs?|horas?|h|m(?:in)?)?\b/gi;
+  for (const m of SEM_DATAS(t).matchAll(re)) {
+    const h = +m[1];
+    const min = m[2] ?? m[3] ?? "00";
+    if (h > 23 || +min > 59) continue;
+    out.push(`${pad2(h)}h${min}m`);
+  }
+  return out;
+}
+const horaDoTexto = (t: string) => horasDoTexto(t)[0] ?? null;
 
 /**
  * Tabela (planilha ou Word: células com " | "): pela linha de títulos (quantidade/qtd, produto/material/
@@ -125,11 +207,11 @@ function tabelaEmFrases(texto: string): { texto: string; itensTabela: string[] }
 }
 
 /**
- * Mais de um comunicado no mesmo pedido: separa em blocos, um por tratamento.
- *   - lista numerada ("1)", "2 -", "Comunicado 2", "Pedido 3") -> um por item;
- *   - tabela (planilha/Word) -> uma linha por tratamento (a linha sem data/hora junta na de cima);
- *   - vários horários no texto -> cada horário começa um tratamento.
- * As linhas antes do primeiro bloco (saudação, cliente, data) valem para todos.
+ * Separa o pedido em tratamentos (um comunicado cada), linha a linha: uma linha com data quando o bloco atual
+ * já tem data ou horário, ou com horário quando o bloco já tem horário, começa outro tratamento ("30/10/26 ↵
+ * 19hs ↵ 82 kits ↵ 31/10/26 ↵ 03hs…", "352 - PALLETS (AS 9HS) ↵ 352 - PALLETS (14HS)", uma linha por cliente
+ * na Madeval). Lista numerada ("1º Tratamento - 07:00") também separa. As linhas sem dado antes do primeiro
+ * tratamento (saudação, "Tomador Embafort") valem para todos, e a data passa para os seguintes.
  */
 export function separarPedidos(texto: string): string[] {
   // Vários arquivos soltos juntos (os Word da Madepallete): cada arquivo é um pedido.
@@ -137,42 +219,103 @@ export function separarPedidos(texto: string): string[] {
   if (porArquivo.length > 1) return porArquivo.flatMap(separarPedidos);
   const { texto: t } = tabelaEmFrases(texto.replace(/\r/g, ""));
   const linhas = t.split("\n").map((l) => l.trim()).filter(Boolean);
-  const temHora = (l: string) => !!horaDoTexto(l.replace(/\b\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?\b/g, " "));
-  const temData = (l: string) => /\b\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?\b/.test(l);
-  const temItem = (l: string) => itensDoTexto(l).length > 0 || /^\d[\d.,]*\s+\S/.test(l);
-  const numerado = (l: string) => /^(?:\d{1,2}\s*[)º°.-]\s+|(?:comunicado|pedido|tratamento|carga)\s*(?:n[º°o.]*\s*)?\d{1,2}\b)/i.test(l);
+  const numerado = (l: string) => /^(?:\d{1,2}\s*[)º°ª.-]\s+|(?:comunicado|pedido|tratamento|carga)\s*(?:n[º°o.]*\s*)?\d{1,2}\b)/i.test(l);
 
-  let inicios: number[] = [];
-  if (linhas.filter(numerado).length >= 2) inicios = linhas.map((l, i) => (numerado(l) ? i : -1)).filter((i) => i >= 0);
-  else if (t !== texto.replace(/\r/g, "")) {
-    // Tabela: as frases das linhas (vêm com " | ") que têm data ou hora própria.
-    inicios = linhas.map((l, i) => (l.includes("|") && temItem(l) && (temHora(l) || temData(l)) ? i : -1)).filter((i) => i >= 0);
-  }
-  if (inicios.length < 2) {
-    const comHora = linhas.map((l, i) => (temHora(l) ? i : -1)).filter((i) => i >= 0);
-    const horas = new Set(comHora.map((i) => horaDoTexto(linhas[i])));
-    if (comHora.length >= 2 && horas.size >= 2) {
-      // O item na linha de cima do horário ("200 paletes" ↵ "às 8h") é do mesmo tratamento.
-      inicios = comHora.map((i) => (i > 0 && temItem(linhas[i - 1]) && !temHora(linhas[i - 1]) && !temItem(linhas[i]) ? i - 1 : i));
+  type Bloco = { linhas: string[]; data: boolean; hora: boolean };
+  const blocos: Bloco[] = [];
+  let cur: Bloco = { linhas: [], data: false, hora: false };
+  const contexto: string[] = [];
+  const hoje = new Date();
+  for (const l of linhas) {
+    const temData = !!dataDoTexto(l, hoje) && !/^\s*(?:hoje|amanh[ãa])\b.*\b(?:hoje|amanh[ãa])\b/i.test(l);
+    const temHora = horasDoTexto(l).length > 0;
+    const nova = (temData && (cur.data || cur.hora)) || (temHora && cur.hora) || (numerado(l) && (cur.data || cur.hora) && cur.hora);
+    if (nova) {
+      blocos.push(cur);
+      cur = { linhas: [], data: false, hora: false };
     }
+    // Linhas sem dado antes do 1º tratamento: contexto de todos.
+    if (!blocos.length && !temData && !temHora && !cur.data && !cur.hora && !itensDoTexto(l).length && !qtdSolta(l) && !volumeDoTexto(l)) {
+      contexto.push(l);
+      continue;
+    }
+    cur.linhas.push(l);
+    cur.data ||= temData;
+    cur.hora ||= temHora;
   }
-  inicios = [...new Set(inicios)].sort((a, b) => a - b);
-  if (inicios.length < 2) return [texto];
-  const contexto = linhas.slice(0, inicios[0]).filter((l) => !temItem(l));
-  const soltos = linhas.slice(0, inicios[0]).filter(temItem);
-  return inicios.map((ini, k) => {
-    const bloco = linhas.slice(ini, inicios[k + 1] ?? linhas.length);
-    return [...contexto, ...(k === 0 ? soltos : []), ...bloco].join("\n");
-  });
+  blocos.push(cur);
+  const validos = blocos.filter((b) => b.linhas.length);
+  if (validos.length < 2) return [texto];
+  return validos.map((b) => [...contexto, ...b.linhas].join("\n"));
 }
 
-export function interpretarTexto(
-  texto: string,
-  op: { tomadores: Tomador[]; prestadora: boolean; hoje?: Date; modelo: Partial<Record<CampoComunicado, string>> }
-): Interpretado {
+/** Tomador escrito no estilo do modelo ("X - CNPJ: 00…", "X; CNPJ 00…"). */
+function tomadorNoEstilo(razao: string, cnpj: string, modelo: string | undefined): string {
+  const sep = (modelo ?? "").match(/^.*?(\s*[-–;,:]?\s*CNPJ\s*:?\s*)\d/i)?.[1];
+  return `${razao}${sep ?? " - CNPJ: "}${fmtCnpj(soDigitos(cnpj))}`;
+}
+
+const GENERICAS = new Set(
+  "LTDA ME EIRELI SA EPP IND COM CIA E DE DO DA DOS DAS INDUSTRIA COMERCIO MADEIRA MADEIRAS MADEIREIRA EMBALAGEM EMBALAGENS PALLET PALLETS PALETE PALETES PALLETE ARTEFATOS TRANSPORTES SOLUCOES EMPRESARIAIS EXPORTACAO IMPORTACAO LIMITADA AMANHA HOJE AGENDA AGENDAR TRATAMENTO HORAS".split(" ")
+);
+
+function acharTomador(t: string, op: OpcoesPedido): { tom: Tomador | null; cnpj: string | null; nome: string | null } {
+  const plano = t.replace(/\s+/g, " ");
+  const chave = (s: string) => semAcento(s).toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  // "62.468.466/0001-73", "13428397/0001-69" e até "62.468.466.0001-73" (ponto no lugar da barra).
+  const cnpjs = [...plano.matchAll(/\b\d{2}\.?\d{3}\.?\d{3}\s*[/.]?\s*\d{4}\s*-?\s*\d{2}\b/g)].map((m) => soDigitos(m[0]));
+  const porCnpj = op.tomadores.find((x) => cnpjs.includes(soDigitos(x.cnpj)));
+  if (porCnpj) return { tom: porCnpj, cnpj: soDigitos(porCnpj.cnpj), nome: null };
+  const palavras = (s: string) => chave(s).split(" ").filter((p) => p.length >= 3 && !GENERICAS.has(p) && !/^\d+$/.test(p));
+  const casa = (a: string, b: string) => a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)));
+  // "Tomador Embafort", "Contratante: ML Madeiras…", "EMPRESA: TLP EMBALAGENS": o terceiro com essas palavras.
+  const rotulo = t.match(/(?:^|\n)\s*(?:empresa|tomador(?:\s+de\s+servi[çc]o)?|contratante|cliente)\s*[:-]?\s*\|?\s*([^|\n]+)/i)?.[1]?.replace(/\bCNPJ.*$/i, "").trim();
+  if (rotulo) {
+    const ps = palavras(rotulo);
+    const cands = op.tomadores.filter((x) => {
+      const nome = palavras(x.razao);
+      return ps.length > 0 && ps.every((p) => nome.some((n) => casa(p, n)));
+    });
+    if (cands.length === 1) return { tom: cands[0], cnpj: soDigitos(cands[0].cnpj), nome: null };
+  }
+  // Nome no meio do texto ("pallets flamingos", "Select pack", "Elisangela barbosa"): o terceiro com mais
+  // palavras próprias (sem as genéricas: madeiras, pallets, ltda…) no texto; empate não chuta.
+  const doTexto = new Set(palavras(plano));
+  const notas = op.tomadores
+    .map((x) => ({ x, n: palavras(x.razao).filter((p) => [...doTexto].some((q) => p === q || (casa(p, q) && Math.min(p.length, q.length) >= 4))).length }))
+    .filter((c) => c.n > 0)
+    .sort((a, b) => b.n - a.n);
+  if (notas.length && (notas.length === 1 || notas[0].n > notas[1].n)) return { tom: notas[0].x, cnpj: soDigitos(notas[0].x.cnpj), nome: null };
+  if (cnpjs.length) {
+    const nome =
+      rotulo ||
+      t
+        .split("\n")
+        .find((l) => /\b(ltda|s\/?a|eireli|me|epp)\b/i.test(l))
+        ?.replace(/cnpj.*$/i, "")
+        .replace(/[-–:;,]+\s*$/, "")
+        .trim() ||
+      null;
+    return { tom: null, cnpj: cnpjs[0], nome };
+  }
+  return { tom: null, cnpj: null, nome: null };
+}
+
+/** Número com vírgula e as casas decimais do modelo ("30" + modelo "30,0 m³" -> "30,0"). */
+function numeroNoEstilo(v: string, modelo: string | undefined): string {
+  const casas = (modelo ?? "").match(/\d+,(\d+)/)?.[1]?.length;
+  const n = parseFloat(v.replace(",", "."));
+  if (!Number.isFinite(n)) return v;
+  if (casas != null) return n.toFixed(casas).replace(".", ",");
+  return v.replace(".", ",");
+}
+
+/** Interpreta um tratamento (um bloco do pedido). */
+export function interpretarTexto(texto: string, op: OpcoesPedido): Interpretado {
   const tab = tabelaEmFrases(texto.replace(/\r/g, ""));
   const t = tab.texto;
   const plano = t.replace(/\s+/g, " ");
+  const m = op.modelo;
   const v: Partial<Record<CampoComunicado, string>> = {};
   const achados: CampoComunicado[] = [];
   const avisos: string[] = [];
@@ -182,69 +325,83 @@ export function interpretarTexto(
     achados.push(c);
   };
 
-  // Tomador: pelo CNPJ do texto; senão pelo nome de um terceiro cadastrado que apareça no texto.
-  const cnpjs = [...plano.matchAll(/\b\d{2}\.?\d{3}\.?\d{3}\s*\/?\s*\d{4}\s*-?\s*\d{2}\b/g)].map((m) => soDigitos(m[0]));
-  const chave = (s: string) => semAcento(s).toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
-  const planoChave = ` ${chave(plano)} `;
-  const porCnpj = op.tomadores.find((x) => cnpjs.includes(soDigitos(x.cnpj)));
-  // "EMPRESA: TLP EMBALAGENS" (a TLP escreve ali o tomador): o terceiro cujo nome tem todas essas palavras.
-  const GENERICAS = /^(LTDA|ME|EIRELI|SA|EPP|IND|COM|E|DE|DO|DA|DOS|DAS)$/;
-  const palavrasDe = (s: string) => chave(s).split(" ").filter((p) => p && !GENERICAS.test(p));
-  const rotulo = t.match(/(?:^|\n)\s*(?:empresa|tomador(?: de servi[çc]o)?|cliente)\s*:\s*\|?\s*([^|\n]+)/i)?.[1]?.trim();
-  const casa = (a: string, b: string) => a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)));
-  const porRotulo =
-    porCnpj || !rotulo || palavrasDe(rotulo).length === 0
-      ? null
-      : (() => {
-          const ps = palavrasDe(rotulo);
-          const cands = op.tomadores.filter((x) => {
-            const nome = palavrasDe(x.razao);
-            return ps.every((p) => nome.some((n) => casa(p, n)));
-          });
-          return cands.length === 1 ? cands[0] : null;
-        })();
-  const porNome = porCnpj || porRotulo
-    ? null
-    : op.tomadores
-        .map((x) => ({ x, nome: chave(x.razao).replace(/\b(LTDA|ME|EIRELI|S A|SA|EPP|IND|COM|E|DE|DO|DA)\b/g, " ").replace(/\s+/g, " ").trim() }))
-        .filter(({ nome }) => nome.length >= 4 && planoChave.includes(` ${nome.split(" ").slice(0, 2).join(" ")} `))
-        .sort((a, b) => b.nome.length - a.nome.length)[0]?.x;
-  const tom = porCnpj ?? porRotulo ?? porNome ?? null;
-  if (tom) {
-    marcar("tomador", `${tom.razao} - CNPJ ${tom.cnpj}`);
+  // Tomador. O mesmo do último comunicado (pelo CNPJ) fica escrito como lá, com o mesmo local.
+  const cnpjModelo = soDigitos((m.tomador ?? "").match(/\d{2}\.?\d{3}\.?\d{3}\s*\/?\s*\d{4}\s*-?\s*\d{2}/)?.[0] ?? "");
+  const { tom, cnpj, nome } = acharTomador(t, op);
+  if (cnpj && cnpj === cnpjModelo) {
+    marcar("tomador", m.tomador);
+    if (m.local) marcar("local", m.local);
+  } else if (tom) {
+    marcar("tomador", tomadorNoEstilo(tom.razao, tom.cnpj, m.tomador));
     // Prestadora (trata no cliente): o local é o do cliente.
     if (op.prestadora && tom.endereco) marcar("local", snMinusculo(tom.endereco));
-  } else if (cnpjs.length) {
-    const nome = t.split("\n").find((l) => /\b(ltda|s\/?a|eireli|me|epp)\b/i.test(l))?.replace(/cnpj.*$/i, "").replace(/[-–:;,]+\s*$/, "").trim();
-    marcar("tomador", `${nome || "?"} - CNPJ ${fmtCnpj(cnpjs[0])}`);
+  } else if (cnpj) {
+    marcar("tomador", tomadorNoEstilo(nome || "?", cnpj, m.tomador));
     avisos.push("O tomador do CNPJ do texto não está no Cadastro de terceiros: confira o nome e cadastre-o para os próximos.");
+  } else if (op.credenciada && op.empresa) {
+    // Credenciada sem tomador no texto: a própria empresa (como estava, se o último já era ela).
+    const proprio = soDigitos(op.empresa.cnpj);
+    if (cnpjModelo === proprio) v.tomador = m.tomador;
+    else {
+      v.tomador = tomadorNoEstilo(op.empresa.razaoSocial, op.empresa.cnpj, m.tomador);
+      if (op.prestadora) avisos.push("Sem tomador no texto: ficou a própria empresa — confira o local.");
+    }
   }
 
-  // Local explícito ("local: …", "endereço: …").
+  // Local explícito ("local: …", "endereço: …"), se não veio do tomador do último comunicado.
   const local = t.match(/(?:local(?: do tratamento)?|endere[çc]o)\s*:\s*(.+)/i)?.[1]?.trim();
-  if (local) marcar("local", snMinusculo(local));
+  if (local && !(cnpj && cnpj === cnpjModelo)) marcar("local", snMinusculo(local));
 
-  marcar("data", dataDoTexto(plano, op.hoje ?? new Date()));
-  marcar("horario", horaDoTexto(plano.replace(/\b\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?\b/g, " ")));
+  const hoje = op.hoje ?? new Date();
+  marcar("data", dataDoTexto(plano, hoje));
+  marcar("horario", horaDoTexto(plano));
 
-  // Itens: quantidade, um por linha ("50 kit caixas (1000x1200x680mm)" ↵ "8 paletes (1300x1300mm)"), e produto.
+  // Quantidade e produto, no estilo do último comunicado.
+  const emM3 = /m³|m3/i.test(m.volumes ?? "") || /m³|m3/i.test(m.quantidade ?? "");
+  const volume = volumeDoTexto(plano);
   const itens = itensDoTexto(plano);
-  if (itens.length) {
-    const um = itens.length === 1;
-    marcar(
-      "quantidade",
-      itens.map((i) => `${i.qtd}${um && !i.medida ? "" : ` ${i.item.plural}`}${i.medida ? ` (${i.medida})` : ""}`).join("\n")
-    );
-    // "Kit caixas e palete de madeira", "Paletes de madeira".
-    const nomes = [...new Set(itens.map((i) => i.item.produto))];
-    const produto =
-      nomes.length === 1
-        ? `${nomes[0]} de madeira`
-        : `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1].toLowerCase().replace(/s$/, "")} de madeira`;
-    marcar("produto", produto);
+  const especie = plano.match(/\b(pinus|eucalipto|pinho|tropical)\b/i)?.[1]?.toLowerCase();
+  const espessura = SEM_DATAS(plano).match(/(?<![\dxX×])(\d{1,3})\s*mm\b(?!\s*[xX×])/)?.[1];
+  if (volume && emM3) {
+    const vol = numeroNoEstilo(volume, m.quantidade);
+    const fardos = itens.find((i) => i.item.plural === "fardos");
+    const comContagem = (m.quantidade ?? "").match(/^\s*\d+\s+(\S+)\s*-\s*[\d.,]+\s*m[³3]/i);
+    if (comContagem && fardos) marcar("quantidade", `${fardos.qtd} ${comContagem[1]} - ${vol} m³`);
+    else if (/m[³3]/i.test(m.quantidade ?? "")) marcar("quantidade", `${vol} m³`);
+    else marcar("quantidade", vol);
+    // "Madeira serrada de pinus 18 mm": troca a espécie (e a espessura) do produto do modelo.
+    const pm = m.produto ?? "";
+    if (especie && /^madeira serrada de \w+/i.test(pm)) {
+      let p = pm.replace(/^(madeira serrada de )\w+/i, `$1${especie}`);
+      if (espessura) p = /\d+\s*mm/i.test(p) ? p.replace(/\d+\s*mm/i, `${espessura} mm`) : `${p} ${espessura} mm`;
+      marcar("produto", p);
+    } else if (especie && !pm) marcar("produto", `Madeira serrada de ${especie}`);
+  } else if (volume && !itens.length) {
+    marcar("quantidade", `${volume.replace(".", ",")} m³`);
+    if (especie) marcar("produto", `Madeira serrada de ${especie}`);
+  } else if (itens.filter((i) => i.item.plural !== "fardos").length) {
+    const ii = itens.filter((i) => i.item.plural !== "fardos");
+    const um = ii.length === 1;
+    // Só o número quando o último comunicado era só o número ("720"); senão com o item ("600 paletes").
+    const soNumero = um && !ii[0].medida && /^\s*\d[\d.]*\s*$/.test(m.quantidade ?? "");
+    marcar("quantidade", ii.map((i) => (soNumero ? i.qtd : `${i.qtd} ${i.item.plural}${i.medida ? ` (${i.medida})` : ""}`)).join("\n"));
+    // "Kit caixas e palete de madeira", "Paletes de madeira". Mesmo tipo do modelo: fica o do modelo
+    // ("82 kits" na Pallet do Brasil = "Kit embalagens de madeira").
+    const nomes = [...new Set(ii.map((i) => i.item.produto))];
+    const tipo = (s: string) => semAcento(s).toLowerCase().split(/\s+/)[0].replace(/s$/, "");
+    if (nomes.length === 1 && m.produto && tipo(m.produto) === tipo(nomes[0])) marcar("produto", m.produto);
+    else
+      marcar(
+        "produto",
+        nomes.length === 1
+          ? `${nomes[0]} de madeira`
+          : `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1].toLowerCase().replace(/s$/, "")} de madeira`
+      );
   } else if (tab.itensTabela.length) {
     // Tabela com um item que não é palete/caixa/kit…: vai como veio ("300 PBR").
     marcar("quantidade", tab.itensTabela.join("\n"));
+  } else {
+    marcar("quantidade", qtdSolta(t));
   }
 
   // Aviso da Mann/Exata ("aviso 1764/2026", "AV 1764") e unidade volante ("unidade 3").
@@ -255,17 +412,58 @@ export function interpretarTexto(
   const unidade = plano.match(/\bunidade\s*(?:volante\s*)?(?:n[º°o.]*\s*)?(\d{1,2})\b/i)?.[1];
   if (unidade) marcar("unidade", `Unidade ${+unidade}`);
 
-  // Duração e temperatura, se o texto disser.
-  const dur = plano.match(/\b(\d{2,3})\s*min(?:utos)?\b/i)?.[1];
-  if (dur) marcar("duracao", `${dur} min`);
-  const temp = plano.match(/\b(\d{2})\s*°?\s*C\b/)?.[1];
+  const temp = plano.match(/\b(\d{2})\s*°\s*C\b/)?.[1];
   if (temp) marcar("temperatura", `${temp}°C`);
   const destino = t.match(/destino\s*:\s*(.+)/i)?.[1]?.trim();
   if (destino) marcar("destino", destino);
 
-  if (!achados.includes("tomador") && op.prestadora) avisos.push("Não achei o tomador no texto: escolha o cliente ou digite o CNPJ.");
-  if (!achados.includes("data")) avisos.push("Não achei a data do tratamento no texto: confira.");
+  if (!achados.includes("tomador") && op.prestadora && !v.tomador) avisos.push("Não achei o tomador no texto: escolha o cliente ou digite o CNPJ.");
+  if (!achados.includes("data")) {
+    // Sem data: amanhã (confirmado em 29/10/2026); o operador confere.
+    const d = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() + 1);
+    v.data = fmtData(d);
+    avisos.push(`Sem data no texto: ficou amanhã (${v.data}) — confira.`);
+  }
   if (!achados.includes("horario")) avisos.push("Não achei o horário do início no texto: confira.");
-  if (!achados.includes("quantidade")) avisos.push("Não achei a quantidade/itens no texto: confira.");
-  return { valores: { ...op.modelo, ...v }, achados, avisos };
+  if (!achados.includes("quantidade")) avisos.push(`Sem quantidade no texto: ficou a do último comunicado (${m.quantidade || "—"}).`);
+  return { valores: { ...m, ...v }, achados, avisos };
+}
+
+/**
+ * O pedido inteiro: separa os tratamentos e interpreta cada um. A data passa para os seguintes; "2 de 413 ↵
+ * 2:00 e 9:00" (Kaule) e "Três amanhã msm horários" (DM) viram um comunicado por horário.
+ */
+export function interpretarPedido(texto: string, op: OpcoesPedido): Interpretado[] {
+  const blocos = separarPedidos(texto);
+  const out: Interpretado[] = [];
+  let data = "";
+  for (const bloco of blocos) {
+    const r = interpretarTexto(bloco, op);
+    if (r.achados.includes("data")) data = r.valores.data!;
+    else if (data) {
+      r.valores.data = data;
+      r.avisos = r.avisos.filter((a) => !/^Sem data/.test(a));
+    }
+    const plano = semAcento(bloco).toLowerCase();
+    // Vários horários numa linha só ("2:00 e 9:00"): um comunicado por horário.
+    const linhaHoras = bloco.split("\n").map((l) => horasDoTexto(l)).find((h) => h.length > 1);
+    // "Três amanhã msm horários": N comunicados nos horários do último dia (ou os de sempre).
+    const nPorExtenso = plano.match(/(?:^|\n)\s*(\d|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito)\b(?!\s*(?:de\s+\d|[/:.,h]|\d))/)?.[1];
+    const mesmosHorarios = /\bm(?:esmos?|sm)\s+hor[aá]rios?\b/.test(plano);
+    let horas: string[] | null = linhaHoras ?? null;
+    if (!horas && mesmosHorarios && nPorExtenso) {
+      const n = /^\d$/.test(nPorExtenso) ? +nPorExtenso : NUM_POR_EXTENSO[nPorExtenso];
+      const ultimaData = [...(op.historico ?? [])].map((h) => h.data).sort((a, b) => a.split("/").reverse().join("").localeCompare(b.split("/").reverse().join(""))).pop();
+      const doDia = (op.historico ?? []).filter((h) => h.data === ultimaData).map((h) => h.horario).sort();
+      horas = doDia.length === n ? doDia : op.horariosPadrao?.length === n ? op.horariosPadrao : Array.from({ length: n }, () => r.valores.horario ?? "");
+      if (doDia.length !== n && op.horariosPadrao?.length !== n) r.avisos.push("Não sei os horários do último dia: confira o horário de cada comunicado.");
+      r.avisos = r.avisos.filter((a) => !/horário do início/.test(a));
+      r.achados.push("horario");
+    }
+    if (horas && horas.length > 1) {
+      // "2 de 413": a quantidade de cada um.
+      for (const h of horas) out.push({ valores: { ...r.valores, horario: h }, achados: [...r.achados], avisos: [...r.avisos] });
+    } else out.push(r);
+  }
+  return out;
 }
