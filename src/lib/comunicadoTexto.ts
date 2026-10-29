@@ -39,6 +39,8 @@ function quadroDeItens(linhas: string[]): { inicio: number; fim: number; frases:
   const nomeColuna = (c: string) => {
     const t = semAcento(c).toLowerCase().trim();
     if (/^eng(?:radados?)?\.?$/.test(t)) return "engradados";
+    // No quadro da TLP, a coluna CAIXA é kit caixas (confirmado em 29/10/2026).
+    if (/^caixas?$/.test(t)) return "kit caixas";
     const item = ITENS.find((i) => new RegExp(`^(?:${i.re.source})$`, "i").test(t));
     return item ? t : null;
   };
