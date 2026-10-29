@@ -1,8 +1,9 @@
 // Último comunicado emitido, lido da pasta da empresa no computador (a "Madeireiras 2" do OneDrive): o
 // navegador (Chrome/Edge) lê os nomes dos PDFs "COMUNICADO 363-2026- MADEPALLETE….pdf" e o número do Excel
 // "COMUNICADO 001-2026….xlsx" da pasta da empresa. Assim o número segue certo mesmo quando alguém emitiu
-// pelo Excel ou no outro computador. A pasta escolhida fica lembrada neste navegador (IndexedDB); nada sai
-// do computador. Roda no navegador.
+// pelo Excel ou no outro computador. O PDF gerado é salvo na mesma pasta (o OneDrive leva para o outro
+// computador). A pasta escolhida fica lembrada neste navegador (IndexedDB); nada sai do computador.
+// Roda no navegador.
 import { lerModeloComunicado } from "./comunicadoModelo";
 import type { Madeireira } from "./madeireiras";
 import { relatorioDaEmpresa } from "./relatorioSei";
@@ -15,12 +16,15 @@ interface Entrada {
 export interface Pasta extends Entrada {
   kind: "directory";
   values(): AsyncIterable<Entrada>;
-  queryPermission?(o: { mode: "read" }): Promise<PermissionState>;
-  requestPermission?(o: { mode: "read" }): Promise<PermissionState>;
+  getFileHandle(nome: string, o?: { create?: boolean }): Promise<Arquivo>;
+  queryPermission?(o: { mode: Modo }): Promise<PermissionState>;
+  requestPermission?(o: { mode: Modo }): Promise<PermissionState>;
 }
+type Modo = "read" | "readwrite";
 interface Arquivo extends Entrada {
   kind: "file";
   getFile(): Promise<File>;
+  createWritable?(): Promise<{ write(d: Uint8Array): Promise<void>; close(): Promise<void> }>;
 }
 
 export const pastaSuportada = () => typeof window !== "undefined" && "showDirectoryPicker" in window;
@@ -52,7 +56,7 @@ export async function pastaLembrada(): Promise<Pasta | null> {
 /** Pede ao usuário a pasta "Madeireiras 2" e lembra dela. */
 export async function escolherPasta(): Promise<Pasta | null> {
   const w = window as unknown as { showDirectoryPicker(o: object): Promise<Pasta> };
-  const p = await w.showDirectoryPicker({ id: "madeireiras", mode: "read" });
+  const p = await w.showDirectoryPicker({ id: "madeireiras", mode: "readwrite" });
   try {
     const db = await abrirBanco();
     db.transaction("pasta", "readwrite").objectStore("pasta").put(p, "raiz");
@@ -62,11 +66,11 @@ export async function escolherPasta(): Promise<Pasta | null> {
   return p;
 }
 
-/** "granted" quando já pode ler; "prompt" pede um clique (o navegador exige) para liberar. */
+/** "granted" quando já pode ler e gravar; "prompt" pede um clique (o navegador exige) para liberar. */
 export async function permissao(p: Pasta, pedir = false): Promise<PermissionState> {
   try {
-    if (pedir && p.requestPermission) return await p.requestPermission({ mode: "read" });
-    return (await p.queryPermission?.({ mode: "read" })) ?? "granted";
+    if (pedir && p.requestPermission) return await p.requestPermission({ mode: "readwrite" });
+    return (await p.queryPermission?.({ mode: "readwrite" })) ?? "granted";
   } catch {
     return "denied";
   }
@@ -92,6 +96,10 @@ export interface UltimoDaPasta {
   pasta: string;
   numero: string | null;
   arquivo: string | null;
+  /** Onde salvar o próximo PDF: a subpasta do último comunicado (ex.: "Comunicados") ou a da empresa. */
+  destino: Pasta;
+  /** Caminho do destino a partir da pasta da empresa, para mostrar ("Madeval/Comunicados"). */
+  caminhoDestino: string;
 }
 
 /**
@@ -109,11 +117,13 @@ export async function ultimoDaPasta(raiz: Pasta, empresa: Madeireira): Promise<U
   if (!pasta) return null;
   let melhor: string | null = null;
   let arquivo: string | null = null;
+  let destino: Pasta = pasta;
+  let caminhoDestino = pasta.name;
   const anoAtual = new Date().getFullYear();
-  const olhar = async (dir: Pasta, nivel: number) => {
+  const olhar = async (dir: Pasta, nivel: number, caminho: string) => {
     for await (const e of dir.values()) {
       if (e.kind === "directory") {
-        if (nivel < 2) await olhar(e as Pasta, nivel + 1);
+        if (nivel < 2) await olhar(e as Pasta, nivel + 1, `${caminho}/${e.name}`);
         continue;
       }
       if (/^~\$/.test(e.name) || !/^COMUNICADO\b/i.test(e.name)) continue;
@@ -135,9 +145,30 @@ export async function ultimoDaPasta(raiz: Pasta, empresa: Madeireira): Promise<U
       if (maiorNumero(melhor, numero) === numero && numero !== melhor) {
         melhor = numero;
         arquivo = e.name;
+        // O PDF do próximo vai para onde estão os PDFs (o Excel modelo pode estar noutro lugar).
+        if (/.pdf$/i.test(e.name)) {
+          destino = dir;
+          caminhoDestino = caminho;
+        }
       }
     }
   };
-  await olhar(pasta, 1);
-  return { pasta: pasta.name, numero: melhor, arquivo };
+  await olhar(pasta, 1, pasta.name);
+  return { pasta: pasta.name, numero: melhor, arquivo, destino, caminhoDestino };
+}
+
+/** Salva o PDF na pasta. Não sobrescreve: um arquivo com o mesmo nome fica como está ("existe"). */
+export async function salvarNaPasta(dir: Pasta, nome: string, bytes: Uint8Array): Promise<"salvo" | "existe"> {
+  try {
+    await dir.getFileHandle(nome);
+    return "existe";
+  } catch {
+    // não existe: cria
+  }
+  const arq = await dir.getFileHandle(nome, { create: true });
+  if (!arq.createWritable) throw new Error("Este navegador não grava na pasta.");
+  const w = await arq.createWritable();
+  await w.write(bytes);
+  await w.close();
+  return "salvo";
 }

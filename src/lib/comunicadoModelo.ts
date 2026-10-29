@@ -209,6 +209,39 @@ export async function preencherComunicado(
 ): Promise<Uint8Array> {
   const { zip } = await abrir(bytes);
   let xml = (await zip.file(modelo.aba)?.async("string")) ?? "";
+  let estilos = (await zip.file("xl/styles.xml")?.async("string")) ?? "";
+  const comQuebra = new Map<string, number>();
+  // Estilo igual ao da célula, com "quebrar texto" (para o valor em várias linhas aparecer em várias linhas).
+  const estiloComQuebra = (s: string): number | null => {
+    if (comQuebra.has(s)) return comQuebra.get(s)!;
+    const bloco = estilos.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/);
+    if (!bloco) return null;
+    const xfs = [...bloco[1].matchAll(/<xf\b[^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g)].map((x) => x[0]);
+    const xf = xfs[+s];
+    if (!xf) return null;
+    if (/wrapText="(1|true)"/.test(xf)) {
+      comQuebra.set(s, +s);
+      return +s;
+    }
+    let novoXf = /wrapText="/.test(xf)
+      ? xf.replace(/wrapText="[^"]*"/, 'wrapText="1"')
+      : /<alignment\b/.test(xf)
+      ? xf.replace(/<alignment\b/, '<alignment wrapText="1"')
+      : xf.endsWith("/>")
+        ? xf.replace(/\/>$/, '><alignment wrapText="1"/></xf>')
+        : xf.replace(/<\/xf>$/, '<alignment wrapText="1"/></xf>');
+    if (!/applyAlignment=/.test(novoXf)) novoXf = novoXf.replace(/^<xf\b/, '<xf applyAlignment="1"');
+    const idx = xfs.length;
+    estilos = estilos.replace(bloco[0], bloco[0].replace(/<\/cellXfs>$/, `${novoXf}</cellXfs>`).replace(/(<cellXfs\b[^>]*count=")\d+/, `$1${idx + 1}`));
+    comQuebra.set(s, idx);
+    return idx;
+  };
+  // Altura da linha para n linhas de texto (Arial 12 → 15 pt por linha, como o Excel).
+  const tamanhoFonte = (s: string): number => {
+    const xf = [...(estilos.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/)?.[1] ?? "").matchAll(/<xf\b[^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g)][+s]?.[0] ?? "";
+    const fontes = [...(estilos.match(/<fonts\b[^>]*>([\s\S]*?)<\/fonts>/)?.[1] ?? "").matchAll(/<font\b[\s\S]*?<\/font>|<font\b[^>]*\/>/g)].map((x) => x[0]);
+    return +(fontes[+(xf.match(/fontId="(\d+)"/)?.[1] ?? 0)]?.match(/<sz val="([\d.]+)"/)?.[1] ?? 11);
+  };
   for (const [campo, valor] of Object.entries(valores) as [CampoComunicado, string][]) {
     const c = modelo.campos[campo];
     if (!c || valor == null) continue;
@@ -217,7 +250,22 @@ export async function preencherComunicado(
     const re = new RegExp(`<c r="${ref}"([^>]*?)(?:\\/>|>[\\s\\S]*?<\\/c>)`);
     const m = xml.match(re);
     if (m) {
-      const estilo = m[1].match(/\ss="\d+"/)?.[0] ?? "";
+      let estilo = m[1].match(/\ss="\d+"/)?.[0] ?? "";
+      // Valor em várias linhas (quantidade com um item por linha): quebra o texto e aumenta a linha.
+      const nLinhas = valor.split("\n").length;
+      if (nLinhas > 1) {
+        const s = estilo.match(/\d+/)?.[0] ?? "0";
+        const q = estiloComQuebra(s);
+        if (q != null) estilo = ` s="${q}"`;
+        const linha = ref.replace(/[A-Z]+/, "");
+        const precisa = Math.ceil((nLinhas * tamanhoFonte(s) * 1.25 + 4) * 4) / 4;
+        xml = xml.replace(new RegExp(`<row\\b[^>]*\\sr="${linha}"[^>]*>`), (tag) => {
+          const ht = +(tag.match(/\sht="([\d.]+)"/)?.[1] ?? 0);
+          if (ht >= precisa) return tag;
+          const semHt = tag.replace(/\sht="[\d.]+"/, "").replace(/\scustomHeight="\w+"/, "");
+          return semHt.replace(/>$/, ` ht="${precisa}" customHeight="1">`);
+        });
+      }
       xml = xml.replace(re, novo(estilo));
     } else {
       // Célula que não existe no XML: entra na linha, na ordem das colunas.
@@ -234,6 +282,7 @@ export async function preencherComunicado(
     }
   }
   zip.file(modelo.aba, xml);
+  if (comQuebra.size) zip.file("xl/styles.xml", estilos);
   // Fórmulas trocadas por valor (modelo da Mann): a cadeia de cálculo antiga sai, senão o Excel pede reparo.
   if (zip.file("xl/calcChain.xml")) {
     zip.remove("xl/calcChain.xml");

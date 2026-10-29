@@ -225,13 +225,13 @@ export function interpretarTexto(
   marcar("data", dataDoTexto(plano, op.hoje ?? new Date()));
   marcar("horario", horaDoTexto(plano.replace(/\b\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?\b/g, " ")));
 
-  // Itens: quantidade ("50 kit caixas (1000x1200x680mm); 8 paletes (1300x1300mm)") e produto.
+  // Itens: quantidade, um por linha ("50 kit caixas (1000x1200x680mm)" ↵ "8 paletes (1300x1300mm)"), e produto.
   const itens = itensDoTexto(plano);
   if (itens.length) {
     const um = itens.length === 1;
     marcar(
       "quantidade",
-      itens.map((i) => `${i.qtd}${um && !i.medida ? "" : ` ${i.item.plural}`}${i.medida ? ` (${i.medida})` : ""}`).join("; ")
+      itens.map((i) => `${i.qtd}${um && !i.medida ? "" : ` ${i.item.plural}`}${i.medida ? ` (${i.medida})` : ""}`).join("\n")
     );
     // "Kit caixas e palete de madeira", "Paletes de madeira".
     const nomes = [...new Set(itens.map((i) => i.item.produto))];
@@ -242,7 +242,7 @@ export function interpretarTexto(
     marcar("produto", produto);
   } else if (tab.itensTabela.length) {
     // Tabela com um item que não é palete/caixa/kit…: vai como veio ("300 PBR").
-    marcar("quantidade", tab.itensTabela.join("; "));
+    marcar("quantidade", tab.itensTabela.join("\n"));
   }
 
   // Aviso da Mann/Exata ("aviso 1764/2026", "AV 1764") e unidade volante ("unidade 3").

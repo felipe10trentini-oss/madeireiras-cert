@@ -17,7 +17,7 @@ import { interpretarTexto, separarPedidos } from "@/lib/comunicadoTexto";
 import { baixarFontes } from "@/lib/declaracaoLgPdf";
 import { excelParaPdf } from "@/lib/excelPdf";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
-import { escolherPasta, maiorNumero, pastaLembrada, pastaSuportada, permissao, ultimoDaPasta, type Pasta, type UltimoDaPasta } from "@/lib/pastaComunicados";
+import { escolherPasta, maiorNumero, pastaLembrada, pastaSuportada, permissao, salvarNaPasta, ultimoDaPasta, type Pasta, type UltimoDaPasta } from "@/lib/pastaComunicados";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { textoDaPlanilha, textoDoWord } from "@/lib/textoDeArquivo";
 import { soDigitos } from "@/lib/util";
@@ -365,12 +365,33 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
         const bytes = await excelParaPdf(await preenchido(x.valores), fontes, { aba: modelo.aba, ajustar: celulas });
         pdfs.push({ nome: nomeDoArquivo(salvo.nomeModelo, numero, empresa.apelido).replace(/\.xlsx$/i, ".pdf"), bytes });
       }
-      if (pdfs.length === 1) baixar(pdfs[0].bytes, pdfs[0].nome, "application/pdf");
-      else {
+      // Pasta da empresa ligada: cada PDF vai direto para lá (o OneDrive leva ao outro computador e a
+      // numeração segue certa). Sem a pasta: baixa (um PDF ou um .zip).
+      let ondeFoi = "";
+      const destino = pasta?.ok && daPasta && daPasta !== "lendo" ? daPasta : null;
+      const salvosNaPasta: string[] = [];
+      const jaExistiam: string[] = [];
+      if (destino) {
+        for (const p of pdfs) {
+          try {
+            ((await salvarNaPasta(destino.destino, p.nome, p.bytes)) === "salvo" ? salvosNaPasta : jaExistiam).push(p.nome);
+          } catch {
+            jaExistiam.length = 0;
+            salvosNaPasta.length = 0;
+            break;
+          }
+        }
+      }
+      const faltam = pdfs.filter((p) => !salvosNaPasta.includes(p.nome));
+      if (salvosNaPasta.length) ondeFoi = ` na pasta “${destino!.caminhoDestino}”`;
+      if (faltam.length === 1) baixar(faltam[0].bytes, faltam[0].nome, "application/pdf");
+      else if (faltam.length > 1) {
         const zip = new JSZip();
-        for (const p of pdfs) zip.file(p.nome, p.bytes);
+        for (const p of faltam) zip.file(p.nome, p.bytes);
         baixar(await zip.generateAsync({ type: "uint8array" }), `Comunicados ${empresa.apelido} ${pedidos[0].valores.numero!.replace(/\//g, "-")} a ${pedidos[pedidos.length - 1].valores.numero!.replace(/\//g, "-")}.zip`, "application/zip");
       }
+      if (jaExistiam.length) ondeFoi += ` — já existia na pasta (não sobrescrevi, baixei): ${jaExistiam.join(", ")}`;
+      else if (destino && !salvosNaPasta.length) ondeFoi = " (não consegui gravar na pasta: baixei o arquivo)";
       // Excel do último emitido: fica como o modelo da empresa.
       const ultimo = pedidos[pedidos.length - 1];
       const excel = await preenchido(ultimo.valores);
@@ -382,10 +403,11 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
         body: JSON.stringify({ cnpj: empresa.cnpj, ultimoNumero: numeroUltimo, emitido: paraBase64(excel) }),
       });
       setSalvo((s) => (s ? { ...s, ultimoNumero: numeroUltimo, bytes: excel } : s));
+      if (salvosNaPasta.length && destino) setDaPasta({ ...destino, numero: maiorNumero(destino.numero, numeroUltimo), arquivo: salvosNaPasta[salvosNaPasta.length - 1] });
       setToast(
         res.ok
-          ? `${pdfs.length === 1 ? `Comunicado ${numeroUltimo} salvo em PDF` : `${pdfs.length} comunicados salvos em PDF (.zip)`}. A planilha ficou com o último (${numeroUltimo}).`
-          : "PDF gerado, mas não consegui guardar o último emitido: confira a numeração na próxima vez."
+          ? `${pdfs.length === 1 ? `Comunicado ${numeroUltimo} salvo em PDF` : `${pdfs.length} comunicados salvos em PDF${salvosNaPasta.length ? "" : " (.zip)"}`}${ondeFoi}. A planilha ficou com o último (${numeroUltimo}).`
+          : `PDF gerado${ondeFoi}, mas não consegui guardar o último emitido: confira a numeração na próxima vez.`
       );
     } catch (e) {
       setToast(e instanceof Error ? e.message : "Não foi possível gerar o comunicado.");
@@ -441,11 +463,11 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
           ) : !pasta?.ok ? (
             <div className="actions">
               <button type="button" className="btn" onClick={() => void ligarPasta()}>
-                {pasta ? "Liberar a leitura da pasta" : "Escolher a pasta “Madeireiras 2”"}
+                {pasta ? "Liberar a pasta" : "Escolher a pasta “Madeireiras 2”"}
               </button>
               <span className="hint">
-                O site lê os nomes dos PDFs “COMUNICADO 363-2026…” e o Excel da pasta da empresa para seguir do último emitido. Nada sai do
-                computador.
+                O site lê os PDFs “COMUNICADO 363-2026…” e o Excel da pasta da empresa para seguir do último emitido, e salva o PDF novo direto
+                lá. Nada sai do computador.
               </span>
             </div>
           ) : daPasta === "lendo" ? (
@@ -466,6 +488,7 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
                 : salvo.ultimoNumero && daPasta.numero !== salvo.ultimoNumero
                   ? ` — o site já está no ${salvo.ultimoNumero} (o PDF dele ainda não foi salvo na pasta?).`
                   : " — confere com o site."}
+              <br />O PDF gerado é salvo em “{daPasta.caminhoDestino}”.
             </p>
           )}
         </div>
@@ -595,6 +618,15 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
                         ))}
                       </datalist>
                     </>
+                  ) : c === "quantidade" ? (
+                    // Um item por linha (como no Excel da Madepallete); Enter quebra a linha.
+                    <textarea
+                      id={`com-${c}`}
+                      rows={Math.max(1, (valores[c] ?? "").split("\n").length)}
+                      value={valores[c] ?? ""}
+                      onChange={(e) => setValores((v) => ({ ...v, [c]: e.target.value }))}
+                      style={{ width: "100%", resize: "vertical" }}
+                    />
                   ) : (
                     <input id={`com-${c}`} value={valores[c] ?? ""} onChange={(e) => setValores((v) => ({ ...v, [c]: e.target.value }))} />
                   )}
