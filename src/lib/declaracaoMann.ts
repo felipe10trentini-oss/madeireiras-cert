@@ -417,6 +417,18 @@ export function montarDeclaracaoPadrao(
     const total = linhas.reduce((s, l) => s + (parseInt((l.quantidade ?? "").replace(/\./g, ""), 10) || 0), 0);
     if (total) dados.volumes = volumesDaTabela({ pacotes: String(total), tipo: unidade } as DadosBL) ?? `${total} ${unidade}`;
   }
+  // A discriminação por ciclo vai no campo da quantidade, não no quadro dos certificados (que ficava cheio):
+  // "400 paletes de madeira/ wooden pallets (ciclo/cycle 1013: 200; ciclo/cycle 1014: 200)". A Mann Unid.
+  // Volante continua com a coluna Quantidade na tabela.
+  if (dados.qtdPorCiclo && !mannVolante) {
+    const partes = linhas
+      .filter((l) => l.quantidade)
+      // Ciclo que é o código da curva (UR011013PR291026): vai o lote (1013), como a nota escreve.
+      .map((l) => `ciclo/cycle ${/^[A-Z]{2}\d{6,}/i.test(l.ciclo) && l.lote ? l.lote : l.ciclo}: ${(l.quantidade ?? "").match(/\d[\d.]*/)?.[0] ?? l.quantidade}`);
+    if (partes.length) dados.volumes = `${dados.volumes.trim()} (${partes.join("; ")})`.trim();
+    dados.linhas = linhas.map((l) => ({ ...l, quantidade: "" }));
+    dados.qtdPorCiclo = false;
+  }
   if (!dados.volumes.trim()) avisos.push("Não achei a quantidade de material na nota/BL: preencha em “Editar campos” (Cubagem/Volume).");
   if (!certs.length && mestres.length && ciclosDoc.length && !doRelatorio.length) avisos.push("Os certificados mestres soltos não são do ciclo da nota: confira.");
   // Nome no padrão das pastas: Mann "Declaração HT - Renascer NFe 7376 - Novozymes" / "Declaração HT - Marine
