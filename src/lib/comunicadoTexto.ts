@@ -12,6 +12,17 @@ export interface Interpretado {
   /** Campos achados no texto (os outros ficam como no modelo). */
   achados: CampoComunicado[];
   avisos: string[];
+  /** Clientes da tabela do pedido (Word da Madepallete: EMPRESA | CNPJ | PRODUTO | QUANTIDADE | MEDIDAS). */
+  clientes?: ClienteDoPedido[];
+}
+
+/** Uma linha de cliente do pedido, para a aba "Clientes (2)" do Excel da Madepallete. */
+export interface ClienteDoPedido {
+  cliente: string;
+  cnpj: string;
+  produto: string;
+  quantidade: number;
+  tamanho: string;
 }
 
 export interface OpcoesPedido {
@@ -181,18 +192,21 @@ const horaDoTexto = (t: string) => horasDoTexto(t)[0] ?? null;
  * Tabela (planilha ou Word: células com " | "): pela linha de títulos (quantidade/qtd, produto/material/
  * descrição, medida), cada linha vira uma frase como a da mensagem ("300 Paletes 1000x1200 | 27/10/2026").
  */
-function tabelaEmFrases(texto: string): { texto: string; itensTabela: string[] } {
+function tabelaEmFrases(texto: string): { texto: string; itensTabela: string[]; clientes: ClienteDoPedido[] } {
   const linhas = texto.split("\n");
   const itensTabela: string[] = [];
+  const clientes: ClienteDoPedido[] = [];
   const quadro = quadroDeItens(linhas);
-  if (quadro) return { texto: [...linhas.slice(0, quadro.inicio), quadro.frases.join(" e "), ...linhas.slice(quadro.fim)].join("\n"), itensTabela };
+  if (quadro) return { texto: [...linhas.slice(0, quadro.inicio), quadro.frases.join(" e "), ...linhas.slice(quadro.fim)].join("\n"), itensTabela, clientes };
   const iCab = linhas.findIndex((l) => l.includes("|") && /quant|qtd|qtde/i.test(l) && /produto|material|mercadoria|descri|item|embalage/i.test(l));
-  if (iCab < 0) return { texto, itensTabela };
+  if (iCab < 0) return { texto, itensTabela, clientes };
   const cab = linhas[iCab].split("|").map((c) => semAcento(c).toLowerCase().trim());
   const col = (re: RegExp) => cab.findIndex((c) => re.test(c));
   const cQtd = col(/quant|qtd|qtde/);
   const cProd = col(/produto|material|mercadoria|descri|item|embalage/);
   const cMed = col(/medida|dimens|tamanho|bitola/);
+  const cEmp = col(/^(?:empresa|cliente)\b/);
+  const cCnpj = col(/cnpj/);
   const frases: string[] = [];
   for (const l of linhas.slice(iCab + 1)) {
     if (!l.includes("|")) continue;
@@ -202,8 +216,20 @@ function tabelaEmFrases(texto: string): { texto: string; itensTabela: string[] }
     const item = `${qtd.replace(/[.,]0+$/, "")} ${c[cProd]}${cMed >= 0 && c[cMed] ? ` ${c[cMed]}` : ""}`;
     itensTabela.push(item);
     frases.push(`${item} | ${c.filter((_, i) => i !== cQtd && i !== cProd && i !== cMed).join(" | ")}`);
+    // Cliente da linha ("YAZAKI | | PALLETE | 300 | 1000X1200"): vai para a aba "Clientes (2)".
+    if (cEmp >= 0 && c[cEmp]) {
+      const it = ITENS.find((i) => i.re.test(c[cProd]));
+      const nomeProduto = it ? (/^(Paletes|Caixas|Kit)/.test(it.produto) ? `${it.produto} de madeira` : it.produto) : c[cProd];
+      clientes.push({
+        cliente: c[cEmp],
+        cnpj: cCnpj >= 0 ? (c[cCnpj] ?? "") : "",
+        produto: nomeProduto,
+        quantidade: parseFloat(qtd.replace(/\./g, "").replace(",", ".")),
+        tamanho: cMed >= 0 ? (c[cMed] ?? "") : "",
+      });
+    }
   }
-  return { texto: [...linhas.slice(0, iCab), ...frases].join("\n"), itensTabela };
+  return { texto: [...linhas.slice(0, iCab), ...frases].join("\n"), itensTabela, clientes };
 }
 
 /**
@@ -429,7 +455,7 @@ export function interpretarTexto(texto: string, op: OpcoesPedido): Interpretado 
   }
   if (!achados.includes("horario")) avisos.push("Não achei o horário do início no texto: confira.");
   if (!achados.includes("quantidade")) avisos.push(`Sem quantidade no texto: ficou a do último comunicado (${m.quantidade || "—"}).`);
-  return { valores: { ...m, ...v }, achados, avisos };
+  return { valores: { ...m, ...v }, achados, avisos, ...(tab.clientes.length ? { clientes: tab.clientes } : {}) };
 }
 
 /**

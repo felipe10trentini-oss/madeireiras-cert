@@ -102,6 +102,8 @@ export interface UltimoDaPasta {
   caminhoDestino: string;
   /** Nomes dos PDFs de comunicado vistos (para saber se um nº já foi retificado: "-A", "-A2"…). */
   nomes: string[];
+  /** O Excel de comunicado da empresa na pasta ("COMUNICADO 001-2026- MADEPALLETE- BR-PR0940.xlsx"). */
+  excel: Arquivo | null;
 }
 
 /**
@@ -122,6 +124,7 @@ export async function ultimoDaPasta(raiz: Pasta, empresa: Madeireira): Promise<U
   let destino: Pasta = pasta;
   let caminhoDestino = pasta.name;
   const nomes: string[] = [];
+  let excel: Arquivo | null = null;
   const anoAtual = new Date().getFullYear();
   const olhar = async (dir: Pasta, nivel: number, caminho: string) => {
     for await (const e of dir.values()) {
@@ -136,6 +139,8 @@ export async function ultimoDaPasta(raiz: Pasta, empresa: Madeireira): Promise<U
         const m = e.name.match(/^COMUNICADO\s*(?:N[º°o]\s*)?(\d{1,5})\s*[-_]\s*(\d{4}|\d{2})(?!\d)/i);
         if (m) numero = `${m[1]}/${m[2].length === 2 ? `20${m[2]}` : m[2]}`;
       } else if (/\.xlsx$/i.test(e.name)) {
+        // O Excel da empresa: o da pasta dela (não os antigos das subpastas).
+        if (nivel === 1 && !excel) excel = e as Arquivo;
         // O Excel modelo fica com o último emitido dentro (o nome é sempre "001").
         try {
           const f = await (e as Arquivo).getFile();
@@ -158,7 +163,20 @@ export async function ultimoDaPasta(raiz: Pasta, empresa: Madeireira): Promise<U
     }
   };
   await olhar(pasta, 1, pasta.name);
-  return { pasta: pasta.name, numero: melhor, arquivo, destino, caminhoDestino, nomes };
+  return { pasta: pasta.name, numero: melhor, arquivo, destino, caminhoDestino, nomes, excel };
+}
+
+/**
+ * Atualiza o Excel da empresa na pasta (lê, aplica `mudar` e grava por cima). Falha se ele estiver aberto
+ * no Excel (o arquivo fica travado): quem chama avisa.
+ */
+export async function atualizarExcelDaPasta(arq: Arquivo, mudar: (bytes: Uint8Array) => Promise<Uint8Array>): Promise<void> {
+  if (!arq.createWritable) throw new Error("Este navegador não grava na pasta.");
+  const atual = new Uint8Array(await (await arq.getFile()).arrayBuffer());
+  const novo = await mudar(atual);
+  const w = await arq.createWritable();
+  await w.write(novo);
+  await w.close();
 }
 
 /** Salva o PDF na pasta. Não sobrescreve: um arquivo com o mesmo nome fica como está ("existe"). */

@@ -14,11 +14,12 @@ import {
   type ModeloComunicado,
 } from "@/lib/comunicadoModelo";
 import { nomeComunicado } from "@/lib/comunicadoRetificacao";
-import { interpretarPedido } from "@/lib/comunicadoTexto";
+import { interpretarPedido, type ClienteDoPedido } from "@/lib/comunicadoTexto";
+import { registrarClientes, temAbaClientes, type LinhaCliente } from "@/lib/clientesComunicado";
 import { baixarFontes } from "@/lib/declaracaoLgPdf";
 import { excelParaPdf } from "@/lib/excelPdf";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
-import { escolherPasta, maiorNumero, pastaLembrada, pastaSuportada, permissao, salvarNaPasta, ultimoDaPasta, type Pasta, type UltimoDaPasta } from "@/lib/pastaComunicados";
+import { atualizarExcelDaPasta, escolherPasta, maiorNumero, pastaLembrada, pastaSuportada, permissao, salvarNaPasta, ultimoDaPasta, type Pasta, type UltimoDaPasta } from "@/lib/pastaComunicados";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { textoDaPlanilha, textoDoWord } from "@/lib/textoDeArquivo";
 import { soDigitos } from "@/lib/util";
@@ -80,6 +81,8 @@ interface Pedido {
   valores: Partial<Record<CampoComunicado, string>>;
   achados: CampoComunicado[];
   avisos: string[];
+  /** Clientes da tabela do pedido (Word da Madepallete), para a aba "Clientes (2)". */
+  clientes?: ClienteDoPedido[];
 }
 
 function baixar(bytes: Uint8Array, nome: string, tipo = XLSX) {
@@ -328,7 +331,7 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
         r.valores.numero = numero;
       }
       if (modelo.campos.duracao) r.valores.duracao = DURACAO;
-      return { valores: completarTabela(modelo, r.valores), achados: r.achados, avisos: r.avisos };
+      return { valores: completarTabela(modelo, r.valores), achados: r.achados, avisos: r.avisos, clientes: r.clientes };
     });
     setPedidos(lidos);
     setSel(0);
@@ -398,8 +401,29 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
       else if (destino && !salvosNaPasta.length) ondeFoi = " (não consegui gravar na pasta: baixei o arquivo)";
       // Excel do último emitido: fica como o modelo da empresa.
       const ultimo = pedidos[pedidos.length - 1];
-      const excel = await preenchido(ultimo.valores);
+      let excel = await preenchido(ultimo.valores);
       const numeroUltimo = ultimo.valores.numero!.trim();
+      // Tomador = a própria empresa (Madepallete): os clientes do pedido entram na aba "Clientes (2)", no
+      // Excel do site e no da pasta da empresa.
+      const proprio = soDigitos(empresa.cnpj);
+      const linhasClientes: LinhaCliente[] = pedidos
+        .filter((x) => soDigitos(x.valores.tomador ?? "").includes(proprio))
+        .flatMap((x) => (x.clientes ?? []).map((c) => ({ ...c, comunicado: x.valores.numero!.trim() })));
+      let avisoClientes = "";
+      if (linhasClientes.length && (await temAbaClientes(excel))) {
+        const r = await registrarClientes(excel, linhasClientes);
+        excel = r.bytes;
+        const naPasta = destino?.excel;
+        if (naPasta) {
+          try {
+            await atualizarExcelDaPasta(naPasta, async (b) => (await registrarClientes(b, linhasClientes)).bytes);
+            avisoClientes = ` Clientes lançados na aba Clientes (2) (também no Excel da pasta).`;
+          } catch {
+            avisoClientes = ` Clientes lançados na aba Clientes (2) do site, mas não consegui gravar no Excel da pasta (está aberto?): baixe a planilha e confira.`;
+          }
+        } else avisoClientes = " Clientes lançados na aba Clientes (2) (no Excel do site; ligue a pasta para gravar também no da empresa).";
+        if (r.semCnpj.length) avisoClientes += ` Cliente novo sem CNPJ: ${r.semCnpj.join(", ")} — preencha na planilha.`;
+      }
       setUltimoExcel({ bytes: excel, nome: nomeDoArquivo(salvo.nomeModelo, numeroUltimo, empresa.apelido) });
       const res = await fetch("/api/comunicados/modelo", {
         method: "PUT",
@@ -424,7 +448,7 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
       if (salvosNaPasta.length && destino) setDaPasta({ ...destino, numero: maiorNumero(destino.numero, numeroUltimo), arquivo: salvosNaPasta[salvosNaPasta.length - 1] });
       setToast(
         res.ok
-          ? `${pdfs.length === 1 ? `Comunicado ${numeroUltimo} salvo em PDF` : `${pdfs.length} comunicados salvos em PDF${salvosNaPasta.length ? "" : " (.zip)"}`}${ondeFoi}. A planilha ficou com o último (${numeroUltimo}).`
+          ? `${pdfs.length === 1 ? `Comunicado ${numeroUltimo} salvo em PDF` : `${pdfs.length} comunicados salvos em PDF${salvosNaPasta.length ? "" : " (.zip)"}`}${ondeFoi}. A planilha ficou com o último (${numeroUltimo}).${avisoClientes}`
           : `PDF gerado${ondeFoi}, mas não consegui guardar o último emitido: confira a numeração na próxima vez.`
       );
     } catch (e) {
