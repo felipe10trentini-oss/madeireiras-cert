@@ -13,6 +13,7 @@ import {
   type CampoComunicado,
   type ModeloComunicado,
 } from "@/lib/comunicadoModelo";
+import { nomeComunicado } from "@/lib/comunicadoRetificacao";
 import { interpretarPedido } from "@/lib/comunicadoTexto";
 import { baixarFontes } from "@/lib/declaracaoLgPdf";
 import { excelParaPdf } from "@/lib/excelPdf";
@@ -21,6 +22,7 @@ import { escolherPasta, maiorNumero, pastaLembrada, pastaSuportada, permissao, s
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { textoDaPlanilha, textoDoWord } from "@/lib/textoDeArquivo";
 import { soDigitos } from "@/lib/util";
+import { RetificarComunicado } from "./RetificarComunicado";
 import { SeiCard } from "./SeiCard";
 import { SoltarArquivos } from "./SoltarArquivos";
 
@@ -89,13 +91,7 @@ function baixar(bytes: Uint8Array, nome: string, tipo = XLSX) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-/** "COMUNICADO 001-2026- MADEPALLETE- BR-PR0940.xlsx" + "360/2026" -> "COMUNICADO 360-2026- MADEPALLETE- BR-PR0940.xlsx". */
-function nomeDoArquivo(modelo: string | null, numero: string, apelido: string): string {
-  const n = numero.replace(/\//g, "-");
-  const base = modelo ?? `COMUNICADO 000-0000 - ${apelido}.xlsx`;
-  const trocado = base.replace(/(COMUNICADO\s+)\d{1,5}(?:-[A-Z]{1,4})?-\d{2,4}/i, `$1${n}`);
-  return (trocado === base ? `COMUNICADO ${n} - ${apelido}.xlsx` : trocado).replace(/[\\/:*?"<>|]/g, "-");
-}
+const nomeDoArquivo = nomeComunicado;
 
 export function Comunicados({ senha, sair }: { senha: string; sair: () => void }) {
   const [empresas, setEmpresas] = useState<MadeireiraSalva[] | null>(null);
@@ -514,6 +510,21 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
             </p>
           )}
         </div>
+      )}
+
+      {empresa && salvo?.bytes && modelo && (
+        <RetificarComunicado
+          key={empresa.cnpj}
+          senha={senha}
+          sair={sair}
+          empresa={empresa}
+          modelo={modelo}
+          bytesModelo={salvo.bytes}
+          nomeModelo={salvo.nomeModelo}
+          mann={numeroEhAviso}
+          pasta={pasta?.ok && daPasta && daPasta !== "lendo" ? daPasta : null}
+          onToast={setToast}
+        />
       )}
 
       {empresa && salvo && (

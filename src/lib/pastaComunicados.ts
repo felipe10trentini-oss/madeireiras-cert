@@ -100,6 +100,8 @@ export interface UltimoDaPasta {
   destino: Pasta;
   /** Caminho do destino a partir da pasta da empresa, para mostrar ("Madeval/Comunicados"). */
   caminhoDestino: string;
+  /** Nomes dos PDFs de comunicado vistos (para saber se um nº já foi retificado: "-A", "-A2"…). */
+  nomes: string[];
 }
 
 /**
@@ -119,6 +121,7 @@ export async function ultimoDaPasta(raiz: Pasta, empresa: Madeireira): Promise<U
   let arquivo: string | null = null;
   let destino: Pasta = pasta;
   let caminhoDestino = pasta.name;
+  const nomes: string[] = [];
   const anoAtual = new Date().getFullYear();
   const olhar = async (dir: Pasta, nivel: number, caminho: string) => {
     for await (const e of dir.values()) {
@@ -129,6 +132,7 @@ export async function ultimoDaPasta(raiz: Pasta, empresa: Madeireira): Promise<U
       if (/^~\$/.test(e.name) || !/^COMUNICADO\b/i.test(e.name)) continue;
       let numero: string | null = null;
       if (/\.pdf$/i.test(e.name)) {
+        nomes.push(e.name);
         const m = e.name.match(/^COMUNICADO\s*(?:N[º°o]\s*)?(\d{1,5})\s*[-_]\s*(\d{4}|\d{2})(?!\d)/i);
         if (m) numero = `${m[1]}/${m[2].length === 2 ? `20${m[2]}` : m[2]}`;
       } else if (/\.xlsx$/i.test(e.name)) {
@@ -154,7 +158,7 @@ export async function ultimoDaPasta(raiz: Pasta, empresa: Madeireira): Promise<U
     }
   };
   await olhar(pasta, 1, pasta.name);
-  return { pasta: pasta.name, numero: melhor, arquivo, destino, caminhoDestino };
+  return { pasta: pasta.name, numero: melhor, arquivo, destino, caminhoDestino, nomes };
 }
 
 /** Salva o PDF na pasta. Não sobrescreve: um arquivo com o mesmo nome fica como está ("existe"). */

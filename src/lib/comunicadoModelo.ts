@@ -229,7 +229,7 @@ export async function preencherComunicado(
       ? xf.replace(/<alignment\b/, '<alignment wrapText="1"')
       : xf.endsWith("/>")
         ? xf.replace(/\/>$/, '><alignment wrapText="1"/></xf>')
-        : xf.replace(/<\/xf>$/, '<alignment wrapText="1"/></xf>');
+        : xf.replace(/^(<xf\b[^>]*>)/, '$1<alignment wrapText="1"/>');
     if (!/applyAlignment=/.test(novoXf)) novoXf = novoXf.replace(/^<xf\b/, '<xf applyAlignment="1"');
     const idx = xfs.length;
     estilos = estilos.replace(bloco[0], bloco[0].replace(/<\/cellXfs>$/, `${novoXf}</cellXfs>`).replace(/(<cellXfs\b[^>]*count=")\d+/, `$1${idx + 1}`));
@@ -302,4 +302,73 @@ export function proximoNumero(ultimo: string | null | undefined, ano: number): s
   const digitos = Math.max(3, m[1].length);
   if (anoUlt !== ano) return `${"1".padStart(digitos, "0")}/${ano}`;
   return `${String(+m[1] + 1).padStart(digitos, "0")}/${ano}`;
+}
+
+/**
+ * Observação da retificação ("Obs: Alteração de horário", "Obs: comunicado cancelado"): no campo
+ * "Observação:" quando o modelo tem (Mann); senão na linha logo abaixo da tabela, mesclada e centralizada,
+ * como nos comunicados retificados no Excel (361-2026-A, 054-2026-C). Devolve o Excel novo.
+ */
+export async function comObservacao(bytes: ArrayBuffer | Uint8Array, modelo: ModeloComunicado, texto: string): Promise<Uint8Array> {
+  if (modelo.campos.observacao) return preencherComunicado(bytes, modelo, { observacao: texto });
+  const { zip } = await abrir(bytes);
+  let xml = (await zip.file(modelo.aba)?.async("string")) ?? "";
+  let estilos = (await zip.file("xl/styles.xml")?.async("string")) ?? "";
+  const cels = Object.values(modelo.campos).map((c) => c!.celula);
+  const linha = Math.max(...cels.map((c) => +c.replace(/[A-Z]+/, ""))) + 1;
+  const ultimaCol = Math.max(...cels.map(colunaDe));
+  const valor = `Obs: ${texto}`;
+  const celula = (ref: string, s: string) => `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${esc(valor)}</t></is></c>`;
+  const reLinha = new RegExp(`<row\\b[^>]*\\sr="${linha}"[^>]*?(?:\\/>|>([\\s\\S]*?)<\\/row>)`);
+  const ml = xml.match(reLinha);
+  // Já tem texto na linha (modelo com "OBS: …" de um comunicado anterior): troca o texto dessa célula.
+  const comTexto = ml?.[1]?.match(/<c r="([A-Z]+\d+)"([^>]*?)>(?:(?!<\/c>)[\s\S])*?(?:<v>|<t)[\s\S]*?<\/c>/);
+  if (comTexto) {
+    const s = comTexto[2].match(/\ss="\d+"/)?.[0] ?? "";
+    xml = xml.replace(comTexto[0], celula(comTexto[1], s));
+  } else {
+    // Estilo: a fonte do valor de um campo (sem negrito do rótulo), centralizado e sem borda.
+    const bloco = estilos.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/);
+    const xfs = bloco ? [...bloco[1].matchAll(/<xf\b[^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g)].map((x) => x[0]) : [];
+    const refValor = modelo.campos.temperatura?.celula ?? cels[cels.length - 1];
+    const sValor = xml.match(new RegExp(`<c r="${refValor}"[^>]*?\\ss="(\\d+)"`))?.[1] ?? "0";
+    let s = "";
+    if (bloco && xfs[+sValor]) {
+      const base = xfs[+sValor].replace(/\sborderId="\d+"/, ' borderId="0"').replace(/<alignment\b[^>]*\/>|<alignment\b[^>]*>[\s\S]*?<\/alignment>/, "");
+      const centro = '<alignment horizontal="center" vertical="center"/>';
+      // O <alignment> vem antes do <protection> (ordem que o Excel exige).
+      const alinhado = base.endsWith("/>") ? base.replace(/\/>$/, `>${centro}</xf>`) : base.replace(/^(<xf\b[^>]*>)/, `$1${centro}`);
+      const final = /applyAlignment=/.test(alinhado) ? alinhado : alinhado.replace(/^<xf\b/, '<xf applyAlignment="1"');
+      estilos = estilos.replace(bloco[0], bloco[0].replace(/<\/cellXfs>$/, `${final}</cellXfs>`).replace(/(<cellXfs\b[^>]*count=")\d+/, `$1${xfs.length + 1}`));
+      s = ` s="${xfs.length}"`;
+      zip.file("xl/styles.xml", estilos);
+    }
+    const nova = celula(`A${linha}`, s);
+    if (ml) {
+      // Linha existe (vazia ou com células só de borda): a célula A entra no começo.
+      const semA = (ml[1] ?? "").replace(new RegExp(`<c r="A${linha}"[^>]*?(?:\\/>|>[\\s\\S]*?<\\/c>)`), "");
+      const tag = ml[0].match(/^<row\b[^>]*?(?=\/?>)/)![0];
+      const ht = +(tag.match(/\sht="([\d.]+)"/)?.[1] ?? 0);
+      const tagNova = ht >= 20 ? tag : `${tag.replace(/\sht="[\d.]+"/, "").replace(/\scustomHeight="\w+"/, "")} ht="22" customHeight="1"`;
+      xml = xml.replace(ml[0], `${tagNova}>${nova}${semA}</row>`);
+    } else {
+      // Linha nova, na ordem das linhas.
+      const depois = [...xml.matchAll(/<row\b[^>]*\sr="(\d+)"/g)].find((r) => +r[1] > linha);
+      const row = `<row r="${linha}" ht="22" customHeight="1">${nova}</row>`;
+      xml = depois ? xml.replace(depois[0], row + depois[0]) : xml.replace(/<\/sheetData>/, `${row}</sheetData>`);
+    }
+    // Mescla A:última coluna, se ainda não houver mescla nessa linha.
+    if (!new RegExp(`<mergeCell ref="A${linha}:`).test(xml)) {
+      const merge = `<mergeCell ref="A${linha}:${letraDe(ultimaCol)}${linha}"/>`;
+      xml = /<mergeCells\b/.test(xml)
+        ? xml.replace(/<mergeCells\b([^>]*)count="(\d+)"([^>]*)>/, (_, a, n, b) => `<mergeCells${a}count="${+n + 1}"${b}>${merge}`)
+        : xml.replace(/<\/sheetData>/, `</sheetData><mergeCells count="1">${merge}</mergeCells>`);
+    }
+  }
+  zip.file(modelo.aba, xml);
+  // Área de impressão que acaba antes da linha da observação: estende até ela.
+  const wb = (await zip.file("xl/workbook.xml")?.async("string")) ?? "";
+  const novoWb = wb.replace(/(<definedName\b[^>]*name="_xlnm.Print_Area"[^>]*>[^<]*?\$?[A-Z]+\$?)(\d+)(<\/definedName>)/, (t, a, n, b) => (+n < linha ? `${a}${linha}${b}` : t));
+  if (novoWb !== wb) zip.file("xl/workbook.xml", novoWb);
+  return zip.generateAsync({ type: "uint8array" });
 }
