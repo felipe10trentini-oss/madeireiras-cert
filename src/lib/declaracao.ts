@@ -138,6 +138,18 @@ export function dataExtenso(d: string): { pt: string; en: string } {
   return { pt: `${p.dia} de ${MESES_PT[p.mes - 1]} de ${p.ano}`, en: `${MESES_EN[p.mes - 1]} ${p.dia}, ${p.ano}` };
 }
 
+/**
+ * Tabela em ordem de data, do tratamento mais antigo para o mais novo (pedido em 30/10/2026); linha sem
+ * data fica no fim, na ordem em que veio.
+ */
+export function emOrdemDeData<T extends { inicio: string }>(linhas: T[]): T[] {
+  const chave = (l: T) => {
+    const m = l.inicio.match(/(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{1,2})[h:](\d{2}))?/);
+    return m ? `${m[3]}${m[2]}${m[1]}${(m[4] ?? "0").padStart(2, "0")}${m[5] ?? "00"}` : "9";
+  };
+  return linhas.map((l, i) => ({ l, i, k: chave(l) })).sort((a, b) => a.k.localeCompare(b.k) || a.i - b.i).map((x) => x.l);
+}
+
 /** Meses dos tratamentos: "Setembro de 2026" / "September 2026"; vários: "Julho e agosto de 2026". */
 export function periodoTratamento(linhas: LinhaTratamento[]): { pt: string; en: string } {
   const vistos: { mes: number; ano: number }[] = [];
@@ -208,7 +220,7 @@ export function dadosIniciais(mestres: CertificadoMestre[], empresa: Madeireira 
     comunicado: [...new Set(mestres.map((x) => x.comunicado).filter(Boolean))].join("; "),
     localTratamento: m?.enderecoTrat ?? empresa?.endereco ?? "",
     sujeito: m ? sujeitoDoMestre(m) : "paletes",
-    linhas: mestres.map(linhaDoMestre),
+    linhas: emOrdemDeData(mestres.map(linhaDoMestre)),
     localEmissao: localDoEndereco(empresa?.endereco) || m?.local || "",
     data: hoje,
     rt: rtCompleto(empresa?.rt) ?? "",

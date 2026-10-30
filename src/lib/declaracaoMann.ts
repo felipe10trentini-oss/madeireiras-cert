@@ -4,7 +4,7 @@
 // o exportador); empresa que vende o palete (Paletes Maringá -> Avenorte): a nota é dela, e o exportador
 // é o destinatário da nota.
 import type { CertificadoMestre } from "./certificadoMestre";
-import { dadosIniciais, linhaDoMestre, type DadosDeclaracao, type LinhaTratamento } from "./declaracao";
+import { dadosIniciais, emOrdemDeData, linhaDoMestre, type DadosDeclaracao, type LinhaTratamento } from "./declaracao";
 import { linhaDaDr, type DrHt } from "./drHt";
 import type { DeclaracaoMontada } from "./declaracaoLg";
 import type { Madeireira } from "./madeireiras";
@@ -350,7 +350,7 @@ export function montarDeclaracaoPadrao(
   // a 56 °C as declarações levam 32 minutos (a curva às vezes fecha 31); mais longas ficam como estão.
   // Com a quantidade de cada ciclo (pedido/digitada), ela vale no lugar da do ciclo inteiro.
   const daRemessa = (x: MestreLido | LinhaRelatorio) => qtd.get(cicloDe.get(x) ?? "");
-  const linhas = [
+  const linhas = emOrdemDeData([
     ...usados.map((m) => ({ ...linhaDoMestre(m.mestre), quantidade: daRemessa(m) ?? (m.mestre.quantidade || "") })),
     ...doRelatorio.map((l) => ({
       ...linhaDoRelatorio(l),
@@ -364,7 +364,7 @@ export function montarDeclaracaoPadrao(
     const min = parseInt(l.duracao, 10);
     const t = parseFloat(l.temperatura.replace(",", "."));
     return { ...l, duracao: t <= 56 && min > 0 && min < 32 ? "32 min" : l.duracao };
-  });
+  }));
   const certs = [...new Set(linhas.map((l) => l.certificado).filter(Boolean))];
   if (!exportador) avisos.push("Não achei o exportador (emitente da nota / shipper do BL): preencha.");
 

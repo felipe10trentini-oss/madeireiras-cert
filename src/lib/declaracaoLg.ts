@@ -2,7 +2,7 @@
 // (com a quantidade) vêm da nota; o tratamento de cada lote vem da planilha DR (aba DADOS).
 // Regras tiradas das declarações que a LG já emitia (pasta "Declarações" de out/2026).
 import { localDoEndereco } from "./certificado";
-import { dadosIniciais, type DadosDeclaracao, type LinhaTratamento } from "./declaracao";
+import { dadosIniciais, emOrdemDeData, type DadosDeclaracao, type LinhaTratamento } from "./declaracao";
 import type { Madeireira } from "./madeireiras";
 import type { ItemNota, NotaFiscal } from "./notaFiscal";
 import type { LinhaDR } from "./planilhaDR";
@@ -136,7 +136,7 @@ export function montarDeclaracaoLg(nf: NotaFiscal, dr: Map<string, LinhaDR> | nu
       comunicado: [...meses].sort((a, b) => a.slice(3).localeCompare(b.slice(3)) || a.localeCompare(b)).map((m) => `Programação MAPA ${m}`).join("; "),
       localTratamento: "Linha Barra Seca s/n – CEP 89.728-000 – Concórdia - SC",
       sujeito: itens.every((i) => /^(PALLET|PALETE)/i.test(i.descricao)) ? "paletes" : "material",
-      linhas,
+      linhas: emOrdemDeData(linhas),
       observacao: nf.numero ? `Ref. à NF-e ${nf.numero}` : "",
       localEmissao: (localDoEndereco(empresa?.endereco) || "Concórdia - SC").replace(/^Concordia/i, "Concórdia"),
     },
