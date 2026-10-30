@@ -252,6 +252,8 @@ export function montarDeclaracaoPadrao(
   // Quantidade de cada ciclo na remessa: a do pedido, ou digitada no campo "Ciclos" ("90 x 252").
   const qtd = new Map<string, string>();
   for (const b of bls) for (const [c, v] of Object.entries(b.quantidades ?? {})) qtd.set(semZeros(c), v);
+  // A da nota, quando ela discrimina por ciclo (Paletes Maringá: "200 - PALLETS … - CICLO: 1013").
+  for (const [c, v] of Object.entries(nf?.qtdPorCiclo ?? {})) if (!qtd.has(semZeros(c))) qtd.set(semZeros(c), v);
   const unidade = [...qtd.values()][0]?.replace(/^[\d.]+\s*/, "") || "paletes";
   const digitados = (op.ciclos ?? [])
     .map((c) => c.trim())

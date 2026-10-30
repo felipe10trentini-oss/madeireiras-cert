@@ -33,6 +33,30 @@ export interface NotaFiscal {
   ciclos?: string[];
   /** Lote mês/ano da remessa ("LOTE 10/26", "LOTES 09/26 E 10/26") — Pinustan. */
   loteRemessa?: string | null;
+  /** Quantidade de cada ciclo escrita na nota ("200 - PALLETS … - CICLO: 1013" -> { "1013": "200 paletes" }). */
+  qtdPorCiclo?: Record<string, string>;
+}
+
+/**
+ * Quantidade por ciclo na observação, uma linha por ciclo (Paletes Maringá): "200 - PALLETS DE MADEIRA COM
+ * TRATAMENTO HT - CICLO: 1013 - CERTIFICADO: 444/2026".
+ */
+export function quantidadesPorCiclo(texto: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  // Para cada "CICLO: 1013", o "200 - PALLETS…" logo antes dele (depois do ciclo anterior); a observação pode
+  // vir numa linha só, então o "444/2026" do certificado anterior não pode ser tomado pela quantidade.
+  let desde = 0;
+  for (const m of texto.matchAll(/\bCICLO\s*(?:N[º°o.]*)?\s*:?\s*(\d{1,5})\b/gi)) {
+    const trecho = texto.slice(desde, m.index);
+    desde = m.index! + m[0].length;
+    const q = [...trecho.matchAll(/(?<![\d.,/])(\d[\d.]*)\s*(?:UN\.?|UNID\.?|unidades?)?\s*[-–]\s*([A-Za-zÀ-ú][^-–]*)/g)].pop();
+    const c = String(parseInt(m[1], 10));
+    if (!q || out[c] || !+q[1].replace(/\./g, "")) continue;
+    const d = q[2].toLowerCase();
+    const unidade = /pal+et/.test(d) ? "paletes" : /kit/.test(d) ? "kits" : /caixa/.test(d) ? "caixas" : /engradad/.test(d) ? "engradados" : "unidades";
+    out[c] = `${q[1].replace(/\./g, "")} ${unidade}`;
+  }
+  return out;
 }
 
 /** "LOTE 10/26", "LOTE: 09/26 E 10/26", "LOTES 09/26, 10/26" -> "10/26" / "09/26 e 10/26" (só mês/ano). */
@@ -119,6 +143,19 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
       if (m && Math.abs(num(m[5]) * num(m[2]) - num(m[3])) < 0.05) itens.push({ descricao: m[4].trim(), quantidade: num(m[5]), unidade: m[1] });
     }
   }
+  // Paletes Maringá: NCM, CST, unidade, quantidade, unitário, total… e a descrição na linha de baixo
+  // ("57 44152000 000 qt 400 49,0000 19.600,00 19,5 0 5102 …" ↵ "PALLET DE MADEIRA C/ TRATAMENTO HT …").
+  // Vale só se quantidade x unitário = total.
+  if (!itens.length) {
+    const ls = texto.split("\n");
+    ls.forEach((l, i) => {
+      const m = l.match(/\b\d{8}\s+\d{3}\s+([A-Za-z]{1,4})\.?\s+(\d[\d.]*(?:,\d+)?)\s+([\d.]+,\d{2,4})\s+([\d.]+,\d{2})\b/);
+      if (m && Math.abs(num(m[2]) * num(m[3]) - num(m[4])) < 0.05) {
+        const desc = (ls[i + 1] ?? "").replace(/\s*-\s*$/, "").trim();
+        itens.push({ descricao: desc, quantidade: num(m[2]), unidade: m[1].toUpperCase() });
+      }
+    });
+  }
   // Pinustan: código com pontos e NCM com pontos ("4.2.0005 PALLET 1000X1200MM Pedido Cliente: …/10 OC: …
   // 4415.20.00 051 5101 PC 600,0000 59,1600 35.496,00 …"). Vale só se quantidade x unitário = total.
   if (!itens.length) {
@@ -160,6 +197,7 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
     emitente: { razao: plano.match(/RECEBEMOS DE\s+(.+?)\s+OS PRODUTOS/i)?.[1]?.trim() ?? null, cnpj: null },
     // Ciclo na observação/itens; o código da curva (UR…) vale em qualquer lugar da nota (a Maxi escreve
     // "CICLO DE TRATAMENTO SKIDS UR010164SC180826" nos dados adicionais).
+    qtdPorCiclo: quantidadesPorCiclo(obs ?? ""),
     ciclos: [...new Set([...ciclosDoTexto(`${obs ?? ""} ${itens.map((i) => i.descricao).join(" ")}`), ...(plano.match(/\bUR\d{6}[A-Z]{2}\d{6}\b/g) ?? [])])],
     loteRemessa: loteMesAno(`${obs ?? ""} ${itens.map((i) => i.descricao).join(" ")}`) ?? loteMesAno(plano),
   };
