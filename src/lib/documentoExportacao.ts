@@ -283,28 +283,41 @@ const SAUDACAO = /^(boa|bom|ol[áa]|oi|prezad|solicito|preciso|segue|seguem|att|
  * BL/booking tem a leitura dele).
  */
 export function lerPedido(texto: string): PedidoLido | null {
-  if (texto.length > 2500 || CNPJ.test(texto)) return null;
+  if (texto.length > 2500) return null;
   const ls = texto.replace(/\r/g, "").split("\n").map((l) => l.trim()).filter(Boolean);
   const nfe = texto.match(/\bNF-?e?\s*(?:N[º°o.]*)?\s*:?\s*(\d{3,9})\b/i)?.[1] ?? null;
   const fatura = texto.match(/\bFAT(?:URA)?\.?\s*(?:N[º°o.]*)?\s*:?\s*(\d[\d/-]*\d|\d)\b/i)?.[1] ?? null;
   const itens: PedidoLido["itens"] = [];
   const iDados: number[] = [];
   ls.forEach((l, i) => {
-    // "90 - Pallet 1000x1200 Ciclo Mann 0252" / "14 paletes LOTE 499" / "Ciclo 252 - 90 paletes".
-    const a = l.match(/^(\d[\d.]*)\s*(?:[-–—x:]\s*)?(.*?)\b(?:CICLO|LOTE)S?\s*(?:MANN)?\s*[:#nNº°.]*\s*(\d{1,5})\b/i);
-    const b = !a && l.match(/\b(?:CICLO|LOTE)S?\s*(?:MANN)?\s*[:#nNº°.]*\s*(\d{1,5})\s*[-–—:(]\s*(\d[\d.]*)\s*(.*)$/i);
-    if (a) itens.push({ ciclo: String(parseInt(a[3], 10)), quantidade: a[1], item: tipoDoItem(a[2]) });
+    // "90 - Pallet 1000x1200 Ciclo Mann 0252" / "14 paletes LOTE 499" / "56P LOT:499" / "Ciclo 252 - 90 paletes" /
+    // "Declaração de 100 paletes lote 503" (a quantidade no meio da linha, com o item logo depois).
+    const a = l.match(/^(\d[\d.]*)\s*(?:[-–—x:]\s*)?(.*?)\b(?:CICLO|LOTE?)S?\s*(?:MANN)?\s*[:#nNº°.]*\s*(\d{1,5})\b/i);
+    const b = !a && l.match(/\b(?:CICLO|LOTE?)S?\s*(?:MANN)?\s*[:#nNº°.]*\s*(\d{1,5})\s*[-–—:(]\s*(\d[\d.]*)\s*(.*)$/i);
+    const c =
+      !a && !b && l.match(/(?<![\d.,/])(\d[\d.]*)\s*(p\b|p[çc]s?\b|paletes?|pallets?|kits?|caixas?|engradados?|skids?|suportes?)\b.*?\b(?:CICLO|LOTE?)S?\s*[:#nNº°.]*\s*(\d{1,5})\b/i);
+    if (a) itens.push({ ciclo: String(parseInt(a[3], 10)), quantidade: a[1], item: /^p\b/i.test(a[2]) ? "paletes" : tipoDoItem(a[2]) });
     else if (b) itens.push({ ciclo: String(parseInt(b[1], 10)), quantidade: b[2], item: tipoDoItem(b[3]) });
-    if (a || b || /\bNF-?e?\b|\bFAT(?:URA)?\b|\bCICLO|\bLOTE/i.test(l)) iDados.push(i);
+    else if (c) itens.push({ ciclo: String(parseInt(c[3], 10)), quantidade: c[1], item: /^p/i.test(c[2]) && !/^pal/i.test(c[2]) ? "paletes" : tipoDoItem(c[2]) });
+    if (a || b || c || /\bNF-?e?\b|\bFAT(?:URA)?\b|\bCICLO|\bLOTE/i.test(l)) iDados.push(i);
   });
+  // Nota/BL tem CNPJ e leitura própria: aqui só vale se tem o pedido (quantidade + ciclo/lote).
+  if (CNPJ.test(texto) && !itens.length) return null;
   if (!itens.length && !nfe && !fatura) return null;
-  // Cliente: "Para X"; senão a 1ª linha antes dos dados que não é saudação ("Companhia providencia ind. com").
-  let cliente = ls.map((l) => l.match(/^para:?\s+([^\d].{2,80})$/i)?.[1]).find(Boolean) ?? null;
+  // Linhas do cabeçalho do e-mail (print do Gmail) não são o cliente.
+  const cabecalho = /@|^(de|from|to|para mim|date|cc|enviado|sent)\b|mensagem|traduzir|caixa\s*de\s*entrada|forwarded|^att\b/i;
+  // Cliente: "Para X" (não "para mim"); a razão social escrita no e-mail ("BOIBRAS IND COM.CARNES E SUB-PROD-LTDA");
+  // o assunto ("Subject: JBS"); senão a 1ª linha antes dos dados que não é saudação.
+  let cliente =
+    ls.map((l) => l.match(/^para:?\s+(?!mim\b|voc[êe]\b)([^\d].{2,80})$/i)?.[1]).find(Boolean) ??
+    ls.find((l) => /\b(LTDA|S\.?\/?A\.?|EIRELI)\b/i.test(l) && !cabecalho.test(l) && !/\d{2}\.\d{3}/.test(l) && l.length <= 80) ??
+    ls.map((l) => l.match(/^(?:subject|assunto)\s*:\s*(?:(?:fwd?|enc|res?|re)\s*:\s*)*(.{2,60})$/i)?.[1]).find(Boolean) ??
+    null;
   if (!cliente && iDados.length) {
     cliente =
       ls
         .slice(0, iDados[0])
-        .find((l) => !SAUDACAO.test(l) && !/\d/.test(l) && l.split(/\s+/).length >= 2 && l.length <= 80 && !/[?:]$/.test(l)) ?? null;
+        .find((l) => !SAUDACAO.test(l) && !cabecalho.test(l) && !/\d/.test(l) && l.split(/\s+/).length >= 2 && l.length <= 80 && !/[?:]$/.test(l)) ?? null;
   }
   return {
     cliente: cliente ? titulo(cliente.replace(/[.,;]+$/, "").trim()) : null,

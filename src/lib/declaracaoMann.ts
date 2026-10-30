@@ -213,8 +213,24 @@ function volumesDaNota(nf: NotaFiscal): string {
  * La Selva", e a declaração da MD Paletes sai com a Barão de exportador e o Instituto de importador.
  */
 const PARES_CLIENTE: { empresa: string; cliente: RegExp; exportador: string }[] = [
-  { empresa: "04456108000144", cliente: /instituto\s+bot[âa]nico/i, exportador: "Barão - Indústria e Comércio de Erva Mate e Chás S.A." },
+  { empresa: CNPJ_MD, cliente: /instituto\s+bot[âa]nico|la\s+selva/i, exportador: BARAO },
+  { empresa: CNPJ_MD, cliente: /\bsoldo\b/i, exportador: BARAO },
 ];
+
+/**
+ * Clientes da MD Paletes como saem nas declarações dela (o e-mail traz o nome curto: "Subject: JBS",
+ * "Para Soldo", ou a razão social copiada da nota em maiúsculas).
+ */
+const NOMES_MD: [RegExp, string][] = [
+  [/^jbs\b/i, "JBS S.A."],
+  [/^bo[il1]bras\b/i, "Boibras Ind Com. Carnes e Sub-Prod Ltda"],
+  [/^coconuts\b/i, "Coconuts Brasil Comercio e Distribuicao Ltda"],
+  [/^master\b/i, "Master Agroindustrial S/A"],
+  [/^bar[ãa]o\b/i, BARAO],
+  [/^soldo\b/i, "Soldo Hinos S.A."],
+  [/^instituto\s+bot[âa]nico|^la\s+selva/i, "Instituto Botânico La Selva"],
+];
+const nomeMd = (n: string) => NOMES_MD.find(([re]) => re.test(n.trim()))?.[1] ?? n;
 
 /** "90 x 252" / "90 x 508 Rio Claro" no campo "Ciclos": a quantidade da remessa nesse ciclo. */
 export function quantidadeDigitada(c: string): { quantidade: string; ciclo: string } | null {
@@ -334,7 +350,9 @@ export function montarDeclaracaoPadrao(
 
   const base = dadosIniciais([], empresa, hoje);
   const m0 = usados[0];
-  const exportadorLido = exportadorDoc || titulo(m0 ? tomadorDoMestre(m0.texto) : null) || titulo(doRelatorio[0]?.tomador);
+  const ehMd = !!empresa && soDigitos(empresa.cnpj) === CNPJ_MD;
+  const lido = exportadorDoc || titulo(m0 ? tomadorDoMestre(m0.texto) : null) || titulo(doRelatorio[0]?.tomador);
+  const exportadorLido = ehMd && lido ? nomeMd(lido) : lido;
   // Cliente que pede é o importador de um exportador fixo (MD: Instituto Botânico -> Barão).
   const par = PARES_CLIENTE.find((p) => !!empresa && soDigitos(empresa.cnpj) === p.empresa && [exportadorLido, bl?.importador].some((n) => !!n && p.cliente.test(n)));
   const importadorPar = par ? (par.cliente.test(exportadorLido) ? exportadorLido : bl?.importador ?? "") : "";
@@ -485,7 +503,8 @@ export function blsDoTexto(texto: string): DadosBL[] {
   const ls = texto.replace(/\r/g, "").split("\n");
   const inicios = ls.map((l, i) => (/^\s*FAT(?:URA)?\.?\s*(?:N[º°o.]*)?\s*:?\s*\d{1,6}\b/i.test(l) ? i : -1)).filter((i) => i >= 0);
   if (inicios.length > 1) {
-    const contexto = ls.slice(0, inicios[0]).join("\n");
+    // O que vem antes da 1ª fatura e o "Para Soldo"/"Subject: Barão" de qualquer lugar valem para todas.
+    const contexto = [...ls.slice(0, inicios[0]), ...ls.slice(inicios[0]).filter((l) => /^\s*(?:para|subject|assunto)\b/i.test(l))].join("\n");
     return inicios.flatMap((ini, k) => blsDoTexto(`${contexto}\n${ls.slice(ini, inicios[k + 1] ?? ls.length).join("\n")}`));
   }
   const base = lerBL(texto);
