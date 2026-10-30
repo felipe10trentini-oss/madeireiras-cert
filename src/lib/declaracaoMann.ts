@@ -284,8 +284,10 @@ export function montarDeclaracaoPadrao(
   const cicloDe = new Map<MestreLido | LinhaRelatorio, string>();
   // DR em Excel (Pinustan): o tratamento vem dela — a aba CONSOLIDADOS HT, ou o lote digitado na DADOS HT.
   const dosDr: LinhaTratamento[] = [];
-  // Sem lote digitado, valem sempre as linhas da CONSOLIDADOS HT (mesmo que a nota traga ciclo).
-  const usarConsolidado = !!op.dr?.consolidado.length && !digitados.length;
+  // Valem os ciclos da nota ("ur:02-329/03-302", achados na DR); sem lote digitado e sem ciclo da nota que
+  // esteja na DR, as linhas da CONSOLIDADOS HT.
+  const daNotaNaDr = !!op.dr && ciclosDoc.some((c) => !!linhaDaDr(op.dr!, c.trim().split(/\s+/)[0]));
+  const usarConsolidado = !!op.dr?.consolidado.length && !digitados.length && !daNotaNaDr;
   if (usarConsolidado) dosDr.push(...op.dr!.consolidado);
   if (ciclosDoc.length && !usarConsolidado) {
     for (const c of ciclosDoc) {

@@ -94,7 +94,9 @@ export async function lerDrHt(bytes: ArrayBuffer | Uint8Array): Promise<DrHt | n
 
 /** Lote ("2-302", "1-655") ou ciclo (código UR…) digitado -> a linha da DR. */
 export function linhaDaDr(dr: DrHt, c: string): LinhaTratamento | null {
-  const alvo = c.trim().toUpperCase().replace(/\s+/g, "");
-  const igual = (l: LinhaTratamento) => l.lote.replace(/\s+/g, "") === alvo || l.ciclo.toUpperCase() === alvo;
+  // "02-329" = "2-329" (zeros da frente não contam em nenhum dos lados).
+  const norm = (s: string) => s.trim().toUpperCase().replace(/\s+/g, "").replace(/^0*(\d+)-0*(\d+)$/, "$1-$2");
+  const alvo = norm(c);
+  const igual = (l: LinhaTratamento) => norm(l.lote) === alvo || l.ciclo.toUpperCase() === alvo;
   return dr.consolidado.find(igual) ?? [...dr.historico].reverse().find(igual) ?? null;
 }
