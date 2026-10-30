@@ -125,7 +125,7 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
     const re = /(?:^|\s)\d[\d.-]{0,14}\s+(.+?)\s+\d{4}\.\d{2}\.\d{2}\s+\d{3}\s+\d\.?\d{3}\s+([A-Z]{1,4})\.?\s+([\d.]+,\d{2,4})\s+([\d.]+,\d{2,4})\s+([\d.]+,\d{2})\b/g;
     for (const m of (blocoItens || plano).matchAll(re)) {
       if (Math.abs(num(m[3]) * num(m[4]) - num(m[5])) < 0.05)
-        itens.push({ descricao: m[1].replace(/\s+(?:Pedido Cliente|OC)\s*:.*$/i, "").trim(), quantidade: num(m[3]), unidade: m[2] });
+        itens.push({ descricao: m[1].replace(/\bOC\s*:\s*\d+\s*/gi, "").replace(/\s+Pedido Cliente\s*:.*$/i, "").trim(), quantidade: num(m[3]), unidade: m[2] });
     }
   }
   if (!itens.length) {
@@ -139,13 +139,14 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
     numero: plano.match(/N[º°o]\.?:?\s*(\d{1,9})\s+S[ée]rie/i)?.[1] ?? numeroDaChave(plano),
     emissao:
       // No print (OCR) a linha de baixo traz nome, CNPJ e data juntos: fica só a data.
-      ((v) => (v && /\d{2}\/\d{2}\/\d{4}/.test(v) ? v.match(/\d{2}\/\d{2}\/\d{4}/)![0] : v))(abaixo(dest, /DATA DE EMISS[ÃA]O/)) ??
+      ((v) => (v && /\d{2}\/\d{2}\/\d{4}/.test(v) ? v.match(/\d{2}\/\d{2}\/\d{4}/)![0] : v))(abaixo(dest, /DATA D[AE] EMISS[ÃA]O/)) ??
       plano.match(/Emiss[ãa]o:\s*(\d{2}\/\d{2}\/\d{4})/i)?.[1] ??
       // "DATA EMISSÃO\nDATA ENTRADA/SAIDA\n26/10/2026": a 1ª data depois do rótulo.
       dest.match(/DATA\s+(?:DE\s+)?EMISS[ÃA]O[\s\S]{0,120}?(\d{2}\/\d{2}\/\d{4})/i)?.[1] ??
       null,
     destinatario: {
-      razao: ((r) => (r && !/CNP[J)]|CPF|DATA DE/i.test(r) ? r : (ocr.razao ?? r)))(abaixo(dest, /RAZ[ÃA]O SOCIAL(?! FRETE)/)),
+      // Código da filial colado no fim do nome ("COMPANHIA PROVIDENCIA INDUSTRIA E COMERCIO 201", Pinustan) sai.
+      razao: ((r) => (r && !/CNP[J)]|CPF|DATA DE/i.test(r) ? r.replace(/\s+\d{1,4}$/, "") : (ocr.razao ?? r)))(abaixo(dest, /RAZ[ÃA]O SOCIAL(?! FRETE)/)),
       cnpj: abaixo(dest, /CNPJ\s*\/\s*CPF/) ?? ocr.cnpj,
       endereco: abaixo(dest, /ENDERE[ÇC]O/),
       bairro: abaixo(dest, /BAIRRO\s*\/\s*DISTRITO/),
