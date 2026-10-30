@@ -417,15 +417,15 @@ export function montarDeclaracaoPadrao(
     const total = linhas.reduce((s, l) => s + (parseInt((l.quantidade ?? "").replace(/\./g, ""), 10) || 0), 0);
     if (total) dados.volumes = volumesDaTabela({ pacotes: String(total), tipo: unidade } as DadosBL) ?? `${total} ${unidade}`;
   }
-  // A discriminação por ciclo vai no campo da quantidade, não no quadro dos certificados (que ficava cheio):
-  // "400 paletes de madeira/ wooden pallets (ciclo/cycle 1013: 200; ciclo/cycle 1014: 200)". A Mann Unid.
-  // Volante continua com a coluna Quantidade na tabela.
+  // A discriminação por ciclo vai no campo da quantidade, uma linha por ciclo, e não numa coluna da tabela
+  // (que ficava cheia) — como a declaração da Paletes Maringá feita à mão (NFe 5361): "CICLO 1013 - 200
+  // PALETES". A Mann Unid. Volante continua com a coluna Quantidade na tabela.
   if (dados.qtdPorCiclo && !mannVolante) {
     const partes = linhas
       .filter((l) => l.quantidade)
-      // Ciclo que é o código da curva (UR011013PR291026): vai o lote (1013), como a nota escreve.
-      .map((l) => `ciclo/cycle ${/^[A-Z]{2}\d{6,}/i.test(l.ciclo) && l.lote ? l.lote : l.ciclo}: ${(l.quantidade ?? "").match(/\d[\d.]*/)?.[0] ?? l.quantidade}`);
-    if (partes.length) dados.volumes = `${dados.volumes.trim()} (${partes.join("; ")})`.trim();
+      // Ciclo que é o código da curva (UR011013PR291026): vai o lote (1013), sem o código.
+      .map((l) => `CICLO ${/^[A-Z]{2}\d{6,}/i.test(l.ciclo) && l.lote ? l.lote : l.ciclo} - ${(l.quantidade ?? "").toUpperCase()}`);
+    if (partes.length) dados.volumes = partes.join("\n");
     dados.linhas = linhas.map((l) => ({ ...l, quantidade: "" }));
     dados.qtdPorCiclo = false;
   }
