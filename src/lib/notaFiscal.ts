@@ -57,6 +57,10 @@ export function lotesDaObservacao(obs: string): LoteNota[] {
   const out: LoteNota[] = [];
   const re = /(?:(\d[\d.]*)\s*UN\.?\s*)?LOTES?\s*\/?\s*(?:UR)?\s*:?\s*(\d+(?:\s*(?:\/|\be\b|;)\s*\d+)*)/gi;
   for (const m of obs.matchAll(re)) {
+    // "lote:10/26" (Pinustan) é mês/ano, não os lotes 10 e 26: fica para o loteMesAno.
+    const mesAno = m[2].trim().match(/^(\d{2})\s*\/\s*(\d{2})$/);
+    const anoAtual = new Date().getFullYear() % 100;
+    if (mesAno && +mesAno[1] >= 1 && +mesAno[1] <= 12 && Math.abs(+mesAno[2] - anoAtual) <= 1 && !m[1]) continue;
     const lotes = m[2].split(/\s*(?:\/|\be\b|;)\s*/i).filter(Boolean);
     const q = m[1] ? num(m[1]) : null;
     for (const l of lotes) out.push({ lote: String(parseInt(l, 10)), quantidade: lotes.length === 1 ? q : null });
@@ -113,6 +117,15 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
     for (const l of texto.split("\n")) {
       const m = l.match(/\b\d{8}\s+\d{3}\s+\d{4}\s+([A-Z]{1,4})\.?\s+([\d.]+,\d{2,4})\s+([\d.]+,\d{2})\s.*?\t\s*(.+?)\s*\t\s*\S+\s+(\d[\d.]*(?:,\d+)?)\s*$/);
       if (m && Math.abs(num(m[5]) * num(m[2]) - num(m[3])) < 0.05) itens.push({ descricao: m[4].trim(), quantidade: num(m[5]), unidade: m[1] });
+    }
+  }
+  // Pinustan: código com pontos e NCM com pontos ("4.2.0005 PALLET 1000X1200MM Pedido Cliente: …/10 OC: …
+  // 4415.20.00 051 5101 PC 600,0000 59,1600 35.496,00 …"). Vale só se quantidade x unitário = total.
+  if (!itens.length) {
+    const re = /(?:^|\s)\d[\d.-]{0,14}\s+(.+?)\s+\d{4}\.\d{2}\.\d{2}\s+\d{3}\s+\d\.?\d{3}\s+([A-Z]{1,4})\.?\s+([\d.]+,\d{2,4})\s+([\d.]+,\d{2,4})\s+([\d.]+,\d{2})\b/g;
+    for (const m of (blocoItens || plano).matchAll(re)) {
+      if (Math.abs(num(m[3]) * num(m[4]) - num(m[5])) < 0.05)
+        itens.push({ descricao: m[1].replace(/\s+(?:Pedido Cliente|OC)\s*:.*$/i, "").trim(), quantidade: num(m[3]), unidade: m[2] });
     }
   }
   if (!itens.length) {
@@ -191,11 +204,13 @@ export function ciclosDoTexto(texto: string): string[] {
       if (n && c !== "NaN" && !out.includes(c)) out.push(c);
     }
   }
-  // "MATERIAL TRATADO REFERENTE A UR: 553-573" (Madeico): os ciclos 553 e 573.
+  // "MATERIAL TRATADO REFERENTE A UR: 553-573" (Madeico): os ciclos 553 e 573. "ur:02-329/03-302/01-655"
+  // (Pinustan): estufa-ciclo — estufa 02 ciclo 329, estufa 03 ciclo 302… (a estufa tem 1 ou 2 dígitos).
   for (const m of texto.matchAll(/\bUR\s*:\s*(\d{1,5}(?:\s*(?:[-,/]|\be\b)\s*\d{1,5})*)/gi)) {
-    for (const n of m[1].split(/\s*(?:[-,/]|\be\b)\s*/)) {
-      const c = String(parseInt(n, 10));
-      if (n && c !== "NaN" && !out.includes(c)) out.push(c);
+    for (const grupo of m[1].split(/\s*(?:[,/]|\be\b)\s*/)) {
+      const ec = grupo.match(/^(\d{1,2})\s*-\s*(\d{2,5})$/);
+      const ns = ec ? [`${+ec[1]}-${+ec[2]}`] : grupo.split(/\s*-\s*/).map((n) => String(parseInt(n, 10)));
+      for (const c of ns) if (c && !c.includes("NaN") && !out.includes(c)) out.push(c);
     }
   }
   // Código da curva (UR + estufa + lote + UF + data): "CICLO DE TRATAMENTO SKIDS UR010164SC180826" (Maxi).

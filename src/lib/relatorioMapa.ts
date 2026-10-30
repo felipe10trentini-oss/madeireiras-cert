@@ -96,7 +96,8 @@ export async function lerRelatorioTermico(bytes: ArrayBuffer | Uint8Array): Prom
     if (n <= cab.n) continue;
     const certificado = de(cel, col.certificado);
     const ciclo = de(cel, col.ciclo);
-    if (!/^\d{1,5}\/\d{4}/.test(certificado) || !ciclo) continue; // "não realizado", "cancelado", meses sem tratamento
+    // "123/2026" ou estufa-ciclo "2-540" (Pinustan); "não realizado", "cancelado", meses sem tratamento ficam fora.
+    if (!(/^\d{1,5}\/\d{4}/.test(certificado) || /^\d{1,3}\s*-\s*\d{1,5}$/.test(certificado)) || !ciclo) continue;
     const dur = de(cel, col.duracao);
     const min = /^\d+(\.\d+)?$/.test(dur)
       ? // número: minutos ("32") ou fração de dia (hora do Excel)
@@ -144,9 +145,20 @@ export function linhasDoCiclo(rel: LinhaRelatorio[], ciclo: string): LinhaRelato
   const [num, ...resto] = ciclo.trim().split(/\s+/);
   const estufa = estufaCiclo(num ?? "");
   const c = semZeros(estufa?.ciclo ?? num ?? "");
+  // Estufa-ciclo também no lote/certificado ("2-540") ou no código da curva (UR + estufa 2 dígitos + ciclo 4
+  // dígitos: "UR020540PR050126"), como no relatório da Pinustan.
+  const alvo = estufa ? `${+estufa.estufa}-${+estufa.ciclo}` : null;
+  const ec = (s: string | undefined) => {
+    const m = (s ?? "").trim().match(/^(\d{1,3})\s*-\s*(\d{1,5})$/) ?? (s ?? "").trim().match(/^UR(\d{2})(\d{4})[A-Z]{2}\d{6}$/i);
+    return m ? `${+m[1]}-${+m[2]}` : null;
+  };
   // A mesma linha em dois relatórios (o do mês repete o acumulado do ano) conta uma vez só.
   const todas = rel
-    .filter((l) => (semZeros(l.ciclo) === c || (l.lote && l.lote === c)) && (!estufa || semZeros((l.unidade ?? "").trim()) === semZeros(estufa.estufa)))
+    .filter(
+      (l) =>
+        ((semZeros(l.ciclo) === c || (l.lote && l.lote === c)) && (!estufa || semZeros((l.unidade ?? "").trim()) === semZeros(estufa.estufa))) ||
+        (alvo != null && (ec(l.lote) === alvo || ec(l.certificado) === alvo || ec(l.ciclo) === alvo))
+    )
     .filter((l, i, xs) => xs.findIndex((x) => x.certificado === l.certificado && x.ciclo === l.ciclo && x.unidade === l.unidade) === i);
   const filtro = chave(resto.join(" "));
   if (!filtro) return todas;
