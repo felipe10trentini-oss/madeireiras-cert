@@ -17,6 +17,9 @@ import { snMinusculo, soDigitos } from "./util";
 
 export const CNPJ_MANN_VOLANTE = "00093600000141";
 const CNPJ_PINUSTAN = "03298956000100";
+const CNPJ_PALETES_MARINGA = "21923718000120";
+const CNPJ_MD = "04456108000144";
+const BARAO = "Barão - Indústria e Comércio de Erva Mate e Chás S.A.";
 /** Quem fabrica o palete que a Mann trata e vai como exportador da declaração (o cliente vira o destinatário). */
 const FORNECEDORES_MANN = /\brenascer\b/i;
 
@@ -344,7 +347,12 @@ export function montarDeclaracaoPadrao(
           (n): n is string => !!n && FORNECEDORES_MANN.test(n)
         )
       : undefined;
-  const exportador = par ? par.exportador : fornecedor ? titulo(fornecedor) : exportadorLido;
+  // MD Paletes, pedido por fatura sem nota ("FAT 134 ↵ 51 paletes lote 499"): a fatura é da Barão, que exporta;
+  // o importador quase sempre é a Soldo Hinos (Instituto Botânico vem pelo PARES_CLIENTE).
+  const mdFatura = !par && !nf && !!bl?.invoice && !!empresa && soDigitos(empresa.cnpj) === CNPJ_MD;
+  const exportador = par ? par.exportador : mdFatura ? BARAO : fornecedor ? titulo(fornecedor) : exportadorLido;
+  const importadorMd = mdFatura ? (bl?.importador ? titulo(bl.importador) : "Soldo Hinos S.A.") : "";
+  if (mdFatura && !bl?.importador) avisos.push("Importador: ficou Soldo Hinos S.A. (o de sempre nas faturas da Barão) — confira.");
   const destinatario = fornecedor
     ? [destinatarioLido, exportadorLido].find((n) => !!n && !FORNECEDORES_MANN.test(n)) ?? ""
     : destinatarioLido;
@@ -395,7 +403,7 @@ export function montarDeclaracaoPadrao(
     container: bl?.container ?? "",
     destino: bl?.destino ?? "",
     // Da tabela vem em maiúsculas; do packing list já vem com as siglas certas ("Grivalmar USA LLC").
-    importador: importadorPar || (bl?.importador && bl.importador !== bl.importador.toUpperCase() ? bl.importador : titulo(bl?.importador)) || base.importador,
+    importador: importadorPar || importadorMd || (bl?.importador && bl.importador !== bl.importador.toUpperCase() ? bl.importador : titulo(bl?.importador)) || base.importador,
     fatura: bl?.invoice ?? base.fatura,
     pesoBruto: bl?.pesoBruto ? `${bl.pesoBruto} Kgs` : base.pesoBruto,
     pesoLiquido: bl?.pesoLiquido ? `${bl.pesoLiquido} Kgs` : base.pesoLiquido,
@@ -420,7 +428,7 @@ export function montarDeclaracaoPadrao(
   // A discriminação por ciclo vai no campo da quantidade, uma linha por ciclo, e não numa coluna da tabela
   // (que ficava cheia) — como a declaração da Paletes Maringá feita à mão (NFe 5361): "CICLO 1013 - 200
   // PALETES". A Mann Unid. Volante continua com a coluna Quantidade na tabela.
-  if (dados.qtdPorCiclo && !mannVolante) {
+  if (dados.qtdPorCiclo && !!empresa && soDigitos(empresa.cnpj) === CNPJ_PALETES_MARINGA) {
     const partes = linhas
       .filter((l) => l.quantidade)
       // Ciclo que é o código da curva (UR011013PR291026): vai o lote (1013), sem o código.
@@ -449,7 +457,13 @@ export function montarDeclaracaoPadrao(
   const cicloRef = doRelatorio[0]?.ciclo ?? usados[0]?.mestre.ciclo ?? dosDr[0]?.lote ?? "";
   const numNf = op.nfe?.trim() || nf?.numero || bl?.nfe;
   const semDoc = !numNf && !bl?.invoice && !bl?.booking && !bl?.bl;
-  const nome = semDoc && cicloRef && doRelatorio[0]?.tomador ? curto(titulo(doRelatorio[0].tomador)) : curto(exportador);
+  // MD para a Barão: o nome vai pelo importador, como nas pastas ("DECL. Soldo 134").
+  const nome =
+    (par || mdFatura) && dados.importador
+      ? dados.importador.split(/\s+/)[0]
+      : semDoc && cicloRef && doRelatorio[0]?.tomador
+        ? curto(titulo(doRelatorio[0].tomador))
+        : curto(exportador);
   const ref = numNf
     ? `NFe ${numNf}${mann && destinatario ? ` - ${curto(destinatario)}` : ""}`
     : bl?.invoice || (bl?.booking ? (mann ? `- ${bl.booking}` : bl.booking) : "") || bl?.bl || (cicloRef ? semZeros(cicloRef) : certs[0]) || "";
@@ -466,6 +480,14 @@ export const montarDeclaracaoMann = montarDeclaracaoPadrao;
  * PALETES") vira uma declaração por cliente.
  */
 export function blsDoTexto(texto: string): DadosBL[] {
+  // E-mail com várias faturas (MD Paletes: "FAT 134 ↵ 51 paletes lote 499 ↵ 5 paletes lote 519 ↵ FAT 135 ↵ …"):
+  // uma declaração por fatura, cada uma com os lotes e as quantidades dela.
+  const ls = texto.replace(/\r/g, "").split("\n");
+  const inicios = ls.map((l, i) => (/^\s*FAT(?:URA)?\.?\s*(?:N[º°o.]*)?\s*:?\s*\d{1,6}\b/i.test(l) ? i : -1)).filter((i) => i >= 0);
+  if (inicios.length > 1) {
+    const contexto = ls.slice(0, inicios[0]).join("\n");
+    return inicios.flatMap((ini, k) => blsDoTexto(`${contexto}\n${ls.slice(ini, inicios[k + 1] ?? ls.length).join("\n")}`));
+  }
   const base = lerBL(texto);
   // Pedido por e-mail com a quantidade de cada ciclo ("NFE 7399 / 90 - Pallet Ciclo Mann 0252 / 200 - … 0226"):
   // uma declaração com os ciclos todos.
