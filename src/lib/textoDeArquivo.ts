@@ -34,7 +34,21 @@ export async function textoDaPlanilha(bytes: ArrayBuffer | Uint8Array): Promise<
     else if (/h/.test(f)) fmtsHora.add(+m[1]);
   }
   const xfs = [...(estilos.match(/<cellXfs[\s\S]*?<\/cellXfs>/)?.[0] ?? "").matchAll(/<xf [^>]*numFmtId="(\d+)"/g)].map((m) => +m[1]);
-  const abas = Object.keys(zip.files).filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n)).sort();
+  // Abas com senhas (PETICIONAMENTO da CJ, acessos do SEI) nunca entram no texto.
+  const wb = (await zip.file("xl/workbook.xml")?.async("string")) ?? "";
+  const rels = (await zip.file("xl/_rels/workbook.xml.rels")?.async("string")) ?? "";
+  const proibidas = new Set(
+    [...wb.matchAll(/<sheet\b[^>]*>/g)]
+      .filter((m) => /peticionamento|acesso|senha/i.test(desescapar(m[0].match(/name="([^"]+)"/)?.[1] ?? "")))
+      .map((m) => {
+        const rid = m[0].match(/r:id="([^"]+)"/)?.[1] ?? "";
+        const alvo = rels.match(new RegExp(`<Relationship[^>]*Id="${rid}"[^>]*>`))?.[0]?.match(/Target="([^"]+)"/)?.[1] ?? "";
+        return `xl/${alvo.replace(/^\/?xl\//, "")}`;
+      })
+  );
+  const abas = Object.keys(zip.files)
+    .filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n) && !proibidas.has(n))
+    .sort();
   const linhas: string[] = [];
   for (const aba of abas) {
     const xml = (await zip.file(aba)?.async("string")) ?? "";

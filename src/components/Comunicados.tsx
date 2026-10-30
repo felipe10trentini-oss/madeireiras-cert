@@ -15,6 +15,7 @@ import {
 } from "@/lib/comunicadoModelo";
 import { nomeComunicado } from "@/lib/comunicadoRetificacao";
 import { interpretarPedido, type ClienteDoPedido } from "@/lib/comunicadoTexto";
+import { pendentesDaPlanilhaCj, type LinhaControleCj } from "@/lib/planilhaCj";
 import { registrarClientes, temAbaClientes, type LinhaCliente } from "@/lib/clientesComunicado";
 import { baixarFontes } from "@/lib/declaracaoLgPdf";
 import { excelParaPdf } from "@/lib/excelPdf";
@@ -272,6 +273,41 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
   }
 
   /**
+   * Pendentes da planilha de controle da CJ (linhas em vermelho): um comunicado por linha, no estilo dos
+   * emitidos pela CJ no Excel (interessado = nome curto "ELOPACK MATRIZ", "CAMERA MÓVEL DWI3H89", hora "1:00").
+   */
+  function usarPendentesCj(linhas: LinhaControleCj[]) {
+    if (!modelo || !empresa) return;
+    if (!linhas.length) return setToast("Nenhuma linha em vermelho (pendente) na aba CONTROLE.");
+    const doModelo = Object.fromEntries(Object.values(modelo.campos).map((c) => [c!.campo, c!.valor])) as Partial<Record<CampoComunicado, string>>;
+    const semDados = [...new Set(linhas.filter((l) => !l.nome || !l.cnpj).map((l) => l.empresa))];
+    setPedidos(
+      linhas.map((l) => ({
+        valores: {
+          ...doModelo,
+          numero: l.aviso,
+          tomador: `${l.nome || l.empresa} - CNPJ: ${l.cnpj}`,
+          local: l.endereco || doModelo.local,
+          cidade: l.local.toUpperCase(),
+          interessado: l.empresa.toUpperCase(),
+          produto: l.material.toUpperCase(),
+          unidade: l.unidade ? `CAMERA ${l.unidade.toUpperCase()}` : doModelo.unidade,
+          quantidade: l.quantidade,
+          data: l.data,
+          horario: l.horario,
+          ...(modelo.campos.duracao ? { duracao: DURACAO } : {}),
+        },
+        achados: ["numero", "tomador", "local", "produto", "quantidade", "data", "horario"] as CampoComunicado[],
+        avisos: semDados.length ? [`Sem nome/CNPJ na aba DADOS para: ${semDados.join(", ")} — confira o tomador.`] : [],
+      }))
+    );
+    setSel(0);
+    setUltimoExcel(null);
+    setTexto("");
+    setToast(`${linhas.length} comunicado(s) pendente(s) em vermelho na planilha: ${linhas[0].aviso} a ${linhas[linhas.length - 1].aviso}. Confira e gere.`);
+  }
+
+  /**
    * Pedido em arquivo: planilha (.xlsx) e Word (.docx) lidos aqui; imagem (print do WhatsApp, foto) e PDF
    * no servidor (OCR). O texto vai para a caixa (dá para conferir) e já é identificado.
    */
@@ -285,8 +321,16 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
           setToast(`${f.name}: formato antigo do Office — abra e salve como .xlsx/.docx, ou copie o texto.`);
           continue;
         }
-        if (/\.xlsx$/.test(n)) partes.push(await textoDaPlanilha(await f.arrayBuffer()));
-        else if (/\.docx$/.test(n)) partes.push(await textoDoWord(await f.arrayBuffer()));
+        if (/\.xlsx$/.test(n)) {
+          const buf = await f.arrayBuffer();
+          // Planilha de controle da CJ: só as linhas em vermelho (pendentes), com o nº do aviso.
+          const cj = await pendentesDaPlanilhaCj(buf);
+          if (cj) {
+            usarPendentesCj(cj);
+            return;
+          }
+          partes.push(await textoDaPlanilha(buf));
+        } else if (/\.docx$/.test(n)) partes.push(await textoDoWord(await f.arrayBuffer()));
         else if (/\.(txt|csv)$/.test(n)) partes.push((await f.text()).replace(/;/g, " | "));
         else {
           const form = new FormData();
@@ -348,6 +392,24 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
   }
 
   /**
+   * Nome do PDF: pelo nome do modelo ("COMUNICADO 001-2026- MADEPALLETE…"). Quando o modelo não tem esse nome
+   * (CJ: "Controle_Tratamentos_CJ.xlsx"), pelo último PDF da pasta, trocando o nº e a cidade entre parênteses
+   * ("COMUNICADO 260-2026 – CJ BR-SP1024 (torrinha).pdf" -> "COMUNICADO 249-2026 – CJ BR-SP1024 (torrinha).pdf").
+   */
+  function nomeDoPdf(numero: string, cidade?: string): string {
+    const apelido = empresa?.apelido ?? "";
+    const comCidade = (nome: string) => (cidade ? (/\([^)]*\)/.test(nome) ? nome.replace(/\([^)]*\)/, `(${cidade.toLowerCase()})`) : nome.replace(/(\.\w+)$/, ` (${cidade.toLowerCase()})$1`)) : nome);
+    const daPastaOk = daPasta && daPasta !== "lendo" ? daPasta : null;
+    if (!/^COMUNICADO/i.test(salvo?.nomeModelo ?? "") && daPastaOk?.nomes.length) {
+      // O PDF de nº mais alto (sem os retificados "-A", "-C").
+      const numDe = (n: string) => n.match(/^COMUNICADO\s+(\d{1,5})-(\d{2,4})(?![-\w])/i)?.slice(1, 3).join("/") ?? null;
+      const ref = daPastaOk.nomes.filter(numDe).reduce<string | null>((m, n) => (!m || maiorNumero(numDe(m), numDe(n)) === numDe(n) ? n : m), null);
+      if (ref) return comCidade(nomeComunicado(ref, numero, apelido));
+    }
+    return comCidade(nomeDoArquivo(salvo?.nomeModelo ?? null, numero, apelido).replace(/\.xlsx$/i, ".pdf"));
+  }
+
+  /**
    * Gera o PDF de todos os comunicados (um só: baixa o PDF; vários: um .zip com os PDFs) e guarda o Excel
    * preenchido do último como o modelo da empresa (a planilha fica sempre com o último emitido).
    */
@@ -370,7 +432,7 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
       for (const x of pedidos) {
         const numero = x.valores.numero!.trim();
         const bytes = await excelParaPdf(await preenchido(x.valores), fontes, { aba: modelo.aba, ajustar: celulas });
-        pdfs.push({ nome: nomeDoArquivo(salvo.nomeModelo, numero, empresa.apelido).replace(/\.xlsx$/i, ".pdf"), bytes });
+        pdfs.push({ nome: nomeDoPdf(numero, x.valores.cidade), bytes });
       }
       // Pasta da empresa ligada: cada PDF vai direto para lá (o OneDrive leva ao outro computador e a
       // numeração segue certa). Sem a pasta: baixa (um PDF ou um .zip).
