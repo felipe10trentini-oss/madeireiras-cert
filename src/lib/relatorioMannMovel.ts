@@ -32,12 +32,27 @@ export function placaDaUnidade(unidade: string | null | undefined): string {
   return PLACA_POR_UNIDADE[(unidade ?? "").trim().toLowerCase()] ?? "";
 }
 
-/** "Rua X, 4226 - Cambé - PR" -> "Cambé"; "Av. Y - Londrina (Hag Palete)" -> "Londrina". */
+/**
+ * "Rua X, 4226 - Cambé - PR" -> "Cambé"; "Av. Y - Londrina (Hag Palete) - PR" e "R. Z, 370 - Londrina - PR
+ * (Britoni Pallets)" -> "Londrina" (o nome do pátio entre parênteses sai antes; com ele no fim, a UF ficava
+ * como cidade); "… CEP: 86.186-020 –Cambe – PR" e "… Londrina/PR" também.
+ */
 export function cidadeDoEndereco(endereco: string | null | undefined): string {
   if (!endereco) return "";
-  const partes = endereco.split(/\s+-\s+/).map((p) => p.trim()).filter(Boolean);
+  const t = endereco
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/CEP:?\s*[\d.]+-?\d*/gi, " ")
+    .replace(/\s*[–—]\s*/g, " - ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[\s,-]+$/, "")
+    .replace(/\s*[-,]\s*Brasil$/i, "");
+  // "… Cidade - PR" / "… Cidade/PR": a cidade é o trecho antes da UF (depois do último hífen ou vírgula).
+  const m = t.match(/(?:^|[-,])\s*([A-Za-zÀ-ÿ' .]+?)\s*[-/]\s*([A-Z]{2})\.?$/);
+  if (m) return m[1].trim();
+  const partes = t.split(/\s+-\s+/).map((p) => p.trim()).filter(Boolean);
   if (partes.length && /^[A-Z]{2}$/.test(partes[partes.length - 1])) partes.pop();
-  return partes.length > 1 ? partes[partes.length - 1].replace(/\s*\(.*?\)\s*/g, " ").trim() : "";
+  return partes.length > 1 ? partes[partes.length - 1] : "";
 }
 
 export function linhaMannMovel(
