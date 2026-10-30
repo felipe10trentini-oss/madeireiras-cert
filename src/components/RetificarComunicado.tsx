@@ -158,7 +158,8 @@ export function RetificarComunicado({ senha, sair, empresa, modelo, bytesModelo,
   if (!aberto) {
     return (
       <div className="toolbar" style={{ marginBottom: 14 }}>
-        <button type="button" className="btn" onClick={() => setAberto(true)}>
+        {/* Borda vermelha para destacar (pedido em 30/10/2026). */}
+        <button type="button" className="btn" style={{ border: "2px solid var(--bad)" }} onClick={() => setAberto(true)}>
           Retificar um comunicado
         </button>
         <span className="hint">Alteração (-A{mann ? "H, -AM…" : ", -A2…"}) ou cancelamento (-{mann ? "AC" : "C"}) de um comunicado já emitido.</span>
