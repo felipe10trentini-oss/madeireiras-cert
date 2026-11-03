@@ -29,12 +29,39 @@ function paragrafos(xml: string): string[] {
     desescapar(
       p[0]
         .replace(/<w:tab\/>/g, "\t")
+        .replace(/<w:br\s*\/>/g, "\n")
         .replace(/<w:sym [^>]*w:char="F02A"[^>]*\/>/g, "\u0001") // envelope (Wingdings)
         .replace(/<w:sym [^>]*w:char="F028"[^>]*\/>/g, "\u0002") // telefone (Wingdings)
         .replace(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g, "$1")
         .replace(/<[^>]+>/g, "")
     )
   );
+}
+
+const ROTULO_TIMBRE = /(?=\bCEP\b|\bCNPJ\b|\bReg\.?\s*CREA\b|(?<!Reg\.?\s*)\bCREA\b|\bTelefone\b|\bE-?mail\b|[\u0001\u0002])/i;
+
+/**
+ * Timbre com vários dados na mesma coluna ("CEP: … CNPJ: … Reg. CREA: …") passa por baixo do selo do MAPA:
+ * separa os dados e refaz as linhas, dois por linha, com CNPJ + CREA e e-mail + telefone juntos.
+ */
+function arrumarTimbre(linhas: [string, string][]): [string, string][] {
+  const celulas = linhas.flat().filter(Boolean);
+  if (!celulas.some((c) => (c.match(/\b(?:CEP|CNPJ|CREA|Telefone|E-?mail)\b|[\u0001\u0002]/gi) ?? []).length > 1)) return linhas;
+  const out: [string, string][] = [];
+  let aberta: string | null = null;
+  for (const item of celulas.flatMap((c) => c.split(ROTULO_TIMBRE)).map((x) => x.trim()).filter(Boolean)) {
+    if (aberta != null && /^(CNPJ\b|[\u0001]|E-?mail\b)/i.test(item) && !/^[\u0002]|^Telefone\b/i.test(aberta)) {
+      out.push([aberta, ""]);
+      aberta = null;
+    }
+    if (aberta == null) aberta = item;
+    else {
+      out.push([aberta, item]);
+      aberta = null;
+    }
+  }
+  if (aberta != null) out.push([aberta, ""]);
+  return out;
 }
 
 /** Tira do Word modelo da LG: imagens (logo, marca-d'água, assinatura) e os textos do timbre e do RT. */
@@ -55,17 +82,19 @@ export async function ativosDoModelo(modelo: Uint8Array | ArrayBuffer): Promise<
     if (logoId && !out.logo) out.logo = await bin(`word/${alvo(logoId)}`);
     if (marcaId && !out.marca) out.marca = await bin(`word/${alvo(marcaId)}`);
     for (const cx of xml.match(/<w:txbxContent>[\s\S]*?<\/w:txbxContent>/g) ?? []) {
-      const ps = paragrafos(cx).map((t) => t.trim()).filter(Boolean);
+      const ps = paragrafos(cx).flatMap((t) => t.split("\n")).map((t) => t.trim()).filter(Boolean);
       if (ps.some((t) => /REGISTRO\s*MAPA/i.test(t))) out.registro ||= ps.find((t) => /REGISTRO\s*MAPA/i.test(t))!;
       else if (ps.length >= 3 && !out.nome) {
         // O nome às vezes vem na mesma linha do endereço, separado por espaços ("Madeico …     Rua …").
         const [nome, ...resto] = ps[0].split(/\t+|\s{3,}/);
         out.nome = nome.trim();
         const linhas = [...(resto.length ? [resto.join("   ")] : []), ...ps.slice(1)];
-        out.linhas = linhas.map((t) => {
-          const [a, ...b] = t.split(/\t+|\s{3,}/);
-          return [a.trim(), b.join(" ").trim()];
-        });
+        out.linhas = arrumarTimbre(
+          linhas.map((t) => {
+            const [a, ...b] = t.split(/\t+|\s{3,}/);
+            return [a.trim(), b.join(" ").trim()];
+          })
+        );
       }
     }
   }
@@ -94,7 +123,7 @@ export async function ativosDoModelo(modelo: Uint8Array | ArrayBuffer): Promise<
     out.recorte = { l: fr("l"), t: fr("t"), r: fr("r"), b: fr("b") };
   }
   for (const cx of doc.match(/<w:txbxContent>[\s\S]*?<\/w:txbxContent>/g) ?? []) {
-    const ps = paragrafos(cx).map((t) => t.trim()).filter((t) => t && !/^_+$/.test(t));
+    const ps = paragrafos(cx).flatMap((t) => t.split("\n")).map((t) => t.trim()).filter((t) => t && !/^_+$/.test(t));
     if (ps.some((t) => /CREA|Respons[áa]vel/i.test(t))) out.rt = ps;
   }
   return out;
@@ -451,7 +480,6 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
   const tamNome = Math.min(13.5, (13.5 * espTxt) / Math.max(1, largura(b, a.nome, 13.5)));
   texto(pg, a.nome, xTxt, 36, b, tamNome, VERDE);
   // Duas colunas no espaço que sobra; letra menor se a linha não couber.
-  const col2 = xTxt + espTxt * 0.55;
   const tamLinha = Math.min(
     8.4,
     ...a.linhas.flatMap(([e, dir]) => [
@@ -459,6 +487,9 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
       dir ? (8.4 * espTxt * 0.45) / Math.max(1, largura(r, dir.replace(/[\u0001\u0002]\s*:?\s*/g, "") + "   ", 8.4)) : 8.4,
     ])
   );
+  // A 2ª coluna anda para a direita quando a 1ª (e-mail longo + ícone) não cabe antes dela.
+  const fimEsq = Math.max(0, ...a.linhas.filter(([, dir]) => dir).map(([e]) => largura(r, e.replace(/[\u0001\u0002]\s*:?\s*/g, ""), Math.max(6.5, tamLinha)) + (/[\u0001\u0002]/.test(e) ? 11 : 0)));
+  const col2 = xTxt + Math.max(espTxt * 0.55, fimEsq + 8);
   a.linhas.slice(0, 4).forEach(([e, dir], i) => {
     const y = 55 + i * 11;
     const escreve = (t: string, x: number) => {
