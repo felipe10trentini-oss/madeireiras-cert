@@ -657,7 +657,7 @@ export async function preencherModelo(
         if (r.campo === "fixo") continue;
         let novo = v.campos[r.campo];
         // "Ref. à NF-e 123" do modelo só troca o número; observação escrita à mão vale como está.
-        if (r.campo === "observacao" && v.nfe && /\d{3,}/.test(antigo) && (!novo?.trim() || /NF\D*\d/i.test(novo)))
+        if (r.campo === "observacao" && v.nfe && /\d{3,}/.test(antigo) && novo?.trim() && /NF\D*\d/i.test(novo))
           novo = antigo.replace(/\d[\d.]*(?=\D*$)/, v.nfe);
         if (r.campo === "duracao" && novo && /\d/.test(antigo))
           novo = antigo.replace(/\d+/g, novo.match(/\d+/)![0]);
@@ -665,7 +665,8 @@ export async function preencherModelo(
         if (r.campo === "master" && v.linhas.some((l) => l.ciclo || l.certificado))
           novo = mestreComoModelo(antigo, v.linhas);
         // Modelo padrão: campo da remessa apagado na edição sai da declaração, com o rótulo.
-        if (op.removerVazios && REMOVIVEIS.has(r.campo) && !(novo ?? "").trim()) {
+        // Observação em branco sai em todas (a LG também).
+        if ((r.campo === "observacao" || (op.removerVazios && REMOVIVEIS.has(r.campo))) && !(novo ?? "").trim()) {
           xml = trocarTrecho(xml, r.ini, fimValor, "");
           removeu = true;
           if (k === achados.length - 1 && MULTILINHA.has(r.campo)) continuar = { campo: r.campo, resto: [], ultimo: i, remover: true };

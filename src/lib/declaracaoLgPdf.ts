@@ -672,7 +672,7 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
   }
 
   // ---------- observação, local/data, assinatura ----------
-  if (d.observacao.trim() || !o.geral) linhaCampo("OBSERVAÇÃO", "Remark", d.observacao.replace(/^Ref\.?\s*[àa]\s*NF-?e/i, "REF. A NFE"));
+  if (d.observacao.trim()) linhaCampo("OBSERVAÇÃO", "Remark", d.observacao.replace(/^Ref\.?\s*[àa]\s*NF-?e/i, "REF. A NFE"));
   const data = d.data.match(/\d{2}\/\d{2}\/\d{4}/)?.[0] ?? d.data;
   linhaCampo("LOCAL E DATA", "Place and date", `${(d.localEmissao || "").replace(/\s*-\s*/, " – ")}${d.localEmissao ? " – BRAZIL, " : ""}${data}`);
 
