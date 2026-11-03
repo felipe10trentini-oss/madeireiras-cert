@@ -77,6 +77,11 @@ export function lerModalidade(s: string | null | undefined): ModalidadeCadastro 
   return /credenc/i.test(s ?? "") ? "Credenciada" : "Cadastrada";
 }
 
+/** Autorizada ao uso de marca: o SEI não emite certificado para ela, só declarações. */
+export function soDeclaracoes(e: { modalidade: ModalidadeCadastro }): boolean {
+  return e.modalidade === AUTORIZADA_MARCA;
+}
+
 /** Cor da etiqueta da modalidade nas listas. */
 export function classeModalidade(m: ModalidadeCadastro): string {
   return m === "Credenciada" ? "pago" : m === AUTORIZADA_MARCA ? "marca" : "pendente";

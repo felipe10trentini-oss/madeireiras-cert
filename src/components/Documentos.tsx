@@ -14,6 +14,7 @@ import {
   type Material,
   type TipoDocumento,
 } from "@/lib/documentos";
+import { soDeclaracoes } from "@/lib/madeireiras";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { soDigitos, ufDoMapa } from "@/lib/util";
@@ -118,6 +119,7 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
       if (tipo === "consolidado" && l.tipo !== "dr") return setErro("Para o consolidado, envie o PDF da DR (Demonstrativo de Rastreabilidade).");
       const doc = l.tipo === "mestre" ? l.mestre.cnpj : l.dr.cnpj;
       const achada = empresas?.find((x) => soDigitos(x.cnpj) === soDigitos(doc ?? ""));
+      if (achada && soDeclaracoes(achada)) return setErro(`${achada.apelido} é autorizada ao uso de marca: o SEI não emite certificado para ela, só declarações (aba Declarações).`);
       setCnpj(achada?.cnpj ?? "");
       setMaterial(l.tipo === "mestre" ? materialDoMestre(l.mestre) : materialDaDR(l.dr, achada));
       setAjustes({});
@@ -251,7 +253,7 @@ export function Documentos({ senha, sair }: { senha: string; sair: () => void })
                 </div>
                 <select value={cnpj} onChange={(e) => setCnpj(e.target.value)} aria-label="Empresa">
                   <option value="">— escolha —</option>
-                  {empresas?.filter((e) => !e.config?.inativa || e.cnpj === cnpj).map((e) => (
+                  {empresas?.filter((e) => !soDeclaracoes(e) && (!e.config?.inativa || e.cnpj === cnpj)).map((e) => (
                     <option key={e.cnpj} value={e.cnpj}>
                       {e.apelido} · {ufDoMapa(e.regMapa, e.uf) ?? "?"} · {e.regMapa}
                     </option>

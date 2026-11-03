@@ -19,6 +19,7 @@ import { pendentesDaPlanilhaCj, type LinhaControleCj } from "@/lib/planilhaCj";
 import { registrarClientes, temAbaClientes, type LinhaCliente } from "@/lib/clientesComunicado";
 import { baixarFontes } from "@/lib/declaracaoLgPdf";
 import { excelParaPdf } from "@/lib/excelPdf";
+import { soDeclaracoes } from "@/lib/madeireiras";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import { atualizarExcelDaPasta, escolherPasta, maiorNumero, pastaLembrada, pastaSuportada, permissao, salvarNaPasta, ultimoDaPasta, type Pasta, type UltimoDaPasta } from "@/lib/pastaComunicados";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
@@ -156,7 +157,7 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
   const lista = useMemo(
     () =>
       (empresas ?? [])
-        .filter((e) => (e.documento === "comunicado" || MISTAS.has(e.apelido)) && !e.config?.inativa && !SEM_COMUNICADO.has(e.apelido))
+        .filter((e) => (e.documento === "comunicado" || MISTAS.has(e.apelido)) && !e.config?.inativa && !SEM_COMUNICADO.has(e.apelido) && !soDeclaracoes(e))
         .sort((a, b) => a.apelido.localeCompare(b.apelido, "pt-BR")),
     [empresas]
   );

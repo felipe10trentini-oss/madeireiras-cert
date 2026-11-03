@@ -4,6 +4,7 @@
 // formulário da empresa (as mesmas colunas da planilha de cadastro) e dos RTs (acessos do SEI).
 import { useState, type FormEvent } from "react";
 import { COLUNAS_CADASTRO, empresaDaLinha, type ColunaCadastro } from "@/lib/cadastroColunas";
+import { lerModalidade, soDeclaracoes } from "@/lib/madeireiras";
 import { rtCompleto } from "@/lib/responsaveis";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { soDigitos } from "@/lib/util";
@@ -17,19 +18,23 @@ function linhaVazia(): Record<string, string> {
   );
 }
 
-function Campo({ c, valor, onChange, rts }: { c: ColunaCadastro; valor: string; onChange: (v: string) => void; rts: string[] }) {
+/** Autorizada ao uso de marca não tem certificado nem comunicado: o campo Documento fica opcional. */
+const campoObrigatorio = (c: ColunaCadastro, linha: Record<string, string>) =>
+  !!c.obrigatoria && !(c.titulo === "Documento" && soDeclaracoes({ modalidade: lerModalidade(linha.Modalidade) }));
+
+function Campo({ c, obrigatoria, valor, onChange, rts }: { c: ColunaCadastro; obrigatoria: boolean; valor: string; onChange: (v: string) => void; rts: string[] }) {
   const id = `cad-${COLUNAS_CADASTRO.indexOf(c)}`;
   const largo = c.largura >= 30;
   return (
     <div className={`field${largo ? " full" : ""}`}>
       <label htmlFor={id} title={c.ajuda}>
         {c.titulo}
-        {c.obrigatoria ? " *" : ""}
+        {obrigatoria ? " *" : ""}
       </label>
       {c.tipo === "lista" ? (
         <select id={id} value={valor} onChange={(e) => onChange(e.target.value)}>
-          {!c.obrigatoria && !c.opcoes?.includes(valor) && <option value="">—</option>}
-          {c.obrigatoria && !valor && <option value="">— escolha —</option>}
+          {!obrigatoria && !c.opcoes?.includes(valor) && <option value="">—</option>}
+          {obrigatoria && !valor && <option value="">— escolha —</option>}
           {c.opcoes?.map((o) => (
             <option key={o}>{o}</option>
           ))}
@@ -79,7 +84,7 @@ export function FormEmpresa({
   async function salvar(e: FormEvent) {
     e.preventDefault();
     setErro(null);
-    const faltam = COLUNAS_CADASTRO.filter((c) => c.obrigatoria && !linha[c.titulo]?.trim()).map((c) => c.titulo);
+    const faltam = COLUNAS_CADASTRO.filter((c) => campoObrigatorio(c, linha) && !linha[c.titulo]?.trim()).map((c) => c.titulo);
     if (faltam.length) return setErro(`Preencha: ${faltam.join(", ")}.`);
     if (soDigitos(linha.CNPJ).length !== 14) return setErro("CNPJ inválido (precisa ter 14 dígitos).");
     const cnpjOriginal = soDigitos(inicial?.CNPJ ?? "");
@@ -119,7 +124,7 @@ export function FormEmpresa({
           <legend>{g}</legend>
           <div className="form-grid tres">
             {COLUNAS_CADASTRO.filter((c) => c.grupo === g).map((c) => (
-              <Campo key={c.titulo} c={c} rts={rts} valor={linha[c.titulo] ?? ""} onChange={(v) => setLinha((l) => ({ ...l, [c.titulo]: v }))} />
+              <Campo key={c.titulo} c={c} obrigatoria={campoObrigatorio(c, linha)} rts={rts} valor={linha[c.titulo] ?? ""} onChange={(v) => setLinha((l) => ({ ...l, [c.titulo]: v }))} />
             ))}
           </div>
         </fieldset>

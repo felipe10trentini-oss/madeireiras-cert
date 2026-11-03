@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { montarCertificado, regraDe, sugerirTipo, type TipoTratamento } from "@/lib/certificado";
 import type { Comunicado } from "@/lib/comunicado";
 import { curvaVazia, type Curva } from "@/lib/curvas/tipos";
-import { classeModalidade, identificarEmpresa, lerNomeArquivo } from "@/lib/madeireiras";
+import { classeModalidade, identificarEmpresa, lerNomeArquivo, soDeclaracoes } from "@/lib/madeireiras";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import { avisosDuplicidade, validarComunicado, type EmissaoAnteriorResumo } from "@/lib/divergencias";
 import { camposDoModelo, montarHtml, type Campo } from "@/lib/modelos";
@@ -162,11 +162,13 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
       if (!res.ok) return setErro(data.error ?? "Erro ao processar os arquivos.");
       const ex = data as Extraido;
       const c = ex.curva;
-      const ident = identificarEmpresa(empresas ?? [], {
-        cnpj: c?.cnpj,
-        regMapa: c?.regMapa,
-        nomeArquivo: lerNomeArquivo(ex.nomeArquivo).nome,
-      });
+      const dadosCurva = { cnpj: c?.cnpj, regMapa: c?.regMapa, nomeArquivo: lerNomeArquivo(ex.nomeArquivo).nome };
+      let ident = identificarEmpresa(empresas ?? [], dadosCurva);
+      if (ident && soDeclaracoes(ident.empresa)) {
+        // CNPJ ou registro batem: é mesmo a autorizada. Pelo nome do arquivo pode ser só parecido: tenta nas demais.
+        if (ident.por !== "nome do arquivo") return setErro(`${ident.empresa.apelido} é autorizada ao uso de marca: o SEI não emite certificado para ela, só declarações (aba Declarações).`);
+        ident = identificarEmpresa((empresas ?? []).filter((e) => !soDeclaracoes(e)), dadosCurva);
+      }
       setExtraido(ex);
       setCnpjEscolhido(ident?.empresa.cnpj ?? "");
       if (ident && (c || ex.semTexto)) {
@@ -439,7 +441,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
               </div>
               <select value={cnpjEscolhido} onChange={(e) => trocarEmpresa(e.target.value)} aria-label="Empresa">
                 <option value="">— escolha —</option>
-                {empresas?.filter((e) => !e.config?.inativa || e.cnpj === cnpjEscolhido).map((e) => (
+                {empresas?.filter((e) => !soDeclaracoes(e) && (!e.config?.inativa || e.cnpj === cnpjEscolhido)).map((e) => (
                   <option key={e.cnpj} value={e.cnpj}>
                     {e.apelido} · {ufDoMapa(e.regMapa, e.uf) ?? "?"} · {e.regMapa}
                   </option>
