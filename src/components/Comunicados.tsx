@@ -21,6 +21,7 @@ import { baixarFontes } from "@/lib/declaracaoLgPdf";
 import { excelParaPdf } from "@/lib/excelPdf";
 import { soDeclaracoes } from "@/lib/madeireiras";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
+import type { Tomador } from "@/lib/relatorio";
 import { atualizarExcelDaPasta, escolherPasta, maiorNumero, pastaLembrada, pastaSuportada, permissao, salvarNaPasta, ultimoDaPasta, type Pasta, type UltimoDaPasta } from "@/lib/pastaComunicados";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { textoDaPlanilha, textoDoWord } from "@/lib/textoDeArquivo";
@@ -167,7 +168,7 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
   const ultimoEmitido = maiorNumero(maiorNumero(salvo?.ultimoNumero, modelo?.campos.numero?.valor), numeroDaPasta);
   const numeroEhAviso = !!modelo?.campos.aviso && modelo.campos.aviso.valor === modelo.campos.numero?.valor;
   // Os terceiros cadastrados e a própria empresa (a Madepallete/TLP também tratam o material delas).
-  const tomadores = useMemo(() => {
+  const tomadores = useMemo((): Tomador[] => {
     if (!empresa) return [];
     const terceiros = Object.values(empresa.relatorio?.tomadores ?? {});
     const propria = { razao: empresa.razaoSocial, cnpj: empresa.cnpj, endereco: empresa.endereco ?? "", telefone: empresa.telefone ?? "", email: empresa.email ?? "" };
@@ -386,8 +387,9 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
 
   function trocarTomador(razaoCnpj: string) {
     const t = tomadores.find((x) => `${x.razao} - CNPJ ${x.cnpj}` === razaoCnpj);
+    const local = t?.localTratamento || (empresa && regraDe(empresa).prestadora ? t?.endereco : "");
     setValores((v) => {
-      const novo = { ...v, tomador: razaoCnpj, ...(t && empresa && regraDe(empresa).prestadora && t.endereco ? { local: t.endereco } : {}) };
+      const novo = { ...v, tomador: razaoCnpj, ...(local ? { local } : {}) };
       return modelo ? completarTabela(modelo, novo) : novo;
     });
   }

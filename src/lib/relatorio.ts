@@ -30,6 +30,8 @@ export interface Tomador {
   endereco: string;
   telefone: string;
   email: string;
+  /** Onde o material é tratado, quando não é a sede (endereco): vai no comunicado e na declaração. */
+  localTratamento?: string;
 }
 
 type Coluna = { key: string; titulo: string };

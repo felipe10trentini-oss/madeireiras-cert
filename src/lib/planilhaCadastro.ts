@@ -201,7 +201,7 @@ export function montarPlanilhaRts(rts: RtAcesso[]): ExcelJS.Workbook {
  * Backup dos clientes (tomadores) da Mann móvel: aba DADOS com as colunas que o upload reconhece
  * (lerPlanilhaClientes). O endereço vai em "Endereço escritório", o que o certificado usa.
  */
-export function montarPlanilhaClientes(clientes: { razao: string; cnpj: string; endereco: string; telefone: string; email: string }[]): ExcelJS.Workbook {
+export function montarPlanilhaClientes(clientes: { razao: string; cnpj: string; endereco: string; telefone: string; email: string; localTratamento?: string }[]): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook();
   wb.creator = "Certificados Madeireiras";
   const ws = wb.addWorksheet("DADOS", { views: [{ state: "frozen", ySplit: 1 }] });
@@ -211,6 +211,7 @@ export function montarPlanilhaClientes(clientes: { razao: string; cnpj: string; 
     { header: "Endereço escritório", key: "endereco", width: 60 },
     { header: "Telefone", key: "telefone", width: 24 },
     { header: "E-mail", key: "email", width: 34 },
+    { header: "Local de tratamento", key: "localTratamento", width: 60 },
   ];
   ws.getRow(1).font = { bold: true };
   for (const c of [...clientes].sort((a, b) => a.razao.localeCompare(b.razao, "pt-BR"))) ws.addRow(c);

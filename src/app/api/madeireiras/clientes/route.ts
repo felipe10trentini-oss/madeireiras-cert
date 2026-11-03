@@ -40,6 +40,7 @@ export async function POST(req: Request) {
       endereco: txt(c.endereco, 300),
       telefone: txt(c.telefone, 80),
       email: txt(c.email, 200),
+      ...(typeof c.localTratamento === "string" && { localTratamento: txt(c.localTratamento, 300) }),
     });
   }
   if (!clientes.length) {

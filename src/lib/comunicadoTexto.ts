@@ -359,11 +359,13 @@ export function interpretarTexto(texto: string, op: OpcoesPedido): Interpretado 
   const { tom, cnpj, nome } = acharTomador(t, op);
   if (cnpj && cnpj === cnpjModelo) {
     marcar("tomador", m.tomador);
-    if (m.local) marcar("local", m.local);
+    const local = tom?.localTratamento || m.local;
+    if (local) marcar("local", local);
   } else if (tom) {
     marcar("tomador", tomadorNoEstilo(tom.razao, tom.cnpj, m.tomador));
-    // Prestadora (trata no cliente): o local é o do cliente.
-    if (op.prestadora && tom.endereco) marcar("local", snMinusculo(tom.endereco));
+    // Local de tratamento cadastrado; sem ele, na prestadora (trata no cliente), o endereço do cliente.
+    const local = tom.localTratamento || (op.prestadora ? tom.endereco : "");
+    if (local) marcar("local", snMinusculo(local));
   } else if (cnpj) {
     marcar("tomador", tomadorNoEstilo(nome || "?", cnpj, m.tomador));
     avisos.push("O tomador do CNPJ do texto não está no Cadastro de terceiros: confira o nome e cadastre-o para os próximos.");

@@ -10,7 +10,7 @@ import type { Tomador } from "@/lib/relatorio";
 import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { soDigitos } from "@/lib/util";
 
-const VAZIO: Tomador = { razao: "", cnpj: "", endereco: "", telefone: "", email: "" };
+const VAZIO: Tomador = { razao: "", cnpj: "", endereco: "", telefone: "", email: "", localTratamento: "" };
 
 /** "62468466000173" -> "62.468.466/0001-73" (o que vier com 14 dígitos). */
 function formatarCnpj(s: string): string {
@@ -43,7 +43,7 @@ export function CadastroTerceiros({
   // Busca na lista (a Mann móvel tem mais de 100 clientes).
   const [busca, setBusca] = useState("");
   const b = busca.trim().toLowerCase();
-  const visiveis = b ? salvos.filter((t) => `${t.razao} ${t.cnpj} ${soDigitos(t.cnpj)} ${t.endereco}`.toLowerCase().includes(b)) : salvos;
+  const visiveis = b ? salvos.filter((t) => `${t.razao} ${t.cnpj} ${soDigitos(t.cnpj)} ${t.endereco} ${t.localTratamento ?? ""}`.toLowerCase().includes(b)) : salvos;
 
   function abrir(cnpj: string) {
     setEditando(cnpj);
@@ -103,7 +103,7 @@ export function CadastroTerceiros({
   const campo = (k: keyof Tomador, rotulo: string, extra: { full?: boolean; type?: string; dica?: string } = {}) => (
     <div className={`field${extra.full ? " full" : ""}`}>
       <label htmlFor={`ter-${k}`}>{rotulo}</label>
-      <input id={`ter-${k}`} type={extra.type ?? "text"} value={c[k]} placeholder={extra.dica} onChange={(e) => setC({ ...c, [k]: e.target.value })} />
+      <input id={`ter-${k}`} type={extra.type ?? "text"} value={c[k] ?? ""} placeholder={extra.dica} onChange={(e) => setC({ ...c, [k]: e.target.value })} />
     </div>
   );
 
@@ -154,6 +154,7 @@ export function CadastroTerceiros({
               {campo("cnpj", "CNPJ *", { dica: "00.000.000/0000-00" })}
               {campo("telefone", "Telefone")}
               {campo("endereco", "Endereço da sede (com CEP)", { full: true, dica: "Rua, nº, bairro, CEP, cidade - UF (do cartão CNPJ)" })}
+              {campo("localTratamento", "Local de tratamento (se não for a sede)", { full: true, dica: "Vai no comunicado e na declaração; em branco, vale o de sempre" })}
               {campo("email", "E-mail", { type: "email" })}
             </div>
             {erro && (
@@ -201,7 +202,10 @@ export function CadastroTerceiros({
                     <tr key={t.cnpj} style={{ background: editando === soDigitos(t.cnpj) ? "var(--surface-2)" : undefined }}>
                       <td>{t.razao}</td>
                       <td className="mono">{t.cnpj}</td>
-                      <td>{t.endereco || <span className="hint">—</span>}</td>
+                      <td>
+                        {t.endereco || <span className="hint">—</span>}
+                        {t.localTratamento && <div className="hint">Tratamento: {t.localTratamento}</div>}
+                      </td>
                       <td>{[t.telefone, t.email].filter(Boolean).join(" · ") || <span className="hint">—</span>}</td>
                       <td style={{ whiteSpace: "nowrap" }}>
                         <button type="button" className="btn btn-sm" onClick={() => abrir(soDigitos(t.cnpj))}>

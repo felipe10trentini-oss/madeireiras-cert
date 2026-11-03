@@ -222,7 +222,7 @@ export interface ResumoTomadores {
   aplicado: boolean;
 }
 
-const CAMPOS_TOMADOR: (keyof Tomador)[] = ["razao", "cnpj", "endereco", "telefone", "email"];
+const CAMPOS_TOMADOR: (keyof Tomador)[] = ["razao", "cnpj", "endereco", "telefone", "email", "localTratamento"];
 
 /**
  * Cadastra/atualiza (pelo CNPJ) os clientes tomadores de uma credenciada (prestadoras como a Mann móvel
@@ -250,8 +250,10 @@ export async function sincronizarTomadores(
   const norm = (s: string | undefined) => (s ?? "").trim();
 
   for (const bruto of clientes) {
-    const c = { ...bruto, endereco: snMinusculo(bruto.endereco) };
-    const chave = soDigitos(c.cnpj);
+    const chave = soDigitos(bruto.cnpj);
+    // Planilha sem a coluna do local (undefined): fica o já cadastrado; em branco no formulário apaga.
+    const local = bruto.localTratamento ?? antigos[chave]?.localTratamento;
+    const c: Tomador = { ...bruto, endereco: snMinusculo(bruto.endereco), ...(local != null && { localTratamento: snMinusculo(local) }) };
     // A própria prestadora aparece na planilha como cliente: não é tomador dela mesma.
     if (chave === soDigitos(prestadora.cnpj)) {
       resumo.ignoradas++;

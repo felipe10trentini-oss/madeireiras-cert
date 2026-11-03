@@ -399,13 +399,13 @@ export function montarDeclaracaoPadrao(
   // Local do tratamento: o do mestre; só com o relatório (que traz só a cidade), o da empresa — ou, na
   // prestadora (Mann móvel), o do cliente cadastrado em Cadastro de terceiros.
   const prestadora = !!empresa && !!regraDe(empresa).prestadora;
-  const tomadores = (empresa as { relatorio?: { tomadores?: Record<string, { endereco?: string }> } } | null)?.relatorio?.tomadores ?? {};
+  const tomadores = (empresa as { relatorio?: { tomadores?: Record<string, { endereco?: string; localTratamento?: string }> } } | null)?.relatorio?.tomadores ?? {};
   const locais = [
     ...usados.map((m) => m.mestre.enderecoTrat),
-    ...doRelatorio.map((l) => (prestadora ? tomadores[l.tomadorCnpj]?.endereco || l.local : empresa?.endereco || l.local)),
+    ...doRelatorio.map((l) => tomadores[l.tomadorCnpj]?.localTratamento || (prestadora ? tomadores[l.tomadorCnpj]?.endereco || l.local : empresa?.endereco || l.local)),
     ...(dosDr.length ? [empresa?.endereco] : []),
   ].filter((x): x is string => !!x);
-  if (doRelatorio.length && prestadora && doRelatorio.some((l) => !tomadores[l.tomadorCnpj]?.endereco)) {
+  if (doRelatorio.length && prestadora && doRelatorio.some((l) => !tomadores[l.tomadorCnpj]?.localTratamento && !tomadores[l.tomadorCnpj]?.endereco)) {
     avisos.push("Local do tratamento: o relatório só traz a cidade e o cliente não está no Cadastro de terceiros — confira o endereço.");
   }
 

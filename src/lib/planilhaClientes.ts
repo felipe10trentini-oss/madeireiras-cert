@@ -24,7 +24,7 @@ function texto(valor: ExcelJS.CellValue): string | null {
   return t === "" ? null : t;
 }
 
-type CampoCliente = "apelido" | "nome" | "cnpj" | "endereco" | "email" | "telefone" | "enderecoEscritorio";
+type CampoCliente = "apelido" | "nome" | "cnpj" | "endereco" | "email" | "telefone" | "enderecoEscritorio" | "localTratamento";
 
 const COLUNAS: Record<string, CampoCliente> = {
   cliente: "apelido",
@@ -35,6 +35,7 @@ const COLUNAS: Record<string, CampoCliente> = {
   email: "email",
   telefone: "telefone",
   "endereco escritorio": "enderecoEscritorio",
+  "local de tratamento": "localTratamento",
 };
 
 /** Lê a aba DADOS (ou a primeira) achando as colunas pelo cabeçalho. */
@@ -89,6 +90,8 @@ export async function lerPlanilhaClientes(buffer: ArrayBuffer | Buffer): Promise
       local: antes?.local || d.endereco || "",
       telefone: antes?.telefone || telefone,
       email: antes?.email || d.email || "",
+      // Só com a coluna "Local de tratamento" na planilha (sem ela, fica o já cadastrado).
+      ...([...colunas.values()].includes("localTratamento") && { localTratamento: antes?.localTratamento || d.localTratamento || "" }),
     });
   }
   const clientes: Tomador[] = [...porCnpj.values()].map(({ escritorio, local, ...t }) => ({ ...t, endereco: escritorio || local }));
