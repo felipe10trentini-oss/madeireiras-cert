@@ -5,6 +5,7 @@ import { CadastroTerceiros } from "@/components/CadastroTerceiros";
 import { CompradoresFrequentes } from "@/components/CompradoresFrequentes";
 import { FormEmpresa, FormRt, ListaRts, type Rt } from "@/components/CadastroMadeireiras";
 import { ClientesPrestadora } from "@/components/ClientesPrestadora";
+import { EmbedCadastros } from "@/components/EmbedCadastros";
 import { FileDrop } from "@/components/FileDrop";
 import { PortaoSenha } from "@/components/PortaoSenha";
 import { regraDe } from "@/lib/certificado";
@@ -366,7 +367,7 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
         <button type="button" className="btn primary lg" disabled={!arquivo || trabalhando} onClick={() => enviar("previa")}>
           {trabalhando && !resumo ? "Lendo a planilha…" : "Ver o que vai mudar"}
         </button>
-        <button type="button" className="btn" onClick={sair}>
+        <button type="button" className="btn fora-embed" onClick={sair}>
           Sair
         </button>
       </div>
@@ -599,8 +600,10 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
 
 export default function PaginaMadeireiras() {
   return (
-    <PortaoSenha titulo="Cadastros" pagina="madeireiras">
-      {(senha, sair) => <Madeireiras senha={senha} sair={sair} />}
-    </PortaoSenha>
+    <EmbedCadastros>
+      <PortaoSenha titulo="Cadastros" pagina="madeireiras">
+        {(senha, sair) => <Madeireiras senha={senha} sair={sair} />}
+      </PortaoSenha>
+    </EmbedCadastros>
   );
 }

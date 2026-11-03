@@ -33,6 +33,15 @@ const nextConfig: NextConfig = {
     // Documentos da remessa da declaração em imagem (foto/print da nota, do BL…).
     "/api/declaracoes/nf": OCR,
   },
+  // A aba Cadastros abre dentro do Controle de Curvas (ver EmbedCadastros); nenhum outro site pode.
+  async headers() {
+    return [
+      {
+        source: "/madeireiras",
+        headers: [{ key: "Content-Security-Policy", value: "frame-ancestors 'self' https://controle-curvas.vercel.app" }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

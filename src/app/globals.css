@@ -181,6 +181,8 @@ select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent-2); 
 .badge.pago { background: var(--good-bg); color: var(--good); }
 .badge.pendente { background: var(--warn-bg); color: var(--warn); }
 .badge.erro { background: var(--bad-bg); color: var(--bad); }
+/* Cadastros aberta dentro do Controle de Curvas: só o conteúdo */
+html.embed .topbar, html.embed footer.note, html.embed .fora-embed { display: none; }
 .badge.marca { background: var(--surface-2); color: var(--text); }
 
 /* ---------- Como colar ---------- */
