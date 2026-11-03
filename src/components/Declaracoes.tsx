@@ -178,10 +178,6 @@ function Editor({ d, onChange }: { d: DadosDeclaracao; onChange: (d: DadosDeclar
             <label htmlFor="d-data">Data</label>
             <input id="d-data" value={d.data} onChange={(e) => set("data", e.target.value)} placeholder="dd/mm/aaaa" />
           </div>
-          <div className="field">
-            <label htmlFor="d-obs">Observações / Remarks</label>
-            <input id="d-obs" value={d.observacao} onChange={(e) => set("observacao", e.target.value)} />
-          </div>
         </div>
       </div>
     </>
@@ -476,9 +472,12 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     const cs = ciclos ?? x.mann.ciclos;
     const es = escolhas ?? x.mann.escolhas;
     const nf = nfe ?? x.mann.nfe;
+    const m = montarDeclaracaoPadrao(x.mann.nf, x.mann.bls, mestres, empresa, x.dados?.data ?? hojeBR(), { relatorio: rel, ciclos: cs, escolhas: es, nfe: nf, dr: drRef.current, campos: camposModelo });
     return {
       ...x,
-      ...montarDeclaracaoPadrao(x.mann.nf, x.mann.bls, mestres, empresa, x.dados?.data ?? hojeBR(), { relatorio: rel, ciclos: cs, escolhas: es, nfe: nf, dr: drRef.current, campos: camposModelo }),
+      ...m,
+      // A observação digitada continua ao refazer.
+      dados: x.dados?.observacao.trim() ? { ...m.dados, observacao: x.dados.observacao } : m.dados,
       mann: { ...x.mann, ciclos: cs, escolhas: es, nfe: nf },
     };
   }
@@ -1123,6 +1122,20 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
                   }}
                 />
               )}
+              <div className="card" style={{ marginBottom: 14 }}>
+                <div className="field">
+                  <label htmlFor="d-obs">Observação / Remark (sai na declaração)</label>
+                  <textarea
+                    id="d-obs"
+                    rows={2}
+                    value={atual.dados.observacao}
+                    onChange={(e) => {
+                      const observacao = e.target.value;
+                      setItens((xs) => xs.map((x, j) => (j === sel && x.dados ? { ...x, dados: { ...x.dados, observacao } } : x)));
+                    }}
+                  />
+                </div>
+              </div>
               <div className="toolbar">
                 <button type="button" className="btn" disabled={faltaCampo} onClick={() => setEditando((v) => !v)}>
                   {editorAberto ? (faltaCampo ? "Preencha a quantidade (em vermelho)" : "Fechar edição") : "Editar campos da declaração"}

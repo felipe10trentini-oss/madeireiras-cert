@@ -327,7 +327,7 @@ export async function gerarPdfLg(d: DadosDeclaracao, a: AtivosModelo, fontes?: F
   y = fimTab + 14;
 
   // ---------- observação, local e data, assinatura ----------
-  texto(pg, `OBSERVAÇÃO/REMARK: ${d.observacao.toUpperCase().replace(/^REF\.?\s*[ÀA]\s*NF-?E/, "REF. A NFE")}`, X + 2, y, f.b, TAM);
+  texto(pg, `OBSERVAÇÃO/REMARK: ${d.observacao.toUpperCase().replace(/^REF\.?\s*[ÀA]\s*NF-?E/, "REF. A NFE").replace(/\s*\n\s*/g, " ")}`, X + 2, y, f.b, TAM);
   y += 46;
   const data = d.data.match(/\d{2}\/\d{2}\/\d{4}/)?.[0] ?? d.data;
   texto(pg, `LOCAL/PLACE: ${(d.localEmissao || "Concórdia - SC").toUpperCase().replace(/\s*-\s*/, " – ")} - BRAZIL ${data}`, X, y, f.b, TAM);

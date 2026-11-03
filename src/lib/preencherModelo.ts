@@ -376,7 +376,7 @@ export function valoresDoModelo(d: DadosDeclaracao): ValoresModelo {
     },
     linhas: d.linhas,
     data: d.data,
-    nfe: d.observacao.match(/(\d[\d.]*)\s*$/)?.[1] ?? d.nfe,
+    nfe: d.observacao.match(/NF\D*(\d[\d.]*)\s*$/i)?.[1] ?? d.nfe,
   };
 }
 
@@ -656,7 +656,8 @@ export async function preencherModelo(
         }
         if (r.campo === "fixo") continue;
         let novo = v.campos[r.campo];
-        if (r.campo === "observacao" && v.nfe && /\d{3,}/.test(antigo))
+        // "Ref. à NF-e 123" do modelo só troca o número; observação escrita à mão vale como está.
+        if (r.campo === "observacao" && v.nfe && /\d{3,}/.test(antigo) && (!novo?.trim() || /NF\D*\d/i.test(novo)))
           novo = antigo.replace(/\d[\d.]*(?=\D*$)/, v.nfe);
         if (r.campo === "duracao" && novo && /\d/.test(antigo))
           novo = antigo.replace(/\d+/g, novo.match(/\d+/)![0]);
@@ -762,6 +763,19 @@ export async function preencherModelo(
     }
   }
   doc = preencherTabela(doc, v.linhas, d.umidade, avisos);
+  // Word sem a linha da observação: entra uma, logo antes do local e data.
+  if (d.observacao.trim() && !preenchidos.includes("observacao")) {
+    const pars = [...doc.matchAll(RE_PARAGRAFO)];
+    const alvo = pars.reverse().find((p) => /\bLocal\s*\/?\s*Place\b|\d{1,2}\/\d{1,2}\/\d{4}|\d{1,2}\s+de\s+[A-Za-zç]+\s+(?:de\s+)?\d{4}/i.test(textoDe(p[0]).texto));
+    if (alvo) {
+      const pPr = alvo[0].match(/<w:pPr>[\s\S]*?<\/w:pPr>/)?.[0] ?? "";
+      const rPr = alvo[0].match(/<w:r[ >][\s\S]*?(<w:rPr>[\s\S]*?<\/w:rPr>)[\s\S]*?<\/w:r>/)?.[1] ?? "";
+      const linhas = d.observacao.trim().split("\n").map((l) => l.trim());
+      const corpo = linhas.map((l, i) => `<w:r>${rPr}${i ? "<w:br/>" : ""}<w:t xml:space="preserve">${esc(i ? l : `OBSERVAÇÃO/REMARK: ${l}`)}</w:t></w:r>`).join("");
+      doc = doc.slice(0, alvo.index!) + `<w:p>${pPr}${corpo}</w:p>` + doc.slice(alvo.index!);
+      preenchidos.push("observacao");
+    } else avisos.push("Não achei onde colocar a observação neste Word: ela saiu só no PDF.");
+  }
   if (!preenchidos.length)
     avisos.push(
       "Não achei os rótulos de sempre no modelo (ex.: “EXPORTADOR/SHIPPER:”): confira o Word.",
