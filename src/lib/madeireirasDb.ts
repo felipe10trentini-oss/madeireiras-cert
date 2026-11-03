@@ -1,5 +1,5 @@
 import type { EstiloRelatorio } from "./estiloRelatorio";
-import { lerTratamentos, type ConfigEmpresa, type Madeireira } from "./madeireiras";
+import { lerModalidade, lerTratamentos, type ConfigEmpresa, type Madeireira } from "./madeireiras";
 import type { PadraoRelatorio, Tomador } from "./relatorio";
 import { juntarUltimos } from "./sequenciaCiclo";
 import { getSupabaseServerClient } from "./supabaseServer";
@@ -44,7 +44,7 @@ function deRow(r: Row): MadeireiraSalva {
     apelido: r.apelido,
     rt: r.rt,
     uf: r.uf,
-    modalidade: r.modalidade === "Credenciada" ? "Credenciada" : "Cadastrada",
+    modalidade: lerModalidade(r.modalidade),
     tratamentos: lerTratamentos(r.tratamentos),
     razaoSocial: r.razao_social,
     cnpj: r.cnpj,

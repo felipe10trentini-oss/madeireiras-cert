@@ -2,7 +2,7 @@
 // ajustam o certificado, o relatório e a DR. A mesma definição gera a planilha
 // (scripts/gerarPlanilhaCadastro.ts) e lê o arquivo na aba Cadastros do site.
 import type { ConfigEmpresa, Madeireira } from "./madeireiras";
-import { lerTratamentos } from "./madeireiras";
+import { AUTORIZADA_MARCA, lerModalidade, lerTratamentos } from "./madeireiras";
 import { rtCompleto } from "./responsaveis";
 
 export type TipoColuna = "texto" | "simnao" | "numero" | "lista";
@@ -37,7 +37,7 @@ export const COLUNAS_CADASTRO: ColunaCadastro[] = [
   { titulo: "Apelido", grupo: "Dados da empresa", tipo: "texto", obrigatoria: true, largura: 22, ajuda: "Nome curto que aparece no site e no nome da curva (ex.: ABB WOOD, GM, Inexport Capivari)." },
   { titulo: "Razão social", grupo: "Dados da empresa", tipo: "texto", obrigatoria: true, largura: 38, ajuda: "Como vai no item 1.1 do certificado." },
   { titulo: "CNPJ", grupo: "Dados da empresa", tipo: "texto", obrigatoria: true, largura: 20, ajuda: "Com ou sem pontuação. É a chave da empresa: não repita." },
-  { titulo: "Modalidade", grupo: "Dados da empresa", tipo: "lista", opcoes: ["Cadastrada", "Credenciada"], obrigatoria: true, largura: 13, ajuda: "Define o modelo do SEI e o relatório (cadastrada A–X, credenciada A–Z)." },
+  { titulo: "Modalidade", grupo: "Dados da empresa", tipo: "lista", opcoes: ["Cadastrada", "Credenciada", AUTORIZADA_MARCA], obrigatoria: true, largura: 26, ajuda: "Define o modelo do SEI e o relatório (cadastrada A–X, credenciada A–Z). Autorizada ao uso de marca usa os mesmos da cadastrada." },
   { titulo: "Tratamentos", grupo: "Dados da empresa", tipo: "lista", opcoes: ["KD/HT", "HT", "KD"], obrigatoria: true, largura: 11, ajuda: "Só HT = sempre AQF. KD/HT = secagem (KD se umidade final até 18%, senão HT)." },
   { titulo: "Registro MAPA", grupo: "Dados da empresa", tipo: "texto", obrigatoria: true, largura: 14, ajuda: "Código do cadastro/credenciamento (ex.: BR-PR0938)." },
   { titulo: "CREA", grupo: "Dados da empresa", tipo: "texto", largura: 11, ajuda: "Nº de registro no CREA." },
@@ -131,7 +131,7 @@ export function empresaDaLinha(linha: Record<string, string | null>): { empresa:
       apelido: v("Apelido") ?? v("Razão social")!,
       rt: rtCompleto(v("Responsável técnico")),
       uf: v("UF"),
-      modalidade: /credenc/i.test(v("Modalidade") ?? "") ? "Credenciada" : "Cadastrada",
+      modalidade: lerModalidade(v("Modalidade")),
       tratamentos: lerTratamentos(v("Tratamentos")),
       razaoSocial: v("Razão social")!,
       cnpj: v("CNPJ")!,

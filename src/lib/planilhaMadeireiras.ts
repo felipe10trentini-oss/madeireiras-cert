@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import { lerDocumento, lerTratamentos, type Madeireira } from "./madeireiras";
+import { lerDocumento, lerModalidade, lerTratamentos, type Madeireira } from "./madeireiras";
 import { COLUNAS_CADASTRO, empresaDaLinha } from "./cadastroColunas";
 import { rtCompleto } from "./responsaveis";
 import { chaveNome, soDigitos } from "./util";
@@ -117,7 +117,7 @@ export async function lerPlanilhaMadeireiras(
       apelido: (d.apelido ?? d.razaoSocial).trim(),
       rt: rtCompleto(d.rt),
       uf: d.uf?.trim() ?? null,
-      modalidade: /credenc/i.test(d._modalidade ?? "") ? "Credenciada" : "Cadastrada",
+      modalidade: lerModalidade(d._modalidade),
       tratamentos: lerTratamentos(d._tratamentos),
       razaoSocial: d.razaoSocial.trim(),
       cnpj: (d.cnpj ?? "").trim(),

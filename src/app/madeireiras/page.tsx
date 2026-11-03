@@ -8,6 +8,7 @@ import { ClientesPrestadora } from "@/components/ClientesPrestadora";
 import { FileDrop } from "@/components/FileDrop";
 import { PortaoSenha } from "@/components/PortaoSenha";
 import { regraDe } from "@/lib/certificado";
+import { classeModalidade } from "@/lib/madeireiras";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import { baixarPlanilha, linhaDaEmpresa, montarPlanilhaCadastro, montarPlanilhaClientes, montarPlanilhaRts } from "@/lib/planilhaCadastro";
 import { lerAcessosSei, lerPlanilhaMadeireiras } from "@/lib/planilhaMadeireiras";
@@ -544,7 +545,7 @@ function Madeireiras({ senha, sair }: { senha: string; sair: () => void }) {
                     {e.apelido} <span className="badge">{ufDoMapa(e.regMapa, e.uf) ?? "?"}</span>
                   </td>
                   <td>
-                    <span className={`badge ${e.modalidade === "Credenciada" ? "pago" : "pendente"}`}>{e.modalidade}</span>
+                    <span className={`badge ${classeModalidade(e.modalidade)}`}>{e.modalidade}</span>
                   </td>
                   <td>{e.tratamentos.join("/")}</td>
                   <td>{e.documento === "comunicado" ? "Comunicado" : e.documento === "programacao" ? "Programação" : "—"}</td>

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { montarCertificado, regraDe, sugerirTipo, type TipoTratamento } from "@/lib/certificado";
 import type { Comunicado } from "@/lib/comunicado";
 import { curvaVazia, type Curva } from "@/lib/curvas/tipos";
-import { identificarEmpresa, lerNomeArquivo } from "@/lib/madeireiras";
+import { classeModalidade, identificarEmpresa, lerNomeArquivo } from "@/lib/madeireiras";
 import type { MadeireiraSalva } from "@/lib/madeireirasDb";
 import { avisosDuplicidade, validarComunicado, type EmissaoAnteriorResumo } from "@/lib/divergencias";
 import { camposDoModelo, montarHtml, type Campo } from "@/lib/modelos";
@@ -448,7 +448,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
               <div className="kpi-sub">
                 {empresa ? (
                   <>
-                    <span className={`badge ${empresa.modalidade === "Credenciada" ? "pago" : "pendente"}`}>
+                    <span className={`badge ${classeModalidade(empresa.modalidade)}`}>
                       {empresa.modalidade}
                     </span>{" "}
                     {empresa.tratamentos.join(" / ")} ·{" "}

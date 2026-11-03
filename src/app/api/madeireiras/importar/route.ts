@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { podeAcessar, respostaNaoAutorizado } from "@/lib/auth";
-import { lerDocumento, lerTratamentos, type ConfigEmpresa, type Madeireira } from "@/lib/madeireiras";
+import { lerDocumento, lerModalidade, lerTratamentos, type ConfigEmpresa, type Madeireira } from "@/lib/madeireiras";
 import { sincronizarMadeireiras } from "@/lib/madeireirasDb";
 import { soDigitos } from "@/lib/util";
 
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
       apelido: txt(e.apelido, 120) ?? razaoSocial,
       rt: txt(e.rt, 120),
       uf: txt(e.uf, 2),
-      modalidade: e.modalidade === "Credenciada" ? "Credenciada" : "Cadastrada",
+      modalidade: lerModalidade(txt(e.modalidade, 40)),
       tratamentos: lerTratamentos(Array.isArray(e.tratamentos) ? e.tratamentos.join("/") : String(e.tratamentos ?? "")),
       razaoSocial,
       cnpj: cnpj!,

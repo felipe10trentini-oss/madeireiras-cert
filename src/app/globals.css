@@ -181,6 +181,7 @@ select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent-2); 
 .badge.pago { background: var(--good-bg); color: var(--good); }
 .badge.pendente { background: var(--warn-bg); color: var(--warn); }
 .badge.erro { background: var(--bad-bg); color: var(--bad); }
+.badge.marca { background: var(--surface-2); color: var(--text); }
 
 /* ---------- Como colar ---------- */
 .ultima-troca-card { border-left: 4px solid var(--accent); margin-bottom: 18px; }

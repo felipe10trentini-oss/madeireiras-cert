@@ -1,6 +1,7 @@
 import { chaveNome, chaveRegMapa, levenshtein, soDigitos } from "./util";
 
-export type ModalidadeCadastro = "Cadastrada" | "Credenciada";
+export const AUTORIZADA_MARCA = "Autorizada ao uso de marca";
+export type ModalidadeCadastro = "Cadastrada" | "Credenciada" | typeof AUTORIZADA_MARCA;
 export type Documento = "programacao" | "comunicado";
 
 /** Uma linha da planilha Madeireiras (aba DADOS CADASTRAIS). */
@@ -68,6 +69,17 @@ export function lerTratamentos(s: string | null | undefined): ("KD" | "HT")[] {
   if (t.includes("KD")) r.push("KD");
   if (t.includes("HT")) r.push("HT");
   return r.length ? r : ["HT"];
+}
+
+/** Texto da planilha ou do banco -> modalidade. Sem indicação clara = Cadastrada. */
+export function lerModalidade(s: string | null | undefined): ModalidadeCadastro {
+  if (/autoriz/i.test(s ?? "")) return AUTORIZADA_MARCA;
+  return /credenc/i.test(s ?? "") ? "Credenciada" : "Cadastrada";
+}
+
+/** Cor da etiqueta da modalidade nas listas. */
+export function classeModalidade(m: ModalidadeCadastro): string {
+  return m === "Credenciada" ? "pago" : m === AUTORIZADA_MARCA ? "marca" : "pendente";
 }
 
 export function lerDocumento(s: string | null | undefined): Documento | null {
