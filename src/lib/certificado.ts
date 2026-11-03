@@ -605,6 +605,10 @@ export function montarCertificado(e: EntradaCertificado, tipo: TipoTratamento): 
   if (tomadorOutro && !salvo) {
     avisos.push("O comunicado traz outro tomador: preencha endereço, telefone e e-mail dele (fica salvo para as próximas vezes).");
   }
+  // Tomador escrito sem CNPJ legível: não sai "Nihil" calado.
+  if ((empresa.modalidade === "Credenciada" || regra.prestadora) && comunicado?.tomadorNome && !comunicado.tomadorCnpj && !/^(nihil|n\/?a|-+)$/i.test(comunicado.tomadorNome.trim())) {
+    avisos.push(`Não consegui ler o CNPJ do tomador no comunicado (“${comunicado.tomadorNome}”): o 2. saiu Nihil, preencha os dados do tomador.`);
+  }
 
   // Filial que emite em nome da matriz (Inexport Capivari): prestador = matriz, tomador = a filial.
   const matriz = regra.prestadorCnpj

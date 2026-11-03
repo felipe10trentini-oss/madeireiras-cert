@@ -122,10 +122,11 @@ export function lerComunicado(texto: string): Comunicado {
   }
 
   const rc = valores.razaoCnpj ?? "";
-  const m = rc.match(/^(.*?)[;\-–,]?\s*CNPJ:?\s*(\d{2}\.\d{3}\.\d{3}\/\d{4}-\s*\d{2})/i);
+  // "X - CNPJ: 00.000.000/0000-00", "X | 00.000.000/0000-00" (comunicado da ALR) ou só os 14 dígitos.
+  const m = rc.match(/^(.*?)[;|\-–,\s]*(?:CNPJ\s*:?\s*)?(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\s*\d{2})(?!\d)/i);
   return {
     numero: valores.numero || null,
-    tomadorNome: m ? m[1].replace(/[\s;\-–,]+$/, "").trim() : rc || null,
+    tomadorNome: m ? m[1].replace(/[\s;|\-–,]+$/, "").trim() : rc || null,
     tomadorCnpj: m ? m[2].replace(/\s+/g, "") : null,
     endereco: valores.endereco || null,
     destino: valores.destino || null,
