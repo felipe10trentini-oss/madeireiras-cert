@@ -27,7 +27,7 @@ interface Props {
   onToast: (msg: string) => void;
   /** Aba Comunicados: mostra também o nº do relatório (SEI - Relatórios do Controle de Curvas). */
   comRelatorio?: boolean;
-  /** Aba Mestres: mostra também o nº do certificado. */
+  /** Mestres e desdobrados: mostra também o nº do certificado. */
   comNumero?: boolean;
 }
 
