@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Atalhos SEI MAPA",
+  "version": "1.0",
+  "description": "Botões no menu do SEI do MAPA para abrir direto o peticionamento de cada certificado TFQ. Não lê nem guarda senhas.",
+  "content_scripts": [
+    {
+      "matches": ["https://sei.agro.gov.br/sei/controlador_externo.php*"],
+      "js": ["atalhos.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
