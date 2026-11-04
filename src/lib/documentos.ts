@@ -209,7 +209,7 @@ export const CAMPOS_MANUAIS: Record<TipoDocumento, { k: string; rotulo: string }
 
 /**
  * Preenche o modelo do SEI: cada valor entra logo depois do rótulo, dentro do mesmo parágrafo
- * ("1.1. Razão social: AGK Madeiras Ltda"). Nada do modelo é alterado além disso.
+ * ("1.1. Razão social: AGK Madeiras Ltda"). Do modelo, muda só o título da seção 3 e a largura das colunas.
  */
 export function montarDocumento(tipo: TipoDocumento, valores: ValoresDocumento, bilingue = false): string {
   let h = tipo === "desdobrado" ? MODELO_DESDOBRADO : MODELO_CONSOLIDADO;
@@ -244,7 +244,11 @@ export function montarDocumento(tipo: TipoDocumento, valores: ValoresDocumento, 
   // Local de emissão no cabeçalho cinza da seção 4.
   h = h.replace(/(<strong>4\. Local de emiss&atilde;o:<\/strong>)/, (_, a) => `${a}${val("local") ? ` ${esc(val("local"))}` : ""}`);
   if (bilingue) h = traduzirCabecalhos(tipo, h);
-  return h;
+  // Como nos mestres: seção 3 sem os dois pontos e duas colunas iguais (a linha que divide os campos no meio).
+  return h
+    .replace(/(<strong>3\. Dados do Tratamento Fitossanit&aacute;rio com fins Quarenten&aacute;rios):/, "$1")
+    .replace('<table border="2" cellpadding="1" cellspacing="1">', '<table border="2" cellpadding="1" cellspacing="1" width="100%" style="width: 100%; table-layout: fixed;">')
+    .replace(/<td>/g, '<td width="50%" style="width: 50%;">');
 }
 
 // ---------- versão bilíngue (português / inglês) ----------
