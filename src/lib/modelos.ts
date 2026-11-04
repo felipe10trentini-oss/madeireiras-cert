@@ -115,7 +115,7 @@ export const MODELOS: Record<ModeloId, Modelo> = {
       par(c("tomRazao", "2.1. Razão Social:"), c("tomCnpj", "2.2 CNPJ:")),
       cheia(c("tomEndereco", "2.3. Endereço completo com CEP:")),
       par(c("tomTelefone", "2.4. Telefone:"), c("tomEmail", "2.5 Endereço eletrônico:")),
-      secao(`3. ${DADOS_TFQ}:`),
+      secao(`3. ${DADOS_TFQ}`),
       par(c("comunicado", "3.1. Número do Comunicado de Tratamento:"), c("enderecoTrat", `3.2. ${ENDERECO_TRAT}`)),
       par(c("destino", "3.3. Destino:"), c("produto", "3.4. Descrição do produto:")),
       par(c("volumes", "3.5. Número e descrição dos volumes:"), c("quantidade", "3.6. Quantidade de produto tratado:")),
@@ -149,7 +149,7 @@ export const MODELOS: Record<ModeloId, Modelo> = {
       par(c("tomRazao", "2.1. Razão Social:"), c("tomCnpj", "2.2. CNPJ:")),
       cheia(c("tomEndereco", "2.3. Endereço completo com CEP:")),
       par(c("tomTelefone", "2.4. Telefone:"), c("tomEmail", "2.5. Endereço Eletrônico:")),
-      secao(`3. ${DADOS_TFQ}:`),
+      secao(`3. ${DADOS_TFQ}`),
       cheia(c("comunicado", "3.1. Número do Comunicado de tratamento:")),
       cheia(c("enderecoTrat", `3.2. ${ENDERECO_TRAT}`)),
       par(c("destino", "3.3. Destino:"), c("produto", "3.4.Descrição do produto:")),
@@ -216,8 +216,9 @@ export function montarHtml(m: Modelo, v: ValoresCertificado): string {
 
   let naSecaoTratamento = false;
   const td = (html: string, colspan: boolean) => {
-    const estilo = naSecaoTratamento && m.estiloTratamento ? ` style="${m.estiloTratamento}"` : "";
-    return `<td${colspan ? ' colspan="2"' : ""}${estilo}>${P(html)}</td>`;
+    // Duas colunas iguais: a linha que divide os campos fica no meio, seja qual for o texto.
+    const estilo = [colspan ? "" : "width: 50%;", naSecaoTratamento ? (m.estiloTratamento ?? "") : ""].filter(Boolean).join(" ");
+    return `<td${colspan ? ' colspan="2"' : ' width="50%"'}${estilo ? ` style="${estilo}"` : ""}>${P(html)}</td>`;
   };
 
   const linhas = m.linhas
@@ -248,7 +249,7 @@ export function montarHtml(m: Modelo, v: ValoresCertificado): string {
     `<p class="Texto_Centralizado_Maiusculas_Negrito">${esc(m.titulo)}</p>` +
     `<p align="justify" class="Texto_Centralizado">${ROTULO_NUMERO} ${esc(v.numero ?? "")}</p>` +
     `<p class="Texto_Centralizado">&nbsp;</p>` +
-    `<table border="2" cellpadding="1" cellspacing="1"><tbody>${linhas}</tbody></table>` +
+    `<table border="2" cellpadding="1" cellspacing="1" width="100%" style="width: 100%; table-layout: fixed;"><tbody>${linhas}</tbody></table>` +
     `<p>&nbsp;</p>`
   );
 }
