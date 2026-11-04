@@ -83,12 +83,17 @@ export function SeiCard({ senha, empresa, valores, onToast, comRelatorio, comNum
     { rotulo: "E-mail do RT no SEI", valor: a?.login },
     { rotulo: "Senha do RT no SEI", valor: a?.senha, secreto: true },
   ];
-  const linhas: Linha[] = [
-    { rotulo: "CNPJ", valor: cnpj },
-    ...(comNumero ? [{ rotulo: "Nº do certificado", valor: valores?.numero }] : []),
-    ...(comRelatorio ? [{ rotulo: "Nº do relatório (SEI)", valor: dados?.relatorio?.numero }] : []),
-    { rotulo: "Razão social", valor: razao },
-  ];
+  const linhas: Linha[] = comNumero
+    ? [
+        { rotulo: "Razão social", valor: razao },
+        { rotulo: "Nº do certificado", valor: valores?.numero },
+        { rotulo: "CNPJ", valor: cnpj },
+      ]
+    : [
+        { rotulo: "CNPJ", valor: cnpj },
+        ...(comRelatorio ? [{ rotulo: "Nº do relatório (SEI)", valor: dados?.relatorio?.numero }] : []),
+        { rotulo: "Razão social", valor: razao },
+      ];
   const item = (l: Linha) => (
     <div className="sei-item" key={l.rotulo}>
       <span className="kpi-sub">{l.rotulo}</span>
