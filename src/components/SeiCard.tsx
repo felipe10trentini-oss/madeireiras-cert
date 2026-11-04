@@ -27,6 +27,8 @@ interface Props {
   onToast: (msg: string) => void;
   /** Aba Comunicados: mostra também o nº do relatório (SEI - Relatórios do Controle de Curvas). */
   comRelatorio?: boolean;
+  /** Aba Mestres: mostra também o nº do certificado. */
+  comNumero?: boolean;
 }
 
 /**
@@ -34,7 +36,7 @@ interface Props {
  * certificado — na Inexport Capivari, a matriz) e o login/senha do SEI do RT da empresa, para não
  * peticionar com o RT errado.
  */
-export function SeiCard({ senha, empresa, valores, onToast, comRelatorio }: Props) {
+export function SeiCard({ senha, empresa, valores, onToast, comRelatorio, comNumero }: Props) {
   const [dados, setDados] = useState<{
     rt: string | null;
     acesso: Acesso | null;
@@ -83,6 +85,7 @@ export function SeiCard({ senha, empresa, valores, onToast, comRelatorio }: Prop
   ];
   const linhas: Linha[] = [
     { rotulo: "CNPJ", valor: cnpj },
+    ...(comNumero ? [{ rotulo: "Nº do certificado", valor: valores?.numero }] : []),
     ...(comRelatorio ? [{ rotulo: "Nº do relatório (SEI)", valor: dados?.relatorio?.numero }] : []),
     { rotulo: "Razão social", valor: razao },
   ];
