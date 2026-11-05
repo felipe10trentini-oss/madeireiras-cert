@@ -8,10 +8,12 @@ import { blsDoTexto, CNPJ_MANN_VOLANTE, juntarDocumentos, juntarPedidos, montarD
 import {
   ativosDoModelo,
   baixarFontes,
+  comAssinaturaRt,
   completarTimbre,
   corDoLogo,
   gerarPdfLgB,
   gerarPdfPadrao,
+  type AssinaturaRt,
   type AtivosModelo,
   type FontesPdf,
 } from "@/lib/declaracaoLgPdf";
@@ -28,6 +30,7 @@ import { cabecalhoSenha } from "@/lib/senhaEquipe";
 import { hojeBR, soDigitos } from "@/lib/util";
 import { lerFonte, ModeloDeclaracao, type ModeloSalvo } from "./ModeloDeclaracao";
 import { lerDrHt, linhaDaDr, type DrHt } from "@/lib/drHt";
+import { AssinaturaRtBarra } from "./AssinaturaRt";
 import { ColarPedido } from "./ColarPedido";
 import { PreviaPdf } from "./PreviaPdf";
 import { PreviaWord } from "./PreviaWord";
@@ -285,6 +288,26 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
       vivo = false;
     };
   }, [cnpj, senha, versaoModelo]);
+
+  // Assinatura do RT da empresa (pasta privada): entra no PDF quando o Word modelo não tem assinatura.
+  const rtEmpresa = rtCompleto(empresa?.rt) ?? "";
+  const [assLida, setAssLida] = useState<{ rt: string; ass: AssinaturaRt | null } | null>(null);
+  const assRt = assLida?.rt === rtEmpresa ? assLida.ass : null;
+  const [versaoAss, setVersaoAss] = useState(0);
+  const [modeloTemAss, setModeloTemAss] = useState(false);
+  useEffect(() => {
+    if (!rtEmpresa) return;
+    let vivo = true;
+    fetch(`/api/declaracoes/assinatura?rt=${encodeURIComponent(rtEmpresa)}`, { headers: cabecalhoSenha(senha), cache: "no-store" })
+      .then(async (r) => {
+        const j = r.ok ? await r.json() : null;
+        if (vivo) setAssLida({ rt: rtEmpresa, ass: j?.imagem ? { imagem: deBase64(j.imagem), nome: j.nome || rtEmpresa, crea: j.crea ?? "" } : null });
+      })
+      .catch(() => undefined);
+    return () => {
+      vivo = false;
+    };
+  }, [rtEmpresa, senha, versaoAss]);
 
   // Último relatório do MAPA guardado da empresa (pasta privada): já vem carregado.
   useEffect(() => {
@@ -679,13 +702,16 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
 
   // PDF direto (LG): layout do Word dela desenhado pelo site, com o logo, a marca-d'água e a
   // assinatura tirados do Word modelo. Fontes e imagens carregadas uma vez.
-  const cachePdf = useRef<{ bytes: Uint8Array; ativos: AtivosModelo; fontes: FontesPdf; cor: [number, number, number] } | null>(null);
+  const cachePdf = useRef<{ bytes: Uint8Array; ass: AssinaturaRt | null; ativos: AtivosModelo; fontes: FontesPdf; cor: [number, number, number] } | null>(null);
   async function pdfDe(d: DadosDeclaracao): Promise<Uint8Array> {
     if (!modelo?.bytes) throw new Error("Sem o Word modelo da empresa.");
-    if (cachePdf.current?.bytes !== modelo.bytes) {
+    if (cachePdf.current?.bytes !== modelo.bytes || cachePdf.current?.ass !== assRt) {
       // Logo, marca-d'água, assinatura e timbre do Word modelo; o que faltar vem do cadastro.
-      const ativos = completarTimbre(await ativosDoModelo(modelo.bytes), empresa, rtCompleto(empresa?.rt));
-      cachePdf.current = { bytes: modelo.bytes, ativos, fontes: await baixarFontes(), cor: await corDoLogo(ativos.logo) };
+      const doWord = await ativosDoModelo(modelo.bytes);
+      setModeloTemAss(!!doWord.assinatura);
+      // Sem assinatura no Word: a do RT da empresa, com nome e CREA.
+      const ativos = comAssinaturaRt(completarTimbre(doWord, empresa, rtCompleto(empresa?.rt)), automatico ? null : assRt);
+      cachePdf.current = { bytes: modelo.bytes, ass: assRt, ativos, fontes: await baixarFontes(), cor: await corDoLogo(ativos.logo) };
     }
     const c = cachePdf.current;
     // LG: o layout novo na cor dela; as outras empresas: o mesmo layout, na cor do logo.
@@ -741,7 +767,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     };
     // pdfDe usa o modelo atual (dependência já listada)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [automatico, atual?.dados, modelo?.bytes]);
+  }, [automatico, atual?.dados, modelo?.bytes, assRt]);
 
   const prontos = itens.filter((x) => x.dados).length;
   const semModelo = !!cnpj && !!modelo && !modelo.salvo;
@@ -783,6 +809,17 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
             {modelo.salvo ? "Editar modelo" : "Carregar modelo"}
           </button>
         </div>
+      )}
+      {cnpj && modelo && !editandoModelo && !automatico && rtEmpresa && (
+        <AssinaturaRtBarra
+          key={`${rtEmpresa}-${versaoAss}-${assRt ? 1 : 0}`}
+          senha={senha}
+          rt={rtEmpresa}
+          atual={assRt}
+          usadaNoPdf={!modeloTemAss}
+          onSalva={() => setVersaoAss((v) => v + 1)}
+          onToast={setToast}
+        />
       )}
       {cnpj && editandoModelo && (
         <ModeloDeclaracao

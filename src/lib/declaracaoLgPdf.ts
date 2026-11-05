@@ -793,6 +793,34 @@ export async function corDoLogo(png: Uint8Array | null): Promise<[number, number
   }
 }
 
+export interface AssinaturaRt {
+  imagem: Uint8Array; // PNG
+  nome: string;
+  crea: string; // "CREA-SC S1 115821-8"
+}
+
+/**
+ * Word modelo sem assinatura: entra a do RT da empresa (guardada no site), com o nome e o CREA
+ * embaixo da linha. Word que já traz assinatura fica como está.
+ */
+export function comAssinaturaRt(a: AtivosModelo, s: AssinaturaRt | null): AtivosModelo {
+  if (!s || a.assinatura || s.imagem[0] !== 0x89) return a;
+  const dv = new DataView(s.imagem.buffer, s.imagem.byteOffset, s.imagem.byteLength);
+  const [wpx, hpx] = [dv.getUint32(16), dv.getUint32(20)];
+  if (!wpx || !hpx) return a;
+  // Rabisco com ~95 pt de largura, até 60 pt de altura.
+  const esc = Math.min(95 / wpx, 60 / hpx);
+  const cargo = a.rt.find((t) => /Respons[áa]vel/i.test(t)) ?? "Responsável Técnico";
+  return {
+    ...a,
+    assinatura: s.imagem,
+    rotAssinatura: 0,
+    quadro: { w: wpx * esc, h: hpx * esc },
+    recorte: { l: 0, t: 0, r: 0, b: 0 },
+    rt: [s.nome, ...(s.crea ? [s.crea] : []), cargo],
+  };
+}
+
 /** Completa o timbre com o cadastro quando o Word da empresa não tem a caixa de texto do cabeçalho. */
 export function completarTimbre(
   a: AtivosModelo,
