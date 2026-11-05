@@ -4,7 +4,7 @@ import JSZip from "jszip";
 import { useEffect, useRef, useState } from "react";
 import { CAMPOS_REMESSA, dadosIniciais, linhaDoMestre, nomeArquivo, type DadosDeclaracao, type LinhaTratamento } from "@/lib/declaracao";
 import { CNPJ_LG, manualLg, montarDeclaracaoLg } from "@/lib/declaracaoLg";
-import { blsDoTexto, CNPJ_MANN_VOLANTE, montarDeclaracaoPadrao, quantidadeDigitada, type DadosBL, type MestreLido } from "@/lib/declaracaoMann";
+import { blsDoTexto, CNPJ_MANN_VOLANTE, juntarDocumentos, juntarPedidos, montarDeclaracaoPadrao, podeJuntar, quantidadeDigitada, type DadosBL, type MestreLido } from "@/lib/declaracaoMann";
 import {
   ativosDoModelo,
   baixarFontes,
@@ -443,15 +443,26 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
       ...montarDeclaracaoPadrao(nf, b, mestres, empresa, data, { relatorio: rel?.linhas, dr: drRef.current, campos: camposModelo }),
       mann: { nf, bls: b },
     });
+    // BL e print do e-mail da mesma remessa: uma declaração só.
+    const blsJuntos = juntarPedidos(bls);
+    // O print colado depois do BL (ou o BL solto depois do print) completa a declaração aberta, que ainda não tem ciclo.
+    const aberta = itens[sel];
+    const velho = aberta?.mann && !aberta.nf && aberta.mann.bls.length === 1 && !aberta.mann.ciclos?.length ? aberta.mann.bls[0] : null;
+    if (!notas.length && blsJuntos.length === 1 && velho && podeJuntar(velho, blsJuntos[0].bl) && !(velho.pedido ? blsJuntos[0].bl : velho).ciclos.length) {
+      const nova = montarMann(`${aberta.arquivoNf} + ${blsJuntos[0].f.name}`, null, [juntarDocumentos(velho, blsJuntos[0].bl)], aberta.dados?.data ?? hoje);
+      setItens((xs) => [...xs.map((x, j) => (j === sel ? nova : x)), ...erros]);
+      setCarregando(false);
+      return;
+    }
     const out: Item[] = [];
     if (notas.length) {
       // BL junto com a nota: vai para a nota do mesmo ciclo (ou para a única nota da leva).
       for (const { f, nf } of notas) {
-        const doCiclo = bls.filter(({ bl }) => notas.length === 1 || bl.ciclos.some((c) => nf.ciclos?.includes(c)));
+        const doCiclo = blsJuntos.filter(({ bl }) => notas.length === 1 || bl.ciclos.some((c) => nf.ciclos?.includes(c)));
         out.push(montarMann([f.name, ...doCiclo.map((x) => x.f.name)].join(" + "), nf, doCiclo.map((x) => x.bl), hoje));
       }
     } else {
-      for (const { f, bl } of bls) out.push(montarMann(f.name, null, [bl], hoje));
+      for (const { f, bl } of blsJuntos) out.push(montarMann(f.name, null, [bl], hoje));
     }
     // As que já estavam: a mesma nota de novo troca a anterior; com mestre novo, refaz as automáticas.
     const numeros = new Set(out.map((x) => x.nf?.numero).filter(Boolean));

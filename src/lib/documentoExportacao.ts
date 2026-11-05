@@ -74,10 +74,21 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
       }
     }
     fimExportador = iCnpj;
+    // Sea waybill com a caixa de baixo para cima no texto (Pyramid Lines: CNPJ, cidade, rua, "MADEIRAS LTDA",
+    // "RONARDI COMERCIAL EXPORTADORA DE"): o nome vem depois do CNPJ, em uma ou duas linhas.
+    if (!exportador) {
+      for (let k = iCnpj + 1; k < Math.min(ls.length, iCnpj + 6); k++) {
+        if (!EMPRESA.test(ls[k]) || ENDERECO.test(ls[k])) continue;
+        const antes = ls[k + 1] && /\b(DE|DA|DO|E|&)$/i.test(ls[k + 1]) && !/\d/.test(ls[k + 1]) ? ls[k + 1] : null;
+        exportador = (antes ? `${antes} ${ls[k]}` : ls[k]).replace(/[*,;.]+$/, "").trim();
+        fimExportador = antes ? k + 1 : k;
+        break;
+      }
+    }
   }
-  // Rótulo "SHIPPER" com o nome na linha de baixo.
+  // Rótulo "SHIPPER" com o nome na linha de baixo ("SHIPPER'S LOAD, STOW…" não é o rótulo).
   if (!exportador) {
-    const i = ls.findIndex((l) => /^SHIPPER\b|SHIPPER\s*\/\s*EXPORTER/i.test(l));
+    const i = ls.findIndex((l) => /^SHIPPER\b(?!\s*[´'’]\s*S)|SHIPPER\s*\/\s*EXPORTER/i.test(l));
     if (i >= 0) exportador = proxValor(i);
   }
 
@@ -87,7 +98,8 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
     for (let k = fimExportador + 1; k < Math.min(ls.length, fimExportador + 14); k++) {
       const l = ls[k].split("\t")[0].trim();
       if (ENDERECO.test(l) || ehRotulo(l) || l !== l.toUpperCase() || l.length < 6 || /^(SOLD TO|BUYER|DATA|DATE)$/i.test(l)) continue;
-      if (/^[A-Z][A-Z0-9 .&'/-]+$/.test(l) && l !== (exportador ?? "").toUpperCase()) {
+      // Com vírgula, só nome de empresa ("J. GIBSON MCILVAIN CO, INC."; "BALTIMORE, MD" é cidade).
+      if (/^[A-Z][A-Z0-9 .,&'/-]+$/.test(l) && (!l.includes(",") || EMPRESA.test(l)) && l !== (exportador ?? "").toUpperCase()) {
         destinatario = empresaEm(ls, k);
         break;
       }
@@ -163,6 +175,8 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
       destino = ult.replace(/^(?:NETHERLANDS|BELGIUM|GERMANY|FRANCE|ITALY|SPAIN|PORTUGAL|UNITED KINGDOM|USA|CHINA|BRAZIL)\s+/i, "");
     }
   }
+  // Sem rótulo no texto (Pyramid Lines): a linha só com cidade e estado que não é porto daqui ("BALTIMORE, MD").
+  if (!destino) destino = ls.find((l) => /^[A-Z][A-Z .'-]{2,30},\s*[A-Z]{2}$/.test(l) && !PORTOS_BR.test(l)) ?? null;
   // Para contar repetições, só a 1ª página (BL com as páginas iguais repete tudo, até o nome do agente).
   const fimPag1 = ls.findIndex((l) => /^--\s*1 of \d+\s*--$/.test(l));
   const pag1 = fimPag1 > 0 ? ls.slice(0, fimPag1) : ls;
@@ -212,6 +226,8 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
   const blRotulo = plano.match(/\b(?:B\/L\s*No\.?|BILL OF LADING\s*NO\.?|Sea Waybill No\.?)\s*:?\s*([A-Z0-9]{8,18})\b/i)?.[1];
   const bl =
     rstDados?.bl ??
+    // "EBKG19045744 / ITJ7098696": booking / nº do B/L.
+    plano.match(/\b(?:EBKG|SAOG|BKG)\d{8,10}\s*\/\s*([A-Z]{2,5}\d{5,12})\b/)?.[1] ??
     (ehRascunho(blRotulo) ? null : blRotulo) ??
     plano.match(/\b(BRZSE\d{8}|ONEY[A-Z]{4}\d{8}|MEDU[A-Z0-9]{8}|HLCU[A-Z0-9]{10,14})\b/)?.[1] ??
     // "B/L NUMBER" sem valor ao lado (BL da RST: o nº vem no alto da página, logo abaixo do booking,
@@ -227,7 +243,8 @@ export function lerDocumentoExportacao(texto: string): DocumentoExportacaoLido {
     exportador: exportador ? titulo(exportador) : null,
     destinatario: destinatario ? titulo(destinatario) : null,
     navio: navio ? navio.toUpperCase().replace(/\s+/g, " ") : null,
-    destino: destino ? titulo(destino.replace(/\s+/g, " ")) : null,
+    // O estado no fim fica em maiúsculas ("Baltimore, MD").
+    destino: destino ? titulo(destino.replace(/\s+/g, " ")).replace(/,\s([A-Z][a-z])$/, (m) => m.toUpperCase()) : null,
     invoice,
     booking: booking && booking !== bl ? booking : booking,
     bl,
@@ -248,7 +265,8 @@ export function clientesDoPedido(texto: string): { exportador: string; quantidad
   const out: { exportador: string; quantidade: string; item: string }[] = [];
   for (const l of texto.split("\n")) {
     const m = l.trim().match(/^(.{3,80}?)\s*[-–:]\s*(\d[\d.]*)\s*(paletes?|pallets?|kits?|caixas?|skids?|suportes?|engradados?|tampas?)\b\.?/i);
-    if (m && !/^\d/.test(m[1])) out.push({ exportador: titulo(m[1].replace(/[*.]+$/, "").trim()), quantidade: m[2], item: m[3].toLowerCase() });
+    // "TRATAMENTO JEQUITIBA - HT BR-PA 1060 CICLO 013 - 13 KIT…" é a linha do ciclo, não um cliente.
+    if (m && !/^\d/.test(m[1]) && !/\b(CICLO|LOTE|TRATAMENTO)\b/i.test(m[1])) out.push({ exportador: titulo(m[1].replace(/[*.]+$/, "").trim()), quantidade: m[2], item: m[3].toLowerCase() });
   }
   return out;
 }
@@ -260,6 +278,12 @@ export interface PedidoLido {
   fatura: string | null;
   /** Quantidade de cada ciclo/lote ("90 - Pallet 1000x1200 Ciclo Mann 0252", "14 paletes LOTE 499"). */
   itens: { ciclo: string; quantidade: string; item: string }[];
+  /** "MARCAS: BALTIMORE B260712". */
+  marcas?: string | null;
+  /** "BL: ITJ7098696" (só o que tem cara de nº: o OCR às vezes troca letras). */
+  bl?: string | null;
+  /** "CICLO 013 - 13 KIT EMBALAGEM - 13 FARDOS" -> "13 Kit embalagem (13 Fardos/ Bundles)". */
+  volumes?: string | null;
 }
 
 const ITEM = /paletes?|pallets?|skids?|suportes?|caixas?|crates?|engradados?|kits?|tampas?/i;
@@ -303,7 +327,11 @@ export function lerPedido(texto: string): PedidoLido | null {
   });
   // Nota/BL tem CNPJ e leitura própria: aqui só vale se tem o pedido (quantidade + ciclo/lote).
   if (CNPJ.test(texto) && !itens.length) return null;
-  if (!itens.length && !nfe && !fatura) return null;
+  const marcas = ls.map((l) => l.match(/^MARCAS?\s*:\s*(.{2,60})$/i)?.[1].trim()).find(Boolean) ?? null;
+  if (!itens.length && !nfe && !fatura && !marcas) return null;
+  const blPedido = ls.map((l) => l.match(/^B\/?L\s*:\s*([A-Z]{2,5}\d{5,12})$/i)?.[1]).find(Boolean) ?? null;
+  const vol = ls.map((l) => l.match(/\b(?:CICLO|LOTE?)S?\s*(?:MANN)?\s*[:#nNº°.]*\s*\d{1,5}\s*[-–—]\s*(\d[\d.]*)\s*([^-–—\d]+?)\s*[-–—]\s*(\d[\d.]*)\s*FARDOS?\b/i)).find(Boolean);
+  const volumes = vol ? `${vol[1]} ${vol[2].charAt(0).toUpperCase()}${vol[2].slice(1).toLowerCase()} (${vol[3]} Fardos/ Bundles)` : null;
   // Linhas do cabeçalho do e-mail (print do Gmail) não são o cliente.
   const cabecalho = /@|^(de|from|to|para mim|date|cc|enviado|sent)\b|mensagem|traduzir|caixa\s*de\s*entrada|forwarded|^att\b/i;
   // Cliente: "Para X" (não "para mim"); a razão social escrita no e-mail ("BOIBRAS IND COM.CARNES E SUB-PROD-LTDA");
@@ -312,6 +340,8 @@ export function lerPedido(texto: string): PedidoLido | null {
     ls.map((l) => l.match(/^para:?\s+(?!mim\b|voc[êe]\b)([^\d].{2,80})$/i)?.[1]).find(Boolean) ??
     ls.find((l) => /\b(LTDA|S\.?\/?A\.?|EIRELI)\b/i.test(l) && !cabecalho.test(l) && !/\d{2}\.\d{3}/.test(l) && l.length <= 80) ??
     ls.map((l) => l.match(/^(?:subject|assunto)\s*:\s*(?:(?:fwd?|enc|res?|re)\s*:\s*)*(.{2,60})$/i)?.[1]).find(Boolean) ??
+    // "13 PALLETS RONARDI": quantidade + o nome do cliente.
+    ls.map((l) => l.match(/^\d+\s+(?:PALETES?|PALLETS?)\s+([A-ZÀ-Ú][A-ZÀ-Ú .&-]{2,60})$/)?.[1]).find(Boolean) ??
     null;
   if (!cliente && iDados.length) {
     cliente =
@@ -324,5 +354,8 @@ export function lerPedido(texto: string): PedidoLido | null {
     nfe: nfe ? String(parseInt(nfe, 10)) : null,
     fatura,
     itens,
+    marcas,
+    bl: blPedido,
+    volumes,
   };
 }

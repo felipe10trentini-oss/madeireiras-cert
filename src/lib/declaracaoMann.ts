@@ -43,6 +43,12 @@ export interface DadosBL {
   destinatario: string | null;
   exportador: string | null;
   ciclos: string[];
+  /** Veio de um pedido por e-mail (print/texto), sem os dados do navio: junta com o BL da mesma remessa. */
+  pedido?: boolean;
+  /** "MARCAS: BALTIMORE B260712" do pedido. */
+  marcas?: string | null;
+  /** Quantidade por extenso do pedido: "13 Kit embalagem (13 Fardos/ Bundles)". */
+  volumesTexto?: string | null;
   // Da tabela do cliente (print do e-mail/planilha: "Booking | Destino | Cliente | Invoice | Gross Weight…").
   importador?: string | null;
   invoice?: string | null;
@@ -425,7 +431,8 @@ export function montarDeclaracaoPadrao(
     fatura: bl?.invoice ?? base.fatura,
     pesoBruto: bl?.pesoBruto ? `${bl.pesoBruto} Kgs` : base.pesoBruto,
     pesoLiquido: bl?.pesoLiquido ? `${bl.pesoLiquido} Kgs` : base.pesoLiquido,
-    volumes: volumesDaTabela(bl) ?? (nf ? volumesDaNota(nf) : ""),
+    marcas: bl?.marcas || base.marcas,
+    volumes: bl?.volumesTexto || (volumesDaTabela(bl) ?? (nf ? volumesDaNota(nf) : "")),
     produto: "",
     // Pinustan: a declaração sempre leva "PROCEDÊNCIA/ORIGIN: BRASIL" e o lote que a nota informa.
     origem: empresa && soDigitos(empresa.cnpj) === CNPJ_PINUSTAN ? "Brasil / Brazil" : "",
@@ -461,7 +468,7 @@ export function montarDeclaracaoPadrao(
   // ONEYSAOG54885400"; as outras "DECL. KTR NFe 11336".
   // Nome curto como nas pastas: "Madeireira Rio Claro Ltda" -> "Rio Claro", "Vbs Madeiras Ltda" -> "VBS",
   // "Affonso Ditzel Cia Ltda" -> "Affonso Ditzel", "Renascer Pallet e Embalagem…" -> "Renascer".
-  const GENERICO = /^(madeireira|madeiras?|ind(?:ustria|\.)?|com(?:ercio|\.)?|serraria|cia|ltda|ltd|s\/?a\.?|s\.a\.|eireli|me|epp|e|de|do|da|&|pallets?|paletes?|embalage\w*|artefatos|exp(?:ortacao|\.)?)$/i;
+  const GENERICO = /^(madeireira|madeiras?|ind(?:ustria|\.)?|com(?:ercio|ercial|l|\.)?|exportadora|serraria|cia|ltda|ltd|s\/?a\.?|s\.a\.|eireli|me|epp|e|de|do|da|&|pallets?|paletes?|embalage\w*|artefatos|exp(?:ortacao|\.)?)$/i;
   const curto = (s: string) => {
     const ps = s.split(/\s+/).filter(Boolean);
     while (ps.length > 1 && /^(madeireira|ind(?:ustria|\.)?|serraria)$/i.test(ps[0])) ps.shift();
@@ -484,13 +491,59 @@ export function montarDeclaracaoPadrao(
         : curto(exportador);
   const ref = numNf
     ? `NFe ${numNf}${mann && destinatario ? ` - ${curto(destinatario)}` : ""}`
-    : bl?.invoice || (bl?.booking ? (mann ? `- ${bl.booking}` : bl.booking) : "") || bl?.bl || (cicloRef ? semZeros(cicloRef) : certs[0]) || "";
+    : // Mann pelo booking; as outras pelo B/L ("DECL. Ronardi ITJ7098696"), senão o booking.
+      bl?.invoice || (mann && bl?.booking ? `- ${bl.booking}` : bl?.bl || bl?.booking || "") || (cicloRef ? semZeros(cicloRef) : certs[0]) || "";
   const arquivo = `${mann ? "Declaração HT -" : "DECL."} ${nome || "Cliente"} ${ref}`.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim() + ".docx";
   return { dados: completarComNihil(dados, op.campos as Parameters<typeof completarComNihil>[1]), avisos, arquivo };
 }
 
 /** Nome antigo (só a Mann Unidade Volante usava). */
 export const montarDeclaracaoMann = montarDeclaracaoPadrao;
+
+/** O pedido (print/texto) completa o BL da mesma remessa: o que o BL traz vale; ciclos, marcas e quantidade vêm do pedido. */
+function juntarPedidoAoBL(doc: DadosBL, ped: DadosBL): DadosBL {
+  const out = { ...ped, ...Object.fromEntries(Object.entries(doc).filter(([, v]) => v != null && v !== "")) } as DadosBL;
+  return {
+    ...out,
+    pedido: false,
+    ciclos: [...new Set([...doc.ciclos, ...ped.ciclos])],
+    quantidades: { ...ped.quantidades, ...doc.quantidades },
+    // A quantidade do pedido é a da embalagem tratada; a do BL pode ser a da carga.
+    pacotes: ped.pacotes ?? doc.pacotes,
+    tipo: ped.tipo ?? doc.tipo,
+  };
+}
+
+/** Pode juntar? Um é o BL (tem navio/booking) e o outro o pedido, sem dois números de B/L diferentes. */
+export function podeJuntar(a: DadosBL, b: DadosBL): boolean {
+  const ehDoc = (x: DadosBL) => !x.pedido && !!(x.navio || x.booking || x.container);
+  const par = (ehDoc(a) && b.pedido) || (ehDoc(b) && a.pedido);
+  return !!par && (!a.bl || !b.bl || a.bl === b.bl);
+}
+
+export function juntarDocumentos(a: DadosBL, b: DadosBL): DadosBL {
+  return a.pedido ? juntarPedidoAoBL(b, a) : juntarPedidoAoBL(a, b);
+}
+
+/**
+ * BL e print soltos juntos são a mesma remessa: uma declaração só. Pedido vai para o BL de mesmo nº ou, se
+ * só há um BL e um pedido, para ele; o resto continua uma declaração para cada.
+ */
+export function juntarPedidos<T extends { bl: DadosBL }>(lista: T[]): T[] {
+  const pedidos = lista.filter((x) => x.bl.pedido);
+  const docs = lista.filter((x) => !x.bl.pedido && (x.bl.navio || x.bl.booking || x.bl.container));
+  if (!pedidos.length || !docs.length) return lista;
+  const fora = new Set<T>();
+  const novos = new Map<T, DadosBL>();
+  for (const p of pedidos) {
+    const mesmo = p.bl.bl ? docs.find((d) => d.bl.bl === p.bl.bl) : undefined;
+    const alvo = mesmo ?? (docs.length === 1 && pedidos.length === 1 ? docs[0] : undefined);
+    if (!alvo || !podeJuntar(novos.get(alvo) ?? alvo.bl, p.bl)) continue;
+    novos.set(alvo, juntarDocumentos(novos.get(alvo) ?? alvo.bl, p.bl));
+    fora.add(p);
+  }
+  return lista.filter((x) => !fora.has(x)).map((x) => (novos.has(x) ? { ...x, bl: novos.get(x)! } : x));
+}
 
 /**
  * Documento "outro" (BL, booking, packing list, pedido do cliente) em uma ou mais remessas: pedido com
@@ -515,6 +568,10 @@ export function blsDoTexto(texto: string): DadosBL[] {
     const q = ped.itens.map((i) => ({ ...i, n: parseInt(i.quantidade.replace(/\./g, ""), 10) }));
     const mesmoTipo = q.length > 0 && q.every((i) => i.item === q[0].item);
     Object.assign(base, {
+      pedido: !base.navio && !base.booking && !base.container,
+      marcas: ped.marcas,
+      volumesTexto: ped.volumes,
+      bl: base.bl ?? ped.bl,
       exportador: base.exportador ?? ped.cliente,
       invoice: base.invoice ?? ped.fatura,
       nfe: ped.nfe,
@@ -525,5 +582,5 @@ export function blsDoTexto(texto: string): DadosBL[] {
   }
   const clientes = clientesDoPedido(texto);
   if (!clientes.length) return [base];
-  return clientes.map((c) => ({ ...base, exportador: c.exportador, pacotes: c.quantidade, tipo: c.item }));
+  return clientes.map((c) => ({ ...base, pedido: false, exportador: c.exportador, pacotes: c.quantidade, tipo: c.item }));
 }

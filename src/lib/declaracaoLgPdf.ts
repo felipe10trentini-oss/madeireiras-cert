@@ -629,7 +629,9 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
   // Vários ciclos com a quantidade de cada um na remessa (pedido "90 - Pallet Ciclo 0252 / 200 - … 0226").
   const comQtd = comCiclo && !!d.qtdPorCiclo;
   // Ciclo pelo código da curva e o lote ao lado (DR da Pinustan: "UR010655PR190726" | "1-655").
-  const comLote = comCiclo && d.linhas.some((l) => l.lote && l.lote !== l.ciclo);
+  // Lote que só repete o ciclo (Jequitiba: ciclo 13, lote "1;13") não ganha coluna.
+  const repete = (l: { lote: string; ciclo: string }) => /^\d+$/.test(l.ciclo) && parseInt(l.lote.match(/\d+$/)?.[0] ?? "", 10) === parseInt(l.ciclo, 10);
+  const comLote = comCiclo && d.linhas.some((l) => l.lote && l.lote !== l.ciclo && !repete(l));
   const cols = (
     comLote && comQtd
       ? [0, 0.17, 0.25, 0.34, 0.42, 0.51, 0.68, 0.86, 1]
