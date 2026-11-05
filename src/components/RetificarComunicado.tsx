@@ -62,6 +62,8 @@ export function RetificarComunicado({ senha, sair, empresa, modelo, bytesModelo,
   const [tipo, setTipo] = useState<TipoRetificacao>("alteracao");
   const [obs, setObs] = useState<string | null>(null);
   const [numeroManual, setNumeroManual] = useState<string | null>(null);
+  // Retificação pronta: fica o resultado na tela, com o botão para fazer outra.
+  const [feito, setFeito] = useState<string | null>(null);
 
   const editaveis = mann ? CAMPOS_RETIFICAVEIS_MANN : CAMPOS_RETIFICAVEIS;
   const campos = editaveis.filter((c) => modelo.campos[c]);
@@ -81,6 +83,7 @@ export function RetificarComunicado({ senha, sair, empresa, modelo, bytesModelo,
     setTipo("alteracao");
     setObs(null);
     setNumeroManual(null);
+    setFeito(null);
   }
 
   async function ler(files: File[]) {
@@ -146,8 +149,10 @@ export function RetificarComunicado({ senha, sair, empresa, modelo, bytesModelo,
         baixar(pdf, nome);
         onde = "baixado (ligue a pasta da empresa para salvar direto lá)";
       }
-      onToast(`Comunicado ${valores.numero} retificado — ${onde}.`);
+      const resultado = `Comunicado ${valores.numero} retificado — ${onde}.`;
+      onToast(resultado);
       limpar();
+      setFeito(resultado);
     } catch (e) {
       onToast(e instanceof Error ? e.message : "Não foi possível gerar a retificação.");
     } finally {
@@ -186,7 +191,15 @@ export function RetificarComunicado({ senha, sair, empresa, modelo, bytesModelo,
         </button>
       </div>
 
-      {!orig ? (
+      {feito ? (
+        <div className="actions">
+          <span className="badge pago">Pronto</span>
+          <span>{feito}</span>
+          <button type="button" className="btn primary" onClick={limpar}>
+            Fazer outra
+          </button>
+        </div>
+      ) : !orig ? (
         <SoltarArquivos
           titulo={ocupado ? "Lendo o comunicado…" : "Arraste o comunicado que será retificado"}
           dica={
@@ -257,6 +270,9 @@ export function RetificarComunicado({ senha, sair, empresa, modelo, bytesModelo,
           <div className="actions" style={{ marginTop: 10 }}>
             <button type="button" className="btn primary" disabled={ocupado} onClick={() => void salvar()}>
               {ocupado ? "Gerando…" : "Salvar retificação"}
+            </button>
+            <button type="button" className="btn" disabled={ocupado} onClick={limpar}>
+              Fazer outra
             </button>
             <span className="hint">
               {pasta ? `Salva em “${pasta.caminhoDestino}” como ${nomeComunicado(nomeModelo, numero || "0/0", empresa.apelido).replace(/\.xlsx$/i, ".pdf")}.` : "Sem a pasta ligada, o PDF é baixado."} O
