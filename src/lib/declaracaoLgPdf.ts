@@ -102,10 +102,17 @@ export async function ativosDoModelo(modelo: Uint8Array | ArrayBuffer): Promise<
   const rels = await ler("word/_rels/document.xml.rels");
   // Imagens do corpo (sem as "perdidas" fora da página). A assinatura é a última; se o cabeçalho não
   // tem logo, o logo é a primeira (há Word com o timbre no corpo, como o da Madeico).
-  const imgs = [...doc.matchAll(/<wp:anchor\b[\s\S]*?<\/wp:anchor>/g)]
-    .map((m) => m[0])
-    .filter((a) => /<a:blip r:embed=/.test(a) && !/positionV relativeFrom="paragraph">\s*<wp:posOffset>[3-9]\d{6}/.test(a));
-  const anc = imgs[imgs.length - 1];
+  const todas = [...doc.matchAll(/<wp:anchor\b[\s\S]*?<\/wp:anchor>/g)].map((m) => m[0]).filter((a) => /<a:blip r:embed=/.test(a));
+  const perdida = (a: string) => /positionV relativeFrom="paragraph">\s*<wp:posOffset>[3-9]\d{6}/.test(a);
+  // Logo grande atrás do texto (fundo da página, como o da Richetti) não é assinatura nem timbre.
+  const fundo = (a: string) => /behindDoc="1"/.test(a) && +(a.match(/<wp:extent cx="(\d+)"/)?.[1] ?? 0) > 250 * 12700;
+  const imgs = todas.filter((a) => !perdida(a) && !fundo(a));
+  // Sem nenhuma: a assinatura pode estar ancorada longe do parágrafo (Richetti) — a do tamanho de assinatura.
+  const pequena = (a: string) => {
+    const e = a.match(/<wp:extent cx="(\d+)" cy="(\d+)"/);
+    return !!e && +e[1] < 200 * 12700 && +e[2] < 200 * 12700;
+  };
+  const anc = imgs[imgs.length - 1] ?? todas.filter((a) => perdida(a) && pequena(a)).pop();
   if (!out.logo && imgs.length > 1) {
     const id = imgs[0].match(/<a:blip r:embed="(\w+)"/)![1];
     const alvo = rels.match(new RegExp(`Id="${id}"[^>]*Target="([^"]+)"`))?.[1];
