@@ -106,13 +106,10 @@ export async function ativosDoModelo(modelo: Uint8Array | ArrayBuffer): Promise<
   const perdida = (a: string) => /positionV relativeFrom="paragraph">\s*<wp:posOffset>[3-9]\d{6}/.test(a);
   // Logo grande atrás do texto (fundo da página, como o da Richetti) não é assinatura nem timbre.
   const fundo = (a: string) => /behindDoc="1"/.test(a) && +(a.match(/<wp:extent cx="(\d+)"/)?.[1] ?? 0) > 250 * 12700;
+  // As "perdidas" ficam de fora: na Richetti e em outras é uma assinatura antiga (do Geraldo), não a do
+  // RT atual. Sem assinatura no Word, entra a do RT guardada no site.
   const imgs = todas.filter((a) => !perdida(a) && !fundo(a));
-  // Sem nenhuma: a assinatura pode estar ancorada longe do parágrafo (Richetti) — a do tamanho de assinatura.
-  const pequena = (a: string) => {
-    const e = a.match(/<wp:extent cx="(\d+)" cy="(\d+)"/);
-    return !!e && +e[1] < 200 * 12700 && +e[2] < 200 * 12700;
-  };
-  const anc = imgs[imgs.length - 1] ?? todas.filter((a) => perdida(a) && pequena(a)).pop();
+  const anc = imgs[imgs.length - 1];
   if (!out.logo && imgs.length > 1) {
     const id = imgs[0].match(/<a:blip r:embed="(\w+)"/)![1];
     const alvo = rels.match(new RegExp(`Id="${id}"[^>]*Target="([^"]+)"`))?.[1];
@@ -807,11 +804,11 @@ export interface AssinaturaRt {
 }
 
 /**
- * Word modelo sem assinatura: entra a do RT da empresa (guardada no site), com o nome e o CREA
- * embaixo da linha. Word que já traz assinatura fica como está.
+ * Assinatura do RT da empresa (guardada no site), com o nome e o CREA embaixo da linha. Vale mais que
+ * a do Word modelo, que pode ser de outro RT (Words antigos com a assinatura do Geraldo).
  */
 export function comAssinaturaRt(a: AtivosModelo, s: AssinaturaRt | null): AtivosModelo {
-  if (!s || a.assinatura || s.imagem[0] !== 0x89) return a;
+  if (!s || s.imagem[0] !== 0x89) return a;
   const dv = new DataView(s.imagem.buffer, s.imagem.byteOffset, s.imagem.byteLength);
   const [wpx, hpx] = [dv.getUint32(16), dv.getUint32(20)];
   if (!wpx || !hpx) return a;

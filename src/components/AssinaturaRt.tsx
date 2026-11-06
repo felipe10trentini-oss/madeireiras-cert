@@ -48,21 +48,19 @@ function paraBase64(b: Uint8Array): string {
 }
 
 /**
- * Assinatura do RT da empresa nas declarações em PDF (quando o Word modelo não traz assinatura).
+ * Assinatura do RT da empresa nas declarações em PDF (no lugar da assinatura do Word modelo).
  * Guardada uma vez por RT: vale para todas as empresas dele.
  */
 export function AssinaturaRtBarra({
   senha,
   rt,
   atual,
-  usadaNoPdf,
   onSalva,
   onToast,
 }: {
   senha: string;
   rt: string;
   atual: AssinaturaRt | null;
-  usadaNoPdf: boolean;
   onSalva: () => void;
   onToast: (m: string) => void;
 }) {
@@ -110,7 +108,7 @@ export function AssinaturaRtBarra({
       <div className="toolbar" style={{ marginBottom: 10 }}>
         <span className="hint">
           Assinatura do RT ({atual?.nome ?? rt}):{" "}
-          {atual ? `${atual.crea || "sem CREA"}${usadaNoPdf ? "" : " · o Word modelo já tem assinatura, ela é a que vale"}` : "não carregada"}
+          {atual ? atual.crea || "sem CREA" : "não carregada (sai a do Word modelo, se ele tiver)"}
         </span>
         <button
           type="button"
@@ -131,7 +129,7 @@ export function AssinaturaRtBarra({
       <div className="kpi-label">Assinatura do RT nas declarações em PDF</div>
       <p className="hint" style={{ margin: "6px 0 10px" }}>
         Imagem só do rabisco (PNG ou JPG; o fundo branco some). O nome e o CREA saem como texto embaixo da linha. Vale para todas as
-        empresas com este RT cujo Word modelo não traz assinatura.
+        empresas com este RT, no lugar da assinatura do Word modelo.
       </p>
       <div style={{ display: "grid", gap: 8, maxWidth: 420 }}>
         <input type="file" accept="image/png,image/jpeg" onChange={(e) => void escolher(e.target.files?.[0])} aria-label="Imagem da assinatura" />

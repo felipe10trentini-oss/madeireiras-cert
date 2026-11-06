@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 /**
  * Assinatura do responsável técnico nas declarações em PDF: a imagem (PNG) e o CREA, guardados na
  * pasta privada "declaracoes/assinaturas/<nome>.png|.json" do Supabase (o repositório é público).
- * Vale para toda empresa que tem esse RT no cadastro e cujo Word modelo não traz assinatura.
+ * Vale para toda empresa que tem esse RT no cadastro, no lugar da assinatura do Word modelo.
  */
 const pasta = () => getSupabaseServerClient().storage.from("declaracoes");
 

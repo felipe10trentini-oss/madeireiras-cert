@@ -289,12 +289,11 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     };
   }, [cnpj, senha, versaoModelo]);
 
-  // Assinatura do RT da empresa (pasta privada): entra no PDF quando o Word modelo não tem assinatura.
+  // Assinatura do RT da empresa (pasta privada): entra no PDF no lugar da do Word modelo.
   const rtEmpresa = rtCompleto(empresa?.rt) ?? "";
   const [assLida, setAssLida] = useState<{ rt: string; ass: AssinaturaRt | null } | null>(null);
   const assRt = assLida?.rt === rtEmpresa ? assLida.ass : null;
   const [versaoAss, setVersaoAss] = useState(0);
-  const [modeloTemAss, setModeloTemAss] = useState(false);
   useEffect(() => {
     if (!rtEmpresa) return;
     let vivo = true;
@@ -708,8 +707,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     if (cachePdf.current?.bytes !== modelo.bytes || cachePdf.current?.ass !== assRt) {
       // Logo, marca-d'água, assinatura e timbre do Word modelo; o que faltar vem do cadastro.
       const doWord = await ativosDoModelo(modelo.bytes);
-      setModeloTemAss(!!doWord.assinatura);
-      // Sem assinatura no Word: a do RT da empresa, com nome e CREA.
+      // A assinatura do RT da empresa (com nome e CREA) vale mais que a do Word.
       const ativos = comAssinaturaRt(completarTimbre(doWord, empresa, rtCompleto(empresa?.rt)), automatico ? null : assRt);
       cachePdf.current = { bytes: modelo.bytes, ass: assRt, ativos, fontes: await baixarFontes(), cor: await corDoLogo(ativos.logo) };
     }
@@ -816,7 +814,6 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
           senha={senha}
           rt={rtEmpresa}
           atual={assRt}
-          usadaNoPdf={!modeloTemAss}
           onSalva={() => setVersaoAss((v) => v + 1)}
           onToast={setToast}
         />
