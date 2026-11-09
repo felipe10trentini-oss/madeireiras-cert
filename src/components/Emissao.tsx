@@ -47,6 +47,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
   const [tipo, setTipo] = useState<TipoTratamento>("KD");
   const [ajustes, setAjustes] = useState<Partial<Record<Campo | "numero", string>>>({});
   const [editando, setEditando] = useState(false);
+  const [bilingue, setBilingue] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [conferiuDivergencias, setConferiuDivergencias] = useState(false);
@@ -96,7 +97,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
 
   const montado = entrada ? montarCertificado(entrada, tipo) : null;
   const valores = montado ? { ...montado.valores, ...ajustes } : null;
-  const html = montado && valores ? montarHtml(montado.modelo, valores) : "";
+  const html = montado && valores ? montarHtml(montado.modelo, valores, bilingue) : "";
 
   // Trava de divergência: comunicado x curva (dia, horário, material, quantidade).
   const prestadora = !!(empresa && regraDe(empresa).prestadora);
@@ -202,6 +203,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
     setConferiuDivergencias(false);
     setErro(null);
     setEditando(false);
+    setBilingue(false);
   }
 
   /**
@@ -526,6 +528,15 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
               />
             </div>
             <div className="spacer" />
+            <button
+              type="button"
+              className={`btn${bilingue ? " primary" : ""}`}
+              onClick={() => setBilingue((b) => !b)}
+              disabled={!montado}
+              title="Rótulos e textos-padrão em português / inglês (as declarações do final ficam em português)"
+            >
+              {bilingue ? "Português / Inglês ✓" : "Traduzir para inglês"}
+            </button>
             <button type="button" className="btn" onClick={() => setEditando((v) => !v)} disabled={!montado}>
               {editando ? "Fechar edição" : "Editar campos"}
             </button>
@@ -561,7 +572,7 @@ export function Emissao({ senha, sair }: { senha: string; sair: () => void }) {
           {montado ? (
             <>
               <div className="section-title">
-                <h2>Prévia do certificado</h2>
+                <h2>Prévia do certificado{bilingue ? " · português / inglês" : ""}</h2>
                 <p>
                   Modelo “{montado.modelo.nome}” — é exatamente o que será colado no SEI.
                 </p>

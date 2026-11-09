@@ -199,16 +199,87 @@ const CINZA = "background-color: rgb(221, 221, 221);";
 
 export type ValoresCertificado = Partial<Record<Campo, string | null>> & { numero?: string };
 
+// ---------- versão bilíngue (português / inglês) ----------
+// Mesmos termos dos desdobrados/consolidados bilíngues (documentos.ts). As declarações do final ficam em português.
+
+const ROTULOS_EN: Partial<Record<Campo, string>> = {
+  razao: "Corporate name", crea: "CREA registration number", endereco: "Full address", telefone: "Telephone", email: "E-mail",
+  regMapa: "Alphanumeric code of the registration with MAPA",
+  tomRazao: "Corporate name", tomEndereco: "Full address", tomTelefone: "Telephone", tomEmail: "E-mail",
+  comunicado: "Number of treatment reports",
+  enderecoTrat: "Full address where the phytosanitary treatment was carried out for quarantine purposes",
+  destino: "Destination", produto: "Product description", volumes: "Number and description of packages",
+  quantidade: "Quantity of product treated", lote: "Batch number", ciclo: "Treatment cycle number", marcas: "Distinguishing marks",
+  modalidade: "Treatment modality", dataInicio: "Treatment start date", horaInicio: "Treatment start time",
+  dataFim: "Treatment end date", horaFim: "Treatment end time", temperatura: "Temperature", local: "Place of Issue",
+};
+
+const SECOES_EN: [RegExp, string][] = [
+  [/Dados do Cadastro/i, "Registration Data"],
+  [/Dados do credenciamento/i, "Accreditation Data"],
+  [/Dados do Tomador/i, "Service Recipient Data"],
+  [/Dados do Tratamento/i, "Data on Phytosanitary Treatment for Quarantine Purposes"],
+];
+
+const TITULO_EN = "Certificate of Phytosanitary Treatment for Quarantine Purposes – Heat Treatment";
+const NUMERO_EN = "Number of the Certificate of Phytosanitary Treatment for Quarantine Purposes";
+
+const PRODUTOS_EN: [RegExp, string][] = [
+  [/^Madeira serrada de pinus e eucalipto/i, "Pine and eucalyptus sawn wood"],
+  [/^Madeira serrada de pinus/i, "Pine sawn wood"],
+  [/^Madeira serrada de eucalipto/i, "Eucalyptus sawn wood"],
+  [/^Madeira reflorestada de pinus e eucalipto/i, "Reforested pine and eucalyptus wood"],
+  [/^Madeira reflorestada/i, "Reforested wood"],
+  [/^Paletes de madeira/i, "Wooden pallets"],
+];
+
+const UNIDADES_EN: [RegExp, string][] = [
+  [/unidades$/i, "units"],
+  [/fardos$/i, "bundles"],
+  [/t[áa]buas$/i, "boards"],
+  [/pe[çc]as$/i, "pieces"],
+  [/paletes$/i, "pallets"],
+];
+
+/** Texto fixo da modalidade em inglês: "tratamento térmico por calor: ar quente forçado". */
+const fixoEmIngles = (fixo: string) => `heat treatment: ${/ar quente/i.test(fixo) ? "forced hot air" : "kiln drying"}`;
+
+/** Valores-padrão com a tradução ao lado; dados da empresa, números e o que não está nas listas ficam como estão. */
+function valoresEmIngles(v: ValoresCertificado): ValoresCertificado {
+  const t = { ...v };
+  const destino = (v.destino ?? "").trim();
+  if (/^estoque$/i.test(destino)) t.destino = `${destino} / Stock`;
+  const produto = (v.produto ?? "").trim();
+  const achado = PRODUTOS_EN.find(([re]) => re.test(produto));
+  // A bitola continua nos dois idiomas: "Madeira serrada de pinus 37 mm / Pine sawn wood 37 mm".
+  if (achado) t.produto = `${produto} / ${achado[1]}${produto.replace(achado[0], "")}`;
+  for (const k of ["volumes", "quantidade"] as const) {
+    const s = (v[k] ?? "").trim();
+    const u = UNIDADES_EN.find(([re]) => re.test(s));
+    if (u) t[k] = `${s} / ${u[1]}`;
+  }
+  if (t.temperatura) t.temperatura = t.temperatura.replace(/\s*\/\s*Dura[çc][ãa]o:/i, "; Duração / Duration:");
+  return t;
+}
+
 /** HTML pronto para colar no editor do SEI (mesma estrutura e classes do modelo). */
-export function montarHtml(m: Modelo, v: ValoresCertificado): string {
+export function montarHtml(m: Modelo, valores: ValoresCertificado, bilingue = false): string {
+  const v = bilingue ? valoresEmIngles(valores) : valores;
   const neg = (s: string, sim: boolean) => (sim ? `<strong>${s}</strong>` : s);
+  // "1.1. Razão social:" -> "1.1. Razão social / Corporate name:" (CNPJ fica igual).
+  const rotuloDe = (cel: Celula) => (bilingue && ROTULOS_EN[cel.k] ? cel.r.replace(/:$/, ` / ${ROTULOS_EN[cel.k]}:`) : cel.r);
+  const secaoDe = (titulo: string) => {
+    const en = bilingue ? SECOES_EN.find(([re]) => re.test(titulo))?.[1] : undefined;
+    return en ? `${titulo} / ${en}` : titulo;
+  };
 
   function conteudo(cel: Celula): string {
     const valor = (v[cel.k] ?? "").trim();
-    const rotulo = neg(esc(cel.r), m.rotulosNegrito);
+    const rotulo = neg(esc(rotuloDe(cel)), m.rotulosNegrito);
     if (cel.fixo) {
-      const fixoHtml = neg(esc(cel.fixo), cel.fixoNegrito ?? false);
-      const sep = !valor ? "" : cel.fixo.endsWith(":") ? " " : ": ";
+      const fixo = bilingue ? `${cel.fixo.replace(/:$/, "")} / ${fixoEmIngles(cel.fixo)}${cel.fixo.endsWith(":") ? ":" : ""}` : cel.fixo;
+      const fixoHtml = neg(esc(fixo), cel.fixoNegrito ?? false);
+      const sep = !valor ? "" : fixo.endsWith(":") ? " " : ": ";
       return `${rotulo} ${fixoHtml}${sep}${esc(valor)}`;
     }
     return valor ? `${rotulo} ${esc(valor)}` : rotulo;
@@ -226,7 +297,7 @@ export function montarHtml(m: Modelo, v: ValoresCertificado): string {
       switch (l.tipo) {
         case "secao":
           naSecaoTratamento = /Dados do Tratamento/.test(l.titulo);
-          return `<tr><td colspan="2" style="${CINZA}">${P(`<strong>${esc(l.titulo)}</strong>`)}</td></tr>`;
+          return `<tr><td colspan="2" style="${CINZA}">${P(`<strong>${esc(secaoDe(l.titulo))}</strong>`)}</td></tr>`;
         case "campos": {
           const [a, b] = l.celulas;
           if (l.celulas.length === 1) return `<tr>${td(conteudo(a), true)}</tr>`;
@@ -235,7 +306,7 @@ export function montarHtml(m: Modelo, v: ValoresCertificado): string {
         case "local": {
           naSecaoTratamento = false;
           const valor = (v.local ?? "").trim();
-          const html = `<strong>${esc(l.celula.r)}${valor ? "" : "&nbsp;"}</strong>${valor ? ` ${esc(valor)}` : ""}`;
+          const html = `<strong>${esc(rotuloDe(l.celula))}${valor ? "" : "&nbsp;"}</strong>${valor ? ` ${esc(valor)}` : ""}`;
           return `<tr><td colspan="2"${l.cinza ? ` style="${CINZA}"` : ""}>${P(html)}</td></tr>`;
         }
         case "declaracoes":
@@ -246,8 +317,8 @@ export function montarHtml(m: Modelo, v: ValoresCertificado): string {
 
   return (
     `<p class="Texto_Centralizado">&nbsp;</p>` +
-    `<p class="Texto_Centralizado_Maiusculas_Negrito">${esc(m.titulo)}</p>` +
-    `<p align="justify" class="Texto_Centralizado">${ROTULO_NUMERO} ${esc(v.numero ?? "")}</p>` +
+    `<p class="Texto_Centralizado_Maiusculas_Negrito">${esc(bilingue ? `${m.titulo} / ${TITULO_EN}` : m.titulo)}</p>` +
+    `<p align="justify" class="Texto_Centralizado">${bilingue ? `${ROTULO_NUMERO.replace(/:$/, "")} / ${NUMERO_EN}:` : ROTULO_NUMERO} ${esc(v.numero ?? "")}</p>` +
     `<p class="Texto_Centralizado">&nbsp;</p>` +
     `<table border="2" cellpadding="1" cellspacing="1" width="100%" style="width: 100%; table-layout: fixed;"><tbody>${linhas}</tbody></table>` +
     `<p>&nbsp;</p>`
