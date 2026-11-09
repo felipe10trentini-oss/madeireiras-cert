@@ -4,6 +4,7 @@
 // Roda no navegador e no Node (JSZip).
 import JSZip from "jszip";
 import {
+  minutosDe,
   periodoTratamento,
   type DadosDeclaracao,
   type LinhaTratamento,
@@ -333,7 +334,8 @@ export function valoresDoModelo(d: DadosDeclaracao): ValoresModelo {
     ...new Set(d.linhas.map((l) => l.certificado).filter(Boolean)),
   ];
   const per = periodoTratamento(d.linhas);
-  const dur = d.linhas.find((l) => l.duracao)?.duracao.match(/\d+/)?.[0];
+  const durL = d.linhas.find((l) => l.duracao)?.duracao ?? "";
+  const dur = String(minutosDe(durL) ?? durL.match(/\d+/)?.[0] ?? "") || undefined;
   return {
     campos: {
       exportador: [d.exportador, d.enderecoExportador]
@@ -463,7 +465,7 @@ function formatar(
         ? `${l.temperatura}${exemplo.match(/\s*[°º]\s*C?/)?.[0] ?? "°C"}`
         : l.temperatura;
     case "duracao": {
-      const min = l.duracao.match(/\d+/)?.[0] ?? "";
+      const min = String(minutosDe(l.duracao) ?? l.duracao.match(/\d+/)?.[0] ?? "");
       if (/h\d{2}m/.test(exemplo))
         return `${String(Math.floor(+min / 60)).padStart(2, "0")}h${String(+min % 60).padStart(2, "0")}m`;
       return /min/i.test(exemplo) || !exemplo ? `${min} min` : min;

@@ -42,6 +42,12 @@ async function abas(bytes: ArrayBuffer | Uint8Array): Promise<{ nome: string; li
   return out;
 }
 
+/** A DR escreve os minutos como "00h82m" (ou só "246"): na declaração sai "82 min". "108h47m" (KD) fica. */
+function duracaoDr(t: string): string {
+  const m = t.match(/^0+h\s*0*(\d+)\s*m?$/i) ?? t.match(/^0*(\d+)$/);
+  return m ? `${m[1]} min` : t;
+}
+
 /** Linhas de tratamento da aba: as colunas pelo cabeçalho (a linha que tem "Lote" e "ciclo"). */
 function linhasDaAba(linhas: Celulas[]): LinhaTratamento[] {
   const iCab = linhas.findIndex((l) => Object.values(l).some((t) => /^lote/i.test(t)) && Object.values(l).some((t) => /ciclo/i.test(t)));
@@ -77,7 +83,7 @@ function linhasDaAba(linhas: Celulas[]): LinhaTratamento[] {
       fim: /^\d{2}\/\d{2}\/\d{4}$/.test(df) && !df.endsWith("1899") ? [df, horaDe(de(l, k.horaFim))].filter(Boolean).join(" ") : "",
       tipo: /KD/i.test(de(l, k.tipo)) ? "KD" : "HT",
       temperatura: de(l, k.temperatura).replace(/\s*°?\s*C$/i, "") || "56",
-      duracao: de(l, k.duracao),
+      duracao: duracaoDr(de(l, k.duracao)),
     });
   }
   return out;
