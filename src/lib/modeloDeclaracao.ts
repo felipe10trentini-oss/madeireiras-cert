@@ -90,7 +90,8 @@ export function aprenderDoTexto(texto: string): ConfigModelo {
   if (padrao.destino && padrao.destino !== "Nihil") delete padrao.destino;
   const temp = plano.match(/(\d{2,3})\s*[°ºo]\s*C\b/)?.[1];
   if (temp) padrao.temperatura = temp;
-  const dur = plano.match(/(\d{2,3})\s*(?:\([^)]{3,40}\)\s*)?min(?:utos|utes)?\b/i)?.[1];
+  // Só número inteiro de 2 ou 3 algarismos ("7174 minutos" de KD não vira "174 min").
+  const dur = plano.match(/(?<![\d.,])(\d{2,3})\s*(?:\([^)]{3,40}\)\s*)?min(?:utos|utes)?\b/i)?.[1];
   if (dur) padrao.duracao = `${dur} min`;
   const trat = plano.match(/Tratamento:\s*(.{0,80})/i)?.[1] ?? plano;
   padrao.sujeito = /palet|pallet/i.test(trat)
