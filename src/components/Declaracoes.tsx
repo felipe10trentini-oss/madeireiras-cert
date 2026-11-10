@@ -61,7 +61,7 @@ function ciclosComQuantidade(bls: DadosBL[]): string[] | undefined {
 
 const LINHA_VAZIA: LinhaTratamento = { certificado: "", ciclo: "", lote: "", inicio: "", fim: "", tipo: "HT", temperatura: "56", duracao: "32 min", quantidade: "" };
 
-/** V&R (fabricante, madeira tratada pela CHS): sem a tabela do tratamento, com este texto fixo. */
+/** V&R (fabricante, madeira tratada pela CHS): sem a tabela do tratamento e sem assinatura, com este texto fixo. */
 const CNPJ_VR = "47805543000140";
 const TEXTO_VR = {
   pt: "Os materiais foram submetidos ao tratamento térmico (HT) que garante o alcance de uma temperatura mínima de 56°C (cinquenta e seis graus Celsius) durante 32 (trinta e dois) minutos, conforme consta no Art. 24 da Portaria 385/2021 do Ministério da Agricultura e Pecuária do Brasil.",
@@ -723,7 +723,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     if (automatico) return gerarPdfLgB(d, c.ativos, c.fontes);
     // V&R: sem a tabela, com o texto fixo do tratamento (o digitado em "Editar campos" vale mais).
     if (soDigitos(cnpj) === CNPJ_VR)
-      return gerarPdfPadrao({ ...d, textoPt: d.textoPt.trim() || TEXTO_VR.pt, textoEn: d.textoEn.trim() || TEXTO_VR.en }, c.ativos, c.fontes, { cor: c.cor, geral: true, soTexto: true });
+      return gerarPdfPadrao({ ...d, textoPt: d.textoPt.trim() || TEXTO_VR.pt, textoEn: d.textoEn.trim() || TEXTO_VR.en }, c.ativos, c.fontes, { cor: c.cor, geral: true, soTexto: true, semAssinatura: true });
     // Todas no layout da LG: tabela do tratamento (ciclo, início, término…), sem o parágrafo do tratamento.
     return gerarPdfPadrao(d, c.ativos, c.fontes, { cor: c.cor, geral: true, tabela: true });
   }

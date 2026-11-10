@@ -437,6 +437,8 @@ export interface OpcoesPdf {
   tabela?: boolean;
   /** Sem a tabela e sem os campos do tratamento (nem o local): só o parágrafo (textoPt/textoEn) — V&R. */
   soTexto?: boolean;
+  /** Sem a assinatura (imagem, linha, nome e cargo) — V&R. */
+  semAssinatura?: boolean;
 }
 
 /**
@@ -719,7 +721,7 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
 
   const cxAss = MD - 95;
   const yLinha = y + 62;
-  if (assin) {
+  if (assin && !o.semAssinatura) {
     const rot = ((a.rotAssinatura % 360) + 360) % 360;
     const { l, t, r: rr, b: bb } = a.recorte;
     const deitada = rot === 90 || rot === 270;
@@ -739,8 +741,11 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
     else if (rot === 90) pg.drawImage(assin, { x: esq - (H - t * H - qh), y: base + W - l * W, width: W, height: H, rotate: degrees(-90) });
     else pg.drawImage(assin, { x: esq - l * W, y: base - (H - t * H - altPag), width: W, height: H });
   }
-  linhaH(pg, cxAss - 90, cxAss + 90, yLinha, 0.7, TINTA);
-  a.rt.forEach((linha, i) => centro(pg, linha, cxAss, yLinha + 4 + i * 10.5, i === 0 ? b : r, 8.2, i === 0 ? TINTA : CINZA_TXT));
+  // V&R: sem assinatura (nem linha, nem nome).
+  if (!o.semAssinatura) {
+    linhaH(pg, cxAss - 90, cxAss + 90, yLinha, 0.7, TINTA);
+    a.rt.forEach((linha, i) => centro(pg, linha, cxAss, yLinha + 4 + i * 10.5, i === 0 ? b : r, 8.2, i === 0 ? TINTA : CINZA_TXT));
+  }
 
   // ---------- rodapé ----------
   const yRod = A4.h - 40;
