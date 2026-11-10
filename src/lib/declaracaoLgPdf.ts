@@ -435,7 +435,7 @@ export interface OpcoesPdf {
   geral: boolean;
   /** Com `geral`: a tabela do tratamento da LG (ciclo, início, término…) no lugar de "só o mês" (Mann Unid. Volante). */
   tabela?: boolean;
-  /** Sem a tabela e sem os campos do tratamento: só o local e o parágrafo (textoPt/textoEn) — V&R. */
+  /** Sem a tabela e sem os campos do tratamento (nem o local): só o parágrafo (textoPt/textoEn) — V&R. */
   soTexto?: boolean;
 }
 
@@ -605,9 +605,7 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
   y += 8;
 
   if (o.soTexto) {
-    // Sem tabela nem campos do tratamento (V&R): só o local e, logo abaixo, o texto do tratamento.
-    linhaCampo("LOCAL DO TRATAMENTO", "Place of treatment", d.localTratamento);
-    y += 8;
+    // Sem tabela nem campos do tratamento (V&R): só o texto do tratamento, logo abaixo.
   } else if (o.geral && !o.tabela) {
     // Modelo padrão das declarações (todas as empresas menos a LG): sem a tabela de início/término,
     // só o certificado mestre (ciclo/lote), o mês do tratamento, a duração e o local.
