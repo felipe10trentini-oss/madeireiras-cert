@@ -391,7 +391,12 @@ export function montarDeclaracaoPadrao(
   // Com a quantidade de cada ciclo (pedido/digitada), ela vale no lugar da do ciclo inteiro.
   const daRemessa = (x: MestreLido | LinhaRelatorio) => qtd.get(cicloDe.get(x) ?? "");
   const linhas = emOrdemDeData([
-    ...usados.map((m) => ({ ...linhaDoMestre(m.mestre), quantidade: daRemessa(m) ?? (m.mestre.quantidade || "") })),
+    ...usados.map((m) => ({
+      ...linhaDoMestre(m.mestre),
+      // Achado pelo estufa-ciclo da nota ("2-460" = "Estufa 2 Ciclo 460"): sai como na nota.
+      ...(estufaCiclo(cicloDe.get(m) ?? "") && ecDoMestre(m) === cicloDe.get(m) ? { ciclo: cicloDe.get(m)! } : {}),
+      quantidade: daRemessa(m) ?? (m.mestre.quantidade || ""),
+    })),
     ...doRelatorio.map((l) => ({
       ...linhaDoRelatorio(l),
       // Digitado estufa-ciclo ("1-326"): a declaração mostra assim, como a Madeval escreve.

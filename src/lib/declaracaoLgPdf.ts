@@ -435,6 +435,8 @@ export interface OpcoesPdf {
   geral: boolean;
   /** Com `geral`: a tabela do tratamento da LG (ciclo, início, término…) no lugar de "só o mês" (Mann Unid. Volante). */
   tabela?: boolean;
+  /** Sem a tabela e sem os campos do tratamento: só o local e o parágrafo (textoPt/textoEn) — V&R. */
+  soTexto?: boolean;
 }
 
 /**
@@ -597,12 +599,16 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
     um("NATUREZA DO PRODUTO", "Kind of product", ptDe(d.produto || ""));
     dois(["PESO LÍQUIDO", "Net weight", d.pesoLiquido], ["PESO BRUTO", "Gross weight", d.pesoBruto]);
     dois(["PROCEDÊNCIA", "Origin", ptDe(d.origem || "")], ["DESTINO", "Destination", d.destino]);
-    if (o.tabela) um("CERTIFICADO MESTRE", "Master HT certificate", [...new Set(d.linhas.map((l) => l.certificado).filter(Boolean))].join("; "));
+    if (o.tabela || o.soTexto) um("CERTIFICADO MESTRE", "Master HT certificate", [...new Set(d.linhas.map((l) => l.certificado).filter(Boolean))].join("; "));
     um("PROGRAMAÇÃO / COMUNICADO", "Treatment notice", d.comunicado.replace(/Programa[çc][ãa]o MAPA\s*/gi, ""));
   }
   y += 8;
 
-  if (o.geral && !o.tabela) {
+  if (o.soTexto) {
+    // Sem tabela nem campos do tratamento (V&R): só o local e, logo abaixo, o texto do tratamento.
+    linhaCampo("LOCAL DO TRATAMENTO", "Place of treatment", d.localTratamento);
+    y += 8;
+  } else if (o.geral && !o.tabela) {
     // Modelo padrão das declarações (todas as empresas menos a LG): sem a tabela de início/término,
     // só o certificado mestre (ciclo/lote), o mês do tratamento, a duração e o local.
     secao("TRATAMENTO", "TREATMENT");
@@ -693,7 +699,7 @@ export async function gerarPdfPadrao(d: DadosDeclaracao, a: AtivosModelo, fontes
     y += 8;
   }
   }
-  if (o.geral && !o.tabela) {
+  if (o.geral && (!o.tabela || o.soTexto)) {
     const tt = textoTratamento(d);
     for (const [txt, f, cor, tam] of [
       [`Tratamento: ${tt.pt}`, r, TINTA, 8.2],
