@@ -165,6 +165,15 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
         itens.push({ descricao: m[1].replace(/\bOC\s*:\s*\d+\s*/gi, "").replace(/\s+Pedido Cliente\s*:.*$/i, "").trim(), quantidade: num(m[3]), unidade: m[2] });
     }
   }
+  // V&R (Simples Nacional, CSOSN com 4 dígitos): descrição, tab, código, NCM, CSOSN, CFOP, unidade,
+  // quantidade, unitário, total ("PALETE MADEIRA PINUS , FACE UNICA ;\tXWDNPAL100120I 44152000 0101 5101
+  // PC 200 146,05 29.210,00 …"). Vale só se quantidade x unitário = total.
+  if (!itens.length) {
+    for (const l of texto.split("\n")) {
+      const m = l.match(/^(.+?)\s*\t\s*\S+\s+\d{8}\s+\d{4}\s+\d{4}\s+([A-Z]{1,4})\.?\s+(\d[\d.]*(?:,\d+)?)\s+([\d.]+,\d{2,4})\s+([\d.]+,\d{2})\b/);
+      if (m && Math.abs(num(m[3]) * num(m[4]) - num(m[5])) < 0.05) itens.push({ descricao: m[1].replace(/[\s;,]+$/, "").trim(), quantidade: num(m[3]), unidade: m[2] });
+    }
+  }
   if (!itens.length) {
     for (const l of t.split("\n")) {
       const m = l.match(/\b(\d{8})\s+\d{3}\s+\d{4}\s+([A-Z]{1,4})\.?\s+([\d.]+,\d{2,4})\s+((?:[\d.,]+\s+)*)(.*)$/);
@@ -176,15 +185,21 @@ export function lerNotaFiscal(texto: string): NotaFiscal | null {
     numero: plano.match(/N[º°o]\.?:?\s*(\d{1,9})\s+S[ée]rie/i)?.[1] ?? numeroDaChave(plano),
     emissao:
       // No print (OCR) a linha de baixo traz nome, CNPJ e data juntos: fica só a data.
-      ((v) => (v && /\d{2}\/\d{2}\/\d{4}/.test(v) ? v.match(/\d{2}\/\d{2}\/\d{4}/)![0] : v))(abaixo(dest, /DATA D[AE] EMISS[ÃA]O/)) ??
+      // Embaixo do rótulo pode vir outro rótulo ("DATA DE SAÍDA/ENTRADA", V&R): aí vale a 1ª data depois dele.
+      ((v) => (v && /\d{2}\/\d{2}\/\d{4}/.test(v) ? v.match(/\d{2}\/\d{2}\/\d{4}/)![0] : v && /^DATA\b/i.test(v) ? null : v))(abaixo(dest, /DATA D[AE] EMISS[ÃA]O/)) ??
       plano.match(/Emiss[ãa]o:\s*(\d{2}\/\d{2}\/\d{4})/i)?.[1] ??
       // "DATA EMISSÃO\nDATA ENTRADA/SAIDA\n26/10/2026": a 1ª data depois do rótulo.
       dest.match(/DATA\s+(?:DE\s+)?EMISS[ÃA]O[\s\S]{0,120}?(\d{2}\/\d{2}\/\d{4})/i)?.[1] ??
       null,
     destinatario: {
       // Código da filial colado no fim do nome ("COMPANHIA PROVIDENCIA INDUSTRIA E COMERCIO 201", Pinustan) sai.
-      razao: ((r) => (r && !/CNP[J)]|CPF|DATA DE/i.test(r) ? r.replace(/\s+\d{1,4}$/, "") : (ocr.razao ?? r)))(abaixo(dest, /RAZ[ÃA]O SOCIAL(?! FRETE)/)),
-      cnpj: abaixo(dest, /CNPJ\s*\/\s*CPF/) ?? ocr.cnpj,
+      // Nome e CNPJ na mesma linha ("IMIFABI TALCO S/A 24.809.672/0001-00", V&R): o CNPJ sai do nome.
+      razao: ((r) => (r && !/CNP[J)]|CPF|DATA DE/i.test(r) ? r.replace(/\s+\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/, "").replace(/\s+\d{1,4}$/, "") : (ocr.razao ?? r)))(abaixo(dest, /RAZ[ÃA]O SOCIAL(?! FRETE)/)),
+      cnpj:
+        ((c) => (c && /\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/.test(c) ? c : null))(abaixo(dest, /CNPJ\s*\/\s*CPF/)) ??
+        abaixo(dest, /RAZ[ÃA]O SOCIAL(?! FRETE)/)?.match(/\s(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})$/)?.[1] ??
+        abaixo(dest, /CNPJ\s*\/\s*CPF/) ??
+        ocr.cnpj,
       endereco: abaixo(dest, /ENDERE[ÇC]O/),
       bairro: abaixo(dest, /BAIRRO\s*\/\s*DISTRITO/),
       cep: abaixo(dest, /\bCEP/),
@@ -243,6 +258,16 @@ export function ciclosDoTexto(texto: string): string[] {
       if (n && c !== "NaN" && !out.includes(c)) out.push(c);
     }
   }
+  // "Ciclo de tratamento: 2-460 / 1-180" (V&R, madeira tratada pela CHS): estufa-ciclo.
+  const grupoEc = String.raw`(?:\d{1,2}\s*-\s*\d{1,5}|\d{1,5})`;
+  const reTrat = new RegExp(String.raw`\bCICLOS?\s+(?:DE\s+)?TRATAMENTO\s*[:.]?\s*(${grupoEc}(?:\s*(?:[,/;]|\be\b)\s*${grupoEc})*)`, "gi");
+  for (const m of texto.matchAll(reTrat)) {
+    for (const grupo of m[1].split(/\s*(?:[,/;]|\be\b)\s*/)) {
+      const ec = grupo.match(/^(\d{1,2})\s*-\s*(\d{1,5})$/);
+      const c = ec ? `${+ec[1]}-${+ec[2]}` : String(parseInt(grupo, 10));
+      if (c && !c.includes("NaN") && !out.includes(c)) out.push(c);
+    }
+  }
   // "MATERIAL TRATADO REFERENTE A UR: 553-573" (Madeico): os ciclos 553 e 573. "ur:02-329/03-302/01-655"
   // (Pinustan): estufa-ciclo — estufa 02 ciclo 329, estufa 03 ciclo 302… (a estufa tem 1 ou 2 dígitos).
   for (const m of texto.matchAll(/\bUR\s*:\s*(\d{1,5}(?:\s*(?:[-,/]|\be\b)\s*\d{1,5})*)/gi)) {
@@ -266,6 +291,12 @@ export function juntarDanfe(
   const d = Object.fromEntries(
     Object.entries(nf.destinatario).map(([k, v]) => [k, (pos.destinatario as Record<string, string | null>)[k]?.replace(/\s+-\s*\.?\s*$/, "") || v])
   ) as NotaFiscal["destinatario"];
+  // Nome e CNPJ na mesma caixa ("IMIFABI TALCO S/A 24.809.672/0001-00", V&R): separa.
+  const cnpjNoNome = d.razao?.match(/\s(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})$/)?.[1];
+  if (cnpjNoNome) {
+    d.razao = d.razao!.slice(0, -cnpjNoNome.length).trim();
+    if (!/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/.test(d.cnpj ?? "")) d.cnpj = cnpjNoNome;
+  }
   return {
     ...nf,
     numero: nf.numero ?? pos.numero,

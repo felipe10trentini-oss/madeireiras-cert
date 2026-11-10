@@ -305,7 +305,13 @@ export function montarDeclaracaoPadrao(
 
   // Cada ciclo: o mestre dele (se veio) ou a linha do relatório (a do tomador da remessa, se o ciclo se repete).
   const numDo = (c: string) => semZeros(c.trim().split(/\s+/)[0]);
-  const doMestre = (c: string) => mestres.find((m) => semZeros(m.mestre.ciclo) === numDo(c) || semZeros(m.mestre.lote) === numDo(c));
+  // Estufa-ciclo da nota ("2-460") = "Estufa 2 Ciclo 460" do mestre (CHS, na nota da V&R).
+  const ecDoMestre = (m: MestreLido) => {
+    const x = (m.mestre.ciclo ?? "").match(/estufa\s*(\d{1,3})\D+?ciclo\s*(\d{1,5})/i);
+    return x ? `${+x[1]}-${+x[2]}` : null;
+  };
+  const doMestre = (c: string) =>
+    mestres.find((m) => semZeros(m.mestre.ciclo) === numDo(c) || semZeros(m.mestre.lote) === numDo(c) || (!!estufaCiclo(numDo(c)) && ecDoMestre(m) === numDo(c)));
   const usados: MestreLido[] = [];
   const doRelatorio: LinhaRelatorio[] = [];
   const cicloDe = new Map<MestreLido | LinhaRelatorio, string>();
