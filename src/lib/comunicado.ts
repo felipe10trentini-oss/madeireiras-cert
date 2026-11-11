@@ -123,11 +123,13 @@ export function lerComunicado(texto: string): Comunicado {
 
   const rc = valores.razaoCnpj ?? "";
   // "X - CNPJ: 00.000.000/0000-00", "X | 00.000.000/0000-00" (comunicado da ALR) ou só os 14 dígitos.
-  const m = rc.match(/^(.*?)[;|\-–,\s]*(?:CNPJ\s*:?\s*)?(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\s*\d{2})(?!\d)/i);
+  // Ponto no lugar da barra ("62.468.466.0001-73", Madepallete 372/2026) também vale: sai corrigido.
+  const m = rc.match(/^(.*?)[;|\-–,\s]*(?:CNPJ\s*:?\s*)?(\d{2}\.?\d{3}\.?\d{3}[\/.]?\d{4}-?\s*\d{2})(?!\d)/i);
+  const cnpj = m ? m[2].replace(/\D/g, "") : "";
   return {
     numero: valores.numero || null,
     tomadorNome: m ? m[1].replace(/[\s;|\-–,]+$/, "").trim() : rc || null,
-    tomadorCnpj: m ? m[2].replace(/\s+/g, "") : null,
+    tomadorCnpj: m ? cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : null,
     endereco: valores.endereco || null,
     destino: valores.destino || null,
     produto: valores.produto || null,
