@@ -35,8 +35,10 @@ const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 // Empresas se descredenciando (26/10/2026): não emitem mais comunicado pelo site.
 const SEM_COMUNICADO = new Set(["Flavia", "JJR", "Megga", "Vale Norte"]);
 
-// Duração padrão de todos os comunicados (28/10/2026).
+// Duração padrão de todos os comunicados (28/10/2026); a ALR usa 31 min (11/11/2026).
 const DURACAO = "32 min";
+const DURACAO_EMPRESA: Record<string, string> = { "36380387000104": "31 min" };
+const duracaoDe = (cnpj: string | null | undefined) => DURACAO_EMPRESA[soDigitos(cnpj ?? "")] ?? DURACAO;
 
 // Mistas: emitem comunicado e programação (MART: 3º tratamento do dia, fim de semana e feriado; Madeval:
 // HT de embalagem como prestadora). Ficam na aba mesmo marcadas como "programação" no cadastro.
@@ -196,7 +198,7 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
           setModelo(m);
           const base = Object.fromEntries(Object.values(m.campos).map((c) => [c!.campo, c!.valor])) as Partial<Record<CampoComunicado, string>>;
           base.numero = proximoNumero(maiorNumero(j.ultimoNumero, m.campos.numero?.valor), new Date().getFullYear());
-          if (m.campos.duracao) base.duracao = DURACAO;
+          if (m.campos.duracao) base.duracao = duracaoDe(cnpj);
           setPedidos([{ valores: completarTabela(m, base), achados: [], avisos: [] }]);
           setSel(0);
         } catch (e) {
@@ -297,7 +299,7 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
           quantidade: l.quantidade,
           data: l.data,
           horario: l.horario,
-          ...(modelo.campos.duracao ? { duracao: DURACAO } : {}),
+          ...(modelo.campos.duracao ? { duracao: duracaoDe(empresa.cnpj) } : {}),
         },
         achados: ["numero", "tomador", "local", "produto", "quantidade", "data", "horario"] as CampoComunicado[],
         avisos: semDados.length ? [`Sem nome/CNPJ na aba DADOS para: ${semDados.join(", ")} — confira o tomador.`] : [],
@@ -376,7 +378,7 @@ export function Comunicados({ senha, sair }: { senha: string; sair: () => void }
         numero = proximoNumero(numero, new Date().getFullYear());
         r.valores.numero = numero;
       }
-      if (modelo.campos.duracao) r.valores.duracao = DURACAO;
+      if (modelo.campos.duracao) r.valores.duracao = duracaoDe(empresa.cnpj);
       return { valores: completarTabela(modelo, r.valores), achados: r.achados, avisos: r.avisos, clientes: r.clientes };
     });
     setPedidos(lidos);
