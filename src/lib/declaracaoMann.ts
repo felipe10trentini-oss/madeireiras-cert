@@ -583,7 +583,8 @@ export function blsDoTexto(texto: string): DadosBL[] {
       marcas: ped.marcas,
       volumesTexto: ped.volumes,
       bl: base.bl ?? ped.bl,
-      exportador: base.exportador ?? ped.cliente,
+      // Ficha com "Cliente: …" (JJ Thomazi): vale o cliente dela, sem o rótulo.
+      exportador: (ped.ficha ? ped.cliente : null) ?? base.exportador ?? ped.cliente,
       invoice: base.invoice ?? ped.fatura,
       nfe: ped.nfe,
       ciclos: [...new Set([...base.ciclos, ...q.map((i) => i.ciclo)])],
