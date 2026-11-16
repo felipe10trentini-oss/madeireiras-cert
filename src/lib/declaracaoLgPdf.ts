@@ -71,11 +71,31 @@ export async function ativosDoModelo(modelo: Uint8Array | ArrayBuffer): Promise<
   const bin = async (n: string) => (zip.file(n) ? await zip.file(n)!.async("uint8array") : null);
   const out: AtivosModelo = { logo: null, marca: null, assinatura: null, rotAssinatura: 0, quadro: { w: 72, h: 102 }, recorte: { l: 0, t: 0, r: 0, b: 0 }, nome: "", linhas: [], registro: "", rt: [] };
 
-  for (const h of Object.keys(zip.files).filter((n) => /^word\/header\d+\.xml$/.test(n))) {
+  // Cabeçalhos na ordem de uso: o padrão, o da 1ª página e só depois o das páginas pares (que numa
+  // declaração de 1 página não aparece — na RCB ainda tinha o logo da ABB, de onde o Word foi copiado).
+  const docXml = await ler("word/document.xml");
+  const docRels = await ler("word/_rels/document.xml.rels");
+  const tipoDe = (h: string) => {
+    const id = docRels.match(new RegExp(`Id="(\\w+)"[^>]*Target="${h.replace("word/", "")}"`))?.[1] ?? docRels.match(new RegExp(`Target="${h.replace("word/", "")}"[^>]*Id="(\\w+)"`))?.[1];
+    return (id && docXml.match(new RegExp(`<w:headerReference w:type="(\\w+)" r:id="${id}"`))?.[1]) || "";
+  };
+  // Com "1ª página diferente" (titlePg), a página 1 usa o cabeçalho "first".
+  const ORDEM: Record<string, number> = /<w:titlePg(?:\s+w:val="(?:1|true|on)")?\s*\/>/.test(docXml) ? { first: 0, default: 1, even: 2 } : { default: 0, first: 1, even: 2 };
+  const cabecalhos = Object.keys(zip.files)
+    .filter((n) => /^word\/header\d+\.xml$/.test(n))
+    .map((n, i) => ({ n, i, o: ORDEM[tipoDe(n)] ?? 3 }))
+    .sort((a, b) => a.o - b.o || a.i - b.i)
+    .map((x) => x.n);
+  for (const h of cabecalhos) {
     const xml = (await ler(h)).replace(/<mc:Fallback>[\s\S]*?<\/mc:Fallback>/g, "");
     const rels = await ler(h.replace("word/", "word/_rels/") + ".rels");
     const alvo = (id: string) => rels.match(new RegExp(`Id="${id}"[^>]*Target="([^"]+)"`))?.[1];
-    const logoId = xml.match(/<a:blip r:embed="(\w+)"/)?.[1];
+    // Imagem grande atrás do texto (fundo da página) não é o logo.
+    const ancoras = xml.match(/<wp:(?:anchor|inline)\b[\s\S]*?<\/wp:(?:anchor|inline)>/g) ?? [];
+    const fundo = (a: string) => /behindDoc="1"/.test(a) && +(a.match(/<wp:extent cx="(\d+)"/)?.[1] ?? 0) > 250 * 12700;
+    const logoId =
+      (ancoras.length ? ancoras.filter((a) => !fundo(a)).map((a) => a.match(/<a:blip r:embed="(\w+)"/)?.[1]).find(Boolean) : undefined) ??
+      xml.match(/<a:blip r:embed="(\w+)"/)?.[1];
     // Marca-d'água só a de verdade do Word ("WordPictureWatermark…"); outras imagens VML do
     // cabeçalho são enfeites do timbre.
     const marcaId = xml.match(/<v:shape [^>]*id="WordPictureWatermark[^"]*"[\s\S]*?<v:imagedata r:id="(\w+)"/)?.[1];
