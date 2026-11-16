@@ -4,6 +4,8 @@
 // Roda no navegador e no Node (JSZip).
 import JSZip from "jszip";
 import {
+  extensoEn,
+  extensoPt,
   minutosDe,
   periodoTratamento,
   type DadosDeclaracao,
@@ -56,7 +58,8 @@ const ROTULOS: [Campo, RegExp][] = [
   ["fatura", /\bFatura(?:\s*\/\s*Invoice)?\s*:|\bInvoice(?:\s*#)?\s*:/],
   ["nfe", /\bNF-?e\s*:|\bNf[’']s\s*:|\bNF\s*:/],
   ["booking", /\bBooking\s*:/],
-  ["bl", /\bB\/L\s*:/],
+  // "B/L (Bill of Lading):" (Exata).
+  ["bl", /\bB\/L(?:\s*\(Bill of Lading\))?\s*:/],
   ["container", /\bContainer\s*:/],
   ["marcas", new RegExp(`Marcas?${S}Marks?\\s*:`)],
   ["volumes", new RegExp(`(?:Cubagem${S}Volume|Quantidade${S}Quantity)\\s*:`)],
@@ -157,7 +160,7 @@ const MULTILINHA = new Set<Campo>(["exportador", "volumes", "master"]);
  *   "Lote 972 - UR010972PR031026 - 200 paletes" (Paletes Maringá, uma por linha)
  *   "Ciclo 249 - 1606/2026" (Mann) · "051/2026 - Ciclo 189" · "203/2026 Ciclo 769" · "Ciclo 788"
  */
-export function mestreComoModelo(antigo: string, linhas: LinhaTratamento[]): string {
+export function mestreComoModelo(antigo: string, linhas: LinhaTratamento[], certificadoAntes = false): string {
   const entradas = antigo.split(/\s+\/\s+(?=\S)|\s*;\s*/).filter((e) => e.trim());
   const molde = (entradas[0] ?? "").trim();
   const codigo = (s: string) => /^[A-Z]{2}\d{6,}[A-Z0-9]*$/i.test(s.trim());
@@ -181,7 +184,10 @@ export function mestreComoModelo(antigo: string, linhas: LinhaTratamento[]): str
       if (!out[i]) continue;
       s += (s && i > 0 ? out[i - 1] : "") + out[i];
     }
-    return s.trim() || [l.ciclo && `Ciclo ${cicloCurto}`, l.certificado].filter(Boolean).join(" - ");
+    if (s.trim()) return s.trim();
+    // Modelo com o código da curva e o ciclo agora é só o nº (Exata): "220/2026 ciclo 889", como ela escreve.
+    if (certificadoAntes && codigo(molde) && l.certificado && l.ciclo) return `${l.certificado} ciclo ${cicloCurto}`;
+    return [l.ciclo && `Ciclo ${cicloCurto}`, l.certificado].filter(Boolean).join(" - ");
   };
   const unicas = [...new Map(linhas.map((l) => [`${l.ciclo}|${l.lote}|${l.certificado}`, l])).values()];
   const textos = [...new Set(unicas.map(uma))];
@@ -204,9 +210,60 @@ const desescapar = (s: string) =>
 const RE_PARAGRAFO = /<w:p[ >](?:(?!<w:p[ >])[\s\S])*?<\/w:p>/g;
 const RE_T = /(<w:t(?:\s[^>]*)?>)([^<]*)(<\/w:t>)/g;
 
+/**
+ * O que foi tratado no texto do tratamento segue a remessa: "Os suportes de madeira foram submetidos" do
+ * modelo vira "Os fardos de madeira foram submetidos" quando a remessa é de fardos (Exata). Só as formas
+ * conhecidas; "material" (sem tipo) não mexe no texto do modelo.
+ */
+const SUJEITO_TEXTO: Record<string, { pt: string; en: string }> = {
+  paletes: { pt: "Os paletes de madeira foram submetidos", en: "The wooden pallets were subjected" },
+  suportes: { pt: "Os suportes de madeira foram submetidos", en: "The wooden skids were subjected" },
+  caixas: { pt: "As caixas de madeira foram submetidas", en: "The wooden boxes were subjected" },
+  fardos: { pt: "Os fardos de madeira foram submetidos", en: "The wooden bundles were subjected" },
+};
+function sujeitoNoTexto(doc: string, sujeito: string): string {
+  const novo = SUJEITO_TEXTO[sujeito];
+  if (!novo) return doc;
+  const formas: [RegExp, string][] = [
+    [/\b(?:O|Os|As)\s+(?:material|(?:suportes|paletes|caixas|fardos) de madeira)\s+(?:foi submetido|foram submetid[oa]s)\b/, novo.pt],
+    [/\bThe\s+(?:material|wooden (?:skids|pallets|boxes|crates|bundles))\s+(?:was|were)\s+subjected\b/, novo.en],
+  ];
+  return doc.replace(RE_PARAGRAFO, (p) => {
+    let xml = p;
+    for (const [re, txt] of formas) {
+      const m = textoDe(xml).texto.match(re);
+      if (m && m[0] !== txt) xml = trocarTrecho(xml, m.index!, m.index! + m[0].length, txt);
+    }
+    return xml;
+  });
+}
+
 interface Trecho {
   ini: number; // posição no texto do parágrafo
   fim: number;
+}
+
+/**
+ * Duração escrita no texto do tratamento (Exata): "durante 39 (trinta e nove) minutos" / "for 39 (thirty
+ * nine) minutes" passa a ser a da declaração, com o número por extenso.
+ */
+function duracaoNoTexto(doc: string, min: number): string {
+  const formas: [RegExp, (n: number) => string][] = [
+    [/(\d{2,3})(\s*\(\s*)([a-zà-ú][a-zà-ú\s-]{2,40}?)(\s*\)\s*minutos\b)/i, extensoPt],
+    [/(\d{2,3})(\s*\(\s*)([a-z][a-z\s-]{2,40}?)(\s*\)\s*minutes\b)/i, extensoEn],
+  ];
+  return doc.replace(RE_PARAGRAFO, (p) => {
+    let xml = p;
+    for (const [re, ext] of formas) {
+      const m = textoDe(xml).texto.match(re);
+      if (!m || +m[1] === min) continue;
+      const iExt = m.index! + m[1].length + m[2].length;
+      // Do fim para o começo: a posição do número não muda.
+      xml = trocarTrecho(xml, iExt, iExt + m[3].length, ext(min));
+      xml = trocarTrecho(xml, m.index!, m.index! + m[1].length, String(min));
+    }
+    return xml;
+  });
 }
 
 /** Texto do parágrafo e onde está cada <w:t>. */
@@ -537,7 +594,8 @@ function preencherTabela(
 export async function preencherModelo(
   modelo: ArrayBuffer | Uint8Array,
   d: DadosDeclaracao,
-  op: { removerVazios?: boolean } = {},
+  /** textoDaRemessa (Exata): o texto do tratamento segue a remessa (duração, o que foi tratado) e o mestre vai “220/2026 ciclo 889”. */
+  op: { removerVazios?: boolean; textoDaRemessa?: boolean } = {},
 ): Promise<ResultadoModelo> {
   const zip = await JSZip.loadAsync(modelo);
   const arq = zip.file("word/document.xml");
@@ -665,7 +723,7 @@ export async function preencherModelo(
           novo = antigo.replace(/\d+/g, novo.match(/\d+/)![0]);
         // Certificado mestre na ordem do modelo: "Ciclo 249 - 1606/2026" (Mann) ou "203/2026 Ciclo 769".
         if (r.campo === "master" && v.linhas.some((l) => l.ciclo || l.certificado))
-          novo = mestreComoModelo(antigo, v.linhas);
+          novo = mestreComoModelo(antigo, v.linhas, op.textoDaRemessa);
         // Modelo padrão: campo da remessa apagado na edição sai da declaração, com o rótulo.
         // Observação em branco sai em todas (a LG também).
         if ((r.campo === "observacao" || (op.removerVazios && REMOVIVEIS.has(r.campo))) && !(novo ?? "").trim()) {
@@ -701,7 +759,9 @@ export async function preencherModelo(
           continue;
         // Espaços repetidos dos dados (endereço da nota, descrição do item) saem: um espaço só.
         const linhasValor = novo.split("\n").map((l) => l.replace(/[ \t]{2,}/g, " ").trim());
-        xml = trocarTrecho(xml, ini, fim, (semValor && linhasValor[0] ? " " : "") + caixa(antigo, linhasValor[0]));
+        // Código da curva no modelo ("UR010294SC030226") não diz se o campo é em maiúsculas.
+        const comoAntigo = op.textoDaRemessa && r.campo === "master" && /^[A-Z]{2}\d{6,}[A-Z0-9]*$/i.test(antigo.trim()) ? "" : antigo;
+        xml = trocarTrecho(xml, ini, fim, (semValor && linhasValor[0] ? " " : "") + caixa(comoAntigo, linhasValor[0]));
         preenchidos.push(r.campo);
         // Exportador / quantidade: as próximas linhas vão nos parágrafos seguintes do modelo (as
         // linhas que sobram no modelo — endereço antigo, 2º item antigo — ficam vazias).
@@ -742,6 +802,17 @@ export async function preencherModelo(
   const caixasPreenchidas = caixas.map(passar);
   while (/<!--cx\d+-->/.test(doc))
     doc = doc.replace(/<!--cx(\d+)-->/g, (_, n) => caixasPreenchidas[+n]);
+  const durTexto = parseInt(v.campos.duracao ?? "", 10);
+  if (op.textoDaRemessa && durTexto > 0) {
+    const antes = doc;
+    doc = duracaoNoTexto(doc, durTexto);
+    if (doc !== antes) preenchidos.push("duração no texto do tratamento");
+  }
+  if (op.textoDaRemessa && d.sujeito) {
+    const antes = doc;
+    doc = sujeitoNoTexto(doc, d.sujeito);
+    if (doc !== antes) preenchidos.push("material no texto do tratamento");
+  }
 
   // Data no fim sem rótulo ("Lages, 24 de junho de 2026."): o último parágrafo com data.
   if (!emissaoFeita) {

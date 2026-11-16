@@ -286,6 +286,11 @@ export interface PedidoLido {
   volumes?: string | null;
   /** Ficha com rótulos ("Cliente: …", "NOTA FISCAL: …", "VOLUME: …" — JJ Thomazi): o cliente é o da linha "Cliente:". */
   ficha?: boolean;
+  /** Pedido com rótulos da Exata ("Exportador: KONEI … LTDA,. AVENIDA …", "Destinatário:- TAIWAN", "FORNECEDOR: R&M"). */
+  exportador?: string | null;
+  destino?: string | null;
+  destinatario?: string | null;
+  fornecedor?: string | null;
 }
 
 const ITEM = /paletes?|pallets?|skids?|suportes?|caixas?|crates?|engradados?|kits?|tampas?/i;
@@ -332,18 +337,39 @@ export function lerPedido(texto: string): PedidoLido | null {
   // Nota/BL tem CNPJ e leitura própria: aqui só vale se tem o pedido (quantidade + ciclo/lote).
   if (CNPJ.test(texto) && !itens.length && !fichaCliente) return null;
   const marcas = ls.map((l) => l.match(/^MARCAS?\s*:\s*(.{2,60})$/i)?.[1].trim()).find(Boolean) ?? null;
-  if (!itens.length && !nfe && !fatura && !marcas) return null;
-  const blPedido = ls.map((l) => l.match(/^B\/?L\s*:\s*([A-Z]{2,5}\d{5,12})$/i)?.[1]).find(Boolean) ?? null;
+  // Pedido da Exata: "Exportador: KONEI VENNER TRADING LTDA,. AVENIDA SILVA JARDIM, 2600 …" -> só a razão social.
+  const rotulo = (re: RegExp) => ls.map((l) => l.match(re)?.[1].trim()).find(Boolean) ?? null;
+  const expRotulo = rotulo(/^Exportador\s*(?:\/\s*Shipper)?\s*:[\s:-]*(.{3,200})$/i)
+    ?.split(/\s*,|\s+-\s+|\s+(?=(?:AV(?:ENIDA)?|RUA|R\.|ROD(?:OVIA)?|ESTRADA|ALAMEDA|TRAVESSA)\b)/i)[0]
+    .replace(/[.,;\s]+$/, "") || null;
+  // "Destinatário:- TAIWAN": um país (sem razão social) é o destino; uma empresa, o destinatário.
+  const destRotulo = rotulo(/^Destin(?:at[áa]rio|o)\s*:[\s:-]*(.{2,120})$/i);
+  const ehEmpresa = !!destRotulo && (/\b(LTDA|S\.?\/?A\.?|INC|LLC|LTD|CO\.?|CORP|GMBH|S\.?L\.?)\b/i.test(destRotulo) || destRotulo.split(/\s+/).length > 4);
+  const fornecedor = rotulo(/^Fornecedor\s*:[\s:-]*(.{2,100})$/i);
+  if (!itens.length && !nfe && !fatura && !marcas && !expRotulo) return null;
+  // BL só com números também vale ("BL: 360600084195", Evergreen).
+  const blPedido = ls.map((l) => l.match(/^B\/?L\s*:\s*([A-Z]{2,5}\d{5,12}|\d{8,14})$/i)?.[1]).find(Boolean) ?? null;
   const vol = ls.map((l) => l.match(/\b(?:CICLO|LOTE?)S?\s*(?:MANN)?\s*[:#nNº°.]*\s*\d{1,5}\s*[-–—]\s*(\d[\d.]*)\s*([^-–—\d]+?)\s*[-–—]\s*(\d[\d.]*)\s*FARDOS?\b/i)).find(Boolean);
   // Ficha: "VOLUME: 44 FARDOS" e "QUANT. 0,304 M³" -> "44 fardos / bundles (0,304 m³)".
   const volFicha = ls.map((l) => l.match(/^VOLUMES?\s*:\s*(\d[\d.]*)\s+([A-Za-zÀ-ú]+)/i)).find(Boolean);
   const m3 = texto.match(/\bQUANT(?:IDADE)?\.?\s*:?\s*(\d+(?:,\d+)?)\s*M[³3]/i)?.[1];
   const EN: Record<string, string> = { fardos: "bundles", fardo: "bundle", paletes: "pallets", palete: "pallet", suportes: "skids", caixas: "boxes" };
+  // Linha só com a quantidade ("43 BUNDLES", Exata): como nas declarações dela, "43 Fardos de madeira/ wooden bundles".
+  const soQtd = ls.map((l) => l.match(/^(\d[\d.]*)\s+(bundles?|fardos?|skids?|suportes?|pallets?|paletes?|caixas?|crates?)\.?$/i)).find(Boolean);
+  const porExtenso = (n: string, w: string) => {
+    const um = n === "1";
+    if (/^(bundle|fardo)/i.test(w)) return `${n} ${um ? "Fardo" : "Fardos"} de madeira/ wooden ${um ? "bundle" : "bundles"}`;
+    if (/^(skid|suporte)/i.test(w)) return `${n} ${um ? "Suporte" : "Suportes"} de madeira/ wooden ${um ? "skid" : "skids"}`;
+    if (/^pal/i.test(w)) return `${n} ${um ? "Palete" : "Paletes"} de madeira/ wooden ${um ? "pallet" : "pallets"}`;
+    return `${n} ${um ? "Caixa" : "Caixas"} de madeira/ wooden ${um ? "crate" : "crates"}`;
+  };
   const volumes = vol
     ? `${vol[1]} ${vol[2].charAt(0).toUpperCase()}${vol[2].slice(1).toLowerCase()} (${vol[3]} Fardos/ Bundles)`
     : volFicha
       ? `${volFicha[1]} ${volFicha[2].toLowerCase()}${EN[volFicha[2].toLowerCase()] ? ` / ${EN[volFicha[2].toLowerCase()]}` : ""}${m3 ? ` (${m3} m³)` : ""}`
-      : null;
+      : soQtd
+        ? porExtenso(soQtd[1], soQtd[2]) + (m3 ? ` (${m3} m³)` : "")
+        : null;
   // Linhas do cabeçalho do e-mail (print do Gmail) não são o cliente.
   const cabecalho = /@|^(de|from|to|para mim|date|cc|enviado|sent)\b|mensagem|traduzir|caixa\s*de\s*entrada|forwarded|^att\b/i;
   // Cliente: "Para X" (não "para mim"); a razão social escrita no e-mail ("BOIBRAS IND COM.CARNES E SUB-PROD-LTDA");
@@ -371,5 +397,9 @@ export function lerPedido(texto: string): PedidoLido | null {
     bl: blPedido,
     volumes,
     ficha: !!fichaCliente,
+    exportador: expRotulo ? titulo(expRotulo) : null,
+    destino: destRotulo && !ehEmpresa && destRotulo !== "-" ? titulo(destRotulo) : null,
+    destinatario: destRotulo && ehEmpresa ? titulo(destRotulo) : null,
+    fornecedor: fornecedor ? titulo(fornecedor) : null,
   };
 }

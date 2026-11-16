@@ -4,7 +4,7 @@ import JSZip from "jszip";
 import { useEffect, useRef, useState } from "react";
 import { CAMPOS_REMESSA, dadosIniciais, linhaDoMestre, nomeArquivo, type DadosDeclaracao, type LinhaTratamento } from "@/lib/declaracao";
 import { CNPJ_LG, manualLg, montarDeclaracaoLg } from "@/lib/declaracaoLg";
-import { blsDoTexto, CNPJ_MANN_VOLANTE, juntarDocumentos, juntarPedidos, montarDeclaracaoPadrao, podeJuntar, quantidadeDigitada, type DadosBL, type MestreLido } from "@/lib/declaracaoMann";
+import { blsDoTexto, CNPJ_EXATA, CNPJ_MANN_VOLANTE, juntarDocumentos, juntarPedidos, montarDeclaracaoPadrao, podeJuntar, quantidadeDigitada, type DadosBL, type MestreLido } from "@/lib/declaracaoMann";
 import {
   ativosDoModelo,
   baixarFontes,
@@ -338,18 +338,21 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
   const faltaCampo = !!atual?.dados && !atual.dados.volumes.trim();
   const editorAberto = editando || faltaCampo;
 
+  // Exata: o texto do tratamento do Word segue a remessa (duração, fardos/suportes) e o mestre vai “220/2026 ciclo 889”.
+  const textoDaRemessa = !!empresa && soDigitos(empresa.cnpj) === CNPJ_EXATA;
+
   // Prévia do Word preenchido da declaração aberta.
   useEffect(() => {
     if (!atual?.dados || !modelo?.bytes) return;
     let vivo = true;
     const t = setTimeout(() => {
-      void preencherModelo(modelo.bytes!, atual.dados!, { removerVazios: !automatico }).then((r) => vivo && setPrevia(r.bytes));
+      void preencherModelo(modelo.bytes!, atual.dados!, { removerVazios: !automatico, textoDaRemessa }).then((r) => vivo && setPrevia(r.bytes));
     }, 400);
     return () => {
       vivo = false;
       clearTimeout(t);
     };
-  }, [atual?.dados, modelo?.bytes, automatico]);
+  }, [atual?.dados, modelo?.bytes, automatico, textoDaRemessa]);
 
   function escolherEmpresa(c: string) {
     setCnpj(c);
@@ -698,7 +701,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     const it = itens[i];
     if (!it?.dados || !modelo?.bytes) return;
     try {
-      const r = await preencherModelo(modelo.bytes, it.dados, { removerVazios: !automatico });
+      const r = await preencherModelo(modelo.bytes, it.dados, { removerVazios: !automatico, textoDaRemessa });
       baixarBlob(r.bytes, nomeDe(it), DOCX);
       if (r.avisos.length) setToast(r.avisos.join(" "));
     } catch (e) {
@@ -749,7 +752,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
         let nome = base;
         for (let n = 2; usados.has(nome); n++) nome = base.replace(/\.(docx|pdf)$/, ` (${n}).$1`);
         usados.add(nome);
-        zip.file(nome, formato === "pdf" ? await pdfDe(it.dados) : (await preencherModelo(modelo.bytes, it.dados, { removerVazios: !automatico })).bytes);
+        zip.file(nome, formato === "pdf" ? await pdfDe(it.dados) : (await preencherModelo(modelo.bytes, it.dados, { removerVazios: !automatico, textoDaRemessa })).bytes);
       }
       const nomeZip = `Declarações ${empresa?.apelido ?? ""} ${hojeBR().replace(/\//g, "-")}${formato === "pdf" ? " PDF" : ""}.zip`.replace(/\s+/g, " ");
       baixarBlob(await zip.generateAsync({ type: "uint8array" }), nomeZip, "application/zip");

@@ -19,6 +19,7 @@ export const CNPJ_MANN_VOLANTE = "00093600000141";
 const CNPJ_PINUSTAN = "03298956000100";
 const CNPJ_PALETES_MARINGA = "21923718000120";
 const CNPJ_MD = "04456108000144";
+export const CNPJ_EXATA = "24046686000110";
 const BARAO = "Barão - Indústria e Comércio de Erva Mate e Chás S.A.";
 /** Quem fabrica o palete que a Mann trata e vai como exportador da declaração (o cliente vira o destinatário). */
 const FORNECEDORES_MANN = /\brenascer\b/i;
@@ -45,6 +46,8 @@ export interface DadosBL {
   ciclos: string[];
   /** Veio de um pedido por e-mail (print/texto), sem os dados do navio: junta com o BL da mesma remessa. */
   pedido?: boolean;
+  /** "FORNECEDOR: R&M MADEIRAS" do pedido (Exata): quem tratou, para achar o ciclo no relatório. */
+  fornecedor?: string | null;
   /** "MARCAS: BALTIMORE B260712" do pedido. */
   marcas?: string | null;
   /** Quantidade por extenso do pedido: "13 Kit embalagem (13 Fardos/ Bundles)". */
@@ -341,7 +344,9 @@ export function montarDeclaracaoPadrao(
       // Mann: o ciclo se repete entre os veículos e nenhum é do cliente do pedido -> o da Renascer (o palete é dela).
       const doCliente = cands.some((x) => !!exportadorDoc && primeira(x.tomador) === primeira(exportadorDoc));
       const daFornecedora = mannVolante && !doCliente ? cands.filter((x) => FORNECEDORES_MANN.test(x.tomador)) : [];
-      const l = escolhida ?? (rel ? escolherLinha(daFornecedora.length ? daFornecedora : cands, { cnpj: cnpjTomador, nome: exportadorDoc }) : null);
+      // Exata: o pedido diz o "FORNECEDOR" (quem tratou), que é o tomador do ciclo no relatório.
+      const doFornecedor = bl?.fornecedor ? cands.filter((x) => primeira(x.tomador) === primeira(bl.fornecedor!)) : [];
+      const l = escolhida ?? (rel ? escolherLinha(doFornecedor.length ? doFornecedor : daFornecedora.length ? daFornecedora : cands, { cnpj: cnpjTomador, nome: exportadorDoc }) : null);
       // Mais de uma estufa (a unidade de tratamento é um número): o ciclo vai com a estufa, "1-326".
       const estufas = [...new Set(cands.map((x) => (x.unidade ?? "").trim()))];
       if (l && cands.length > 1 && !escolhida && !estufaCiclo(c) && estufas.length > 1 && estufas.every((u) => /^\d{1,3}$/.test(u))) {
@@ -361,6 +366,7 @@ export function montarDeclaracaoPadrao(
   }
 
   const base = dadosIniciais([], empresa, hoje);
+  const exata = !!empresa && soDigitos(empresa.cnpj) === CNPJ_EXATA;
   const m0 = usados[0];
   const ehMd = !!empresa && soDigitos(empresa.cnpj) === CNPJ_MD;
   const lido = exportadorDoc || titulo(m0 ? tomadorDoMestre(m0.texto) : null) || titulo(doRelatorio[0]?.tomador);
@@ -450,7 +456,8 @@ export function montarDeclaracaoPadrao(
     loteRemessa: nf?.loteRemessa ?? "",
     comunicado: "",
     localTratamento: snMinusculo([...new Set(locais)].join("; ")).replace(/\s*-\s*[A-Z]{2}\s*$/, ""),
-    sujeito: /skid|suporte/i.test(bl?.tipo ?? "") ? "suportes" : /palet|pallet/i.test(bl?.tipo ?? "") ? "paletes" : nf?.itens.every((i) => /palet|pallet/i.test(i.descricao)) ? "paletes" : nf?.itens.every((i) => /suporte|skid/i.test(i.descricao)) ? "suportes" : "material",
+    // Exata, pedido em texto sem nota ("43 BUNDLES"): o tipo da quantidade escrita.
+    sujeito: /skid|suporte/i.test(bl?.tipo ?? "") ? "suportes" : /palet|pallet/i.test(bl?.tipo ?? "") ? "paletes" : exata && !nf && /fardo|bundle/i.test(bl?.volumesTexto ?? "") ? "fardos" : exata && !nf && /suporte|skid/i.test(bl?.volumesTexto ?? "") ? "suportes" : exata && !nf && /palet|pallet/i.test(bl?.volumesTexto ?? "") ? "paletes" : nf?.itens.every((i) => /palet|pallet/i.test(i.descricao)) ? "paletes" : nf?.itens.every((i) => /suporte|skid/i.test(i.descricao)) ? "suportes" : "material",
     linhas,
     qtdPorCiclo: linhas.length > 1 && linhas.some((l) => l.quantidade) && [...cicloDe.values()].some((c) => qtd.has(c)),
     // Mann Unidade Volante emite em Curitiba; as outras, na cidade delas (cadastro).
@@ -584,7 +591,10 @@ export function blsDoTexto(texto: string): DadosBL[] {
       volumesTexto: ped.volumes,
       bl: base.bl ?? ped.bl,
       // Ficha com "Cliente: …" (JJ Thomazi): vale o cliente dela, sem o rótulo.
-      exportador: (ped.ficha ? ped.cliente : null) ?? base.exportador ?? ped.cliente,
+      exportador: (ped.ficha ? ped.cliente : null) ?? base.exportador ?? ped.exportador ?? ped.cliente,
+      destino: base.destino ?? ped.destino ?? null,
+      destinatario: base.destinatario ?? ped.destinatario ?? null,
+      fornecedor: ped.fornecedor ?? null,
       invoice: base.invoice ?? ped.fatura,
       nfe: ped.nfe,
       ciclos: [...new Set([...base.ciclos, ...q.map((i) => i.ciclo)])],
