@@ -9,8 +9,8 @@ export const runtime = "nodejs";
 /**
  * Último relatório do MAPA de cada empresa, um por ano (aba TÉRMICO já lida no navegador), para as
  * declarações do modelo padrão: "declaracoes/<cnpj>/relatorio-<ano>.json" na pasta privada do Supabase
- * (dados de clientes nunca vão para o repositório). Soltar o relatório de novo troca o daquele ano; o
- * do ano anterior fica (declaração de ciclo de dezembro feita em janeiro).
+ * (dados de clientes nunca vão para o repositório). Soltar o relatório de novo troca o daquele ano; os
+ * dos outros anos ficam (declaração de ciclo de dezembro feita em janeiro, ou de um ciclo de 2024).
  */
 const pasta = () => getSupabaseServerClient().storage.from("declaracoes");
 
@@ -36,13 +36,12 @@ export async function GET(req: Request) {
   const cnpj = soDigitos(new URL(req.url).searchParams.get("cnpj") ?? "");
   if (cnpj.length !== 14) return NextResponse.json({ error: "Informe o CNPJ." }, { status: 400 });
   const { data: arqs } = await pasta().list(cnpj, { limit: 100 });
-  // Os dois anos mais recentes guardados.
+  // Todos os anos guardados, do mais recente ao mais antigo (declaração de ciclo antigo: Exata, ciclo de 2024).
   const anos = (arqs ?? [])
     .map((a) => a.name.match(/^relatorio-(\d{4})\.json$/)?.[1])
     .filter((a): a is string => !!a)
     .sort()
-    .reverse()
-    .slice(0, 2);
+    .reverse();
   const salvos: Salvo[] = [];
   for (const ano of anos) {
     const { data } = await pasta().download(`${cnpj}/relatorio-${ano}.json`);

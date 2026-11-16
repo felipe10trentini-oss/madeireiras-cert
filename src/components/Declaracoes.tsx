@@ -323,7 +323,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
       .then(async (r) => {
         const j = r.ok ? await r.json() : null;
         if (vivo && j?.salvo && Array.isArray(j.linhas)) {
-          // Um por ano (os dois últimos): "2026: MANN & CIA - 2026.xlsx + 2025: …".
+          // Um por ano (todos os guardados): "2026: MANN & CIA - 2026.xlsx + 2025: …".
           const rs = (j.relatorios ?? []) as { ano: string; nome: string; atualizado: string }[];
           setRelatorio({ nome: rs.map((r) => `${r.ano}: ${r.nome}`).join(" + "), linhas: j.linhas, atualizado: rs[0]?.atualizado });
         }
