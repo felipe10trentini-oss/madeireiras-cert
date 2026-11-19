@@ -23,6 +23,8 @@ export interface LinhaRelatorio {
   tomadorCnpj: string;
   /** "Identificação da unidade de tratamento": na Mann, a placa do veículo. */
   unidade?: string;
+  /** Relatório de fabricação (V&R, aba Venda): a nota de venda; o lote dela está em `lote` ("40-26"). */
+  nfVenda?: string;
 }
 
 const dig = (s: string) => s.replace(/\D/g, "");
@@ -32,22 +34,14 @@ export function loteDoCodigo(ciclo: string): string {
   return ciclo.match(/^UR\d{2}0*(\d+)[A-Z]{2}\d{6}$/i)?.[1] ?? "";
 }
 
-/** Lê a aba TÉRMICO do relatório (as colunas pelo nome do cabeçalho: o modelo do MAPA muda de ano em ano). */
-export async function lerRelatorioTermico(bytes: ArrayBuffer | Uint8Array): Promise<LinhaRelatorio[]> {
-  const zip = await JSZip.loadAsync(bytes);
-  const wb = (await zip.file("xl/workbook.xml")?.async("string")) ?? "";
-  const rels = (await zip.file("xl/_rels/workbook.xml.rels")?.async("string")) ?? "";
-  const abas = [...wb.matchAll(/<sheet [^>]*name="([^"]+)"[^>]*r:id="(\w+)"/g)].map((m) => ({ nome: desescapar(m[1]), id: m[2] }));
-  const aba = abas.find((a) => /t[ée]rmico/i.test(a.nome));
-  if (!aba) throw new Error("Não achei a aba TÉRMICO: é o relatório mensal do MAPA da empresa?");
+type LinhaAba = { n: number; cel: Record<number, string> };
+
+/** Linhas de uma aba da planilha (célula por coluna, 1 = A). */
+async function linhasDaAba(zip: JSZip, rels: string, textos: string[], aba: { nome: string; id: string }): Promise<LinhaAba[]> {
   const alvo = rels.match(new RegExp(`Id="${aba.id}"[^>]*Target="([^"]+)"`))?.[1] ?? rels.match(new RegExp(`Target="([^"]+)"[^>]*Id="${aba.id}"`))?.[1];
   const xml = alvo ? await zip.file(`xl/${alvo.replace(/^\/?xl\//, "")}`)?.async("string") : null;
-  if (!xml) throw new Error("Não consegui abrir a aba TÉRMICO.");
-  const sst = (await zip.file("xl/sharedStrings.xml")?.async("string")) ?? "";
-  const textos = [...sst.matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => desescapar([...m[1].matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map((t) => t[1]).join("")));
-
-  // Linhas da planilha (célula por coluna, 1 = A).
-  const linhas: { n: number; cel: Record<number, string> }[] = [];
+  if (!xml) throw new Error(`Não consegui abrir a aba ${aba.nome}.`);
+  const linhas: LinhaAba[] = [];
   for (const linha of xml.matchAll(/<row [^>]*r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)) {
     const cel: Record<number, string> = {};
     for (const c of linha[2].matchAll(/<c r="([A-Z]+\d+)"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
@@ -57,6 +51,80 @@ export async function lerRelatorioTermico(bytes: ArrayBuffer | Uint8Array): Prom
     }
     linhas.push({ n: +linha[1], cel });
   }
+  return linhas;
+}
+
+/**
+ * Relatório de fabricação de embalagens com madeira tratada (V&R: abas Compra, Confecção e Venda, sem
+ * TÉRMICO): da aba Venda, a nota de venda e o lote ("2733" -> "40-26"), para o "Nº do lote" da declaração.
+ */
+function vendasDaAba(linhas: LinhaAba[]): LinhaRelatorio[] {
+  const cab = linhas.slice(0, 20).find((l) => {
+    const t = Object.values(l.cel).join(" | ");
+    return /nota fiscal de venda/i.test(t) && /\blote\b/i.test(t);
+  });
+  if (!cab) throw new Error("Não achei o cabeçalho da aba Venda (“Nota Fiscal de Venda”, “Lote”).");
+  const achar = (re: RegExp) => {
+    const k = Object.entries(cab.cel).find(([, t]) => re.test(t.replace(/\s+/g, " ").trim()));
+    return k ? +k[0] : null;
+  };
+  const col = {
+    data: achar(/^data da venda/i),
+    nf: achar(/^nota fiscal de venda/i),
+    comprador: achar(/^raz[ãa]o social do comprador/i),
+    produto: achar(/^tipo de produto/i),
+    lote: achar(/^lote\b/i),
+    quantidade: achar(/^quantidade/i),
+    unidade: achar(/^unidade/i),
+  };
+  const de = (cel: Record<number, string>, c: number | null) => (c == null ? "" : (cel[c] ?? ""));
+  // "01/10/26" (ano com 2 algarismos) ou data do Excel.
+  const dataVenda = (s: string) => {
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+    return m ? `${m[1].padStart(2, "0")}/${m[2].padStart(2, "0")}/20${m[3]}` : data(s);
+  };
+  const out: LinhaRelatorio[] = [];
+  for (const { n, cel } of linhas) {
+    if (n <= cab.n) continue;
+    const nf = dig(de(cel, col.nf));
+    const lote = de(cel, col.lote).trim();
+    if (!nf || !lote) continue;
+    out.push({
+      ciclo: "",
+      lote,
+      certificado: "",
+      data: dataVenda(de(cel, col.data)),
+      hora: "",
+      modalidade: "Venda",
+      temperatura: "",
+      minutos: null,
+      local: "",
+      volumes: de(cel, col.quantidade),
+      unidadeVolumes: de(cel, col.unidade),
+      produto: de(cel, col.produto),
+      tomador: de(cel, col.comprador),
+      tomadorCnpj: "",
+      nfVenda: String(parseInt(nf, 10)),
+    });
+  }
+  return out;
+}
+
+/** Lê a aba TÉRMICO do relatório (as colunas pelo nome do cabeçalho: o modelo do MAPA muda de ano em ano). */
+export async function lerRelatorioTermico(bytes: ArrayBuffer | Uint8Array): Promise<LinhaRelatorio[]> {
+  const zip = await JSZip.loadAsync(bytes);
+  const wb = (await zip.file("xl/workbook.xml")?.async("string")) ?? "";
+  const rels = (await zip.file("xl/_rels/workbook.xml.rels")?.async("string")) ?? "";
+  const abas = [...wb.matchAll(/<sheet [^>]*name="([^"]+)"[^>]*r:id="(\w+)"/g)].map((m) => ({ nome: desescapar(m[1]), id: m[2] }));
+  const sst = (await zip.file("xl/sharedStrings.xml")?.async("string")) ?? "";
+  const textos = [...sst.matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => desescapar([...m[1].matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map((t) => t[1]).join("")));
+  const aba = abas.find((a) => /t[ée]rmico/i.test(a.nome));
+  if (!aba) {
+    const venda = abas.find((a) => /^venda/i.test(a.nome.trim()));
+    if (venda) return vendasDaAba(await linhasDaAba(zip, rels, textos, venda));
+    throw new Error("Não achei a aba TÉRMICO: é o relatório mensal do MAPA da empresa?");
+  }
+  const linhas = await linhasDaAba(zip, rels, textos, aba);
 
   // O modelo muda de ano em ano e entre cadastradas e credenciadas (as cadastradas não têm o tomador e
   // têm a coluna "Lote"): as colunas são achadas pelo cabeçalho, não pela posição.
@@ -156,8 +224,9 @@ export function linhasDoCiclo(rel: LinhaRelatorio[], ciclo: string): LinhaRelato
   const todas = rel
     .filter(
       (l) =>
+        !l.nfVenda && (
         ((semZeros(l.ciclo) === c || (l.lote && l.lote === c)) && (!estufa || semZeros((l.unidade ?? "").trim()) === semZeros(estufa.estufa))) ||
-        (alvo != null && (ec(l.lote) === alvo || ec(l.certificado) === alvo || ec(l.ciclo) === alvo))
+        (alvo != null && (ec(l.lote) === alvo || ec(l.certificado) === alvo || ec(l.ciclo) === alvo)))
     )
     .filter((l, i, xs) => xs.findIndex((x) => x.certificado === l.certificado && x.ciclo === l.ciclo && x.unidade === l.unidade) === i);
   const filtro = chave(resto.join(" "));

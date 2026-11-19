@@ -262,6 +262,13 @@ export interface OpcoesDeclaracao {
   campos?: Set<string> | null;
 }
 
+/** Lote da nota no relatório de fabricação (V&R, aba Venda): nota 2733 -> "40-26" -> "40/26", como nas declarações. */
+function loteDaVenda(rel: LinhaRelatorio[] | null, nota: string | null | undefined): string {
+  const n = parseInt(soDigitos(nota ?? ""), 10);
+  if (!rel || !n) return "";
+  return rel.find((l) => l.nfVenda === String(n))?.lote.replace(/\s*-\s*/, "/") ?? "";
+}
+
 /**
  * Monta a declaração de uma remessa: nota fiscal (ou BL/booking/packing list) + o tratamento de cada
  * ciclo escrito nela, tirado do certificado mestre (se veio) ou do relatório do MAPA da empresa.
@@ -453,7 +460,8 @@ export function montarDeclaracaoPadrao(
     produto: "",
     // Pinustan: a declaração sempre leva "PROCEDÊNCIA/ORIGIN: BRASIL" e o lote que a nota informa.
     origem: empresa && soDigitos(empresa.cnpj) === CNPJ_PINUSTAN ? "Brasil / Brazil" : "",
-    loteRemessa: nf?.loteRemessa ?? "",
+    // Nota sem o lote: o da venda dela no relatório de fabricação (V&R, aba Venda: "40-26" -> "40/26").
+    loteRemessa: nf?.loteRemessa || loteDaVenda(rel, op.nfe?.trim() || nf?.numero || bl?.nfe) || "",
     comunicado: "",
     localTratamento: snMinusculo([...new Set(locais)].join("; ")).replace(/\s*-\s*[A-Z]{2}\s*$/, ""),
     // Exata, pedido em texto sem nota ("43 BUNDLES"): o tipo da quantidade escrita.

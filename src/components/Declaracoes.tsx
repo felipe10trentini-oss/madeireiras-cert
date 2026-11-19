@@ -400,7 +400,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
     }
     if (planilha) {
       try {
-        const linhas = await lerRelatorioTermico(await planilha.arrayBuffer());
+        let linhas = await lerRelatorioTermico(await planilha.arrayBuffer());
         // Empresa da DR (Pinustan): o certificado no relatório é o lote ("2-540") e o tratamento HT vem da DR.
         if (!linhas.length && drRef.current) setToast("O relatório do MAPA não é usado aqui: o tratamento sai da DR (aba CONSOLIDADOS HT), que já está carregada.");
         else if (!linhas.length) setToast("Não achei tratamentos na aba TÉRMICO deste relatório.");
@@ -415,6 +415,12 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
             return [...c.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? "";
           };
           const ano = anoDe(linhas);
+          // Relatório de fabricação (V&R, aba Venda): vem um por mês, então as vendas dos outros meses do ano ficam.
+          const vendas = linhas.every((l) => !!l.nfVenda);
+          if (vendas) {
+            const novas = new Set(linhas.map((l) => l.nfVenda));
+            linhas = [...linhas, ...(relatorio?.linhas ?? []).filter((l) => l.nfVenda && l.data.slice(-4) === ano && !novas.has(l.nfVenda))];
+          }
           const outros = (relatorio?.linhas ?? []).filter((l) => l.data.slice(-4) !== ano);
           rel = { nome: `${ano}: ${planilha.name}`, linhas: [...linhas, ...outros], atualizado: new Date().toISOString() };
           setRelatorio(rel);
@@ -424,7 +430,15 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
             headers: { "Content-Type": "application/json", ...cabecalhoSenha(senha) },
             body: JSON.stringify({ cnpj: soDigitos(cnpj), nome: planilha.name, linhas }),
           })
-            .then((r) => setToast(r.ok ? `Relatório de ${ano} guardado: ${linhas.length} tratamentos. Da próxima vez ele já vem carregado.` : "O relatório foi lido, mas não consegui guardá-lo para a próxima vez."))
+            .then((r) =>
+              setToast(
+                r.ok
+                  ? vendas
+                    ? `Relatório de fabricação de ${ano} guardado: ${linhas.length} vendas (nota → lote). O “Nº do lote” da declaração sai daqui quando a nota não traz.`
+                    : `Relatório de ${ano} guardado: ${linhas.length} tratamentos. Da próxima vez ele já vem carregado.`
+                  : "O relatório foi lido, mas não consegui guardá-lo para a próxima vez."
+              )
+            )
             .catch(() => setToast("O relatório foi lido, mas não consegui guardá-lo para a próxima vez."));
         }
       } catch (e) {
@@ -909,7 +923,7 @@ export function Declaracoes({ senha, sair }: { senha: string; sair: () => void }
           <div className="actions" style={{ marginTop: 0 }}>
             <span className={`badge ${relatorio ? "pago" : "pendente"}`}>
               {relatorio
-                ? `Relatório: ${relatorio.nome} · ${relatorio.linhas.length} tratamentos${relatorio.atualizado ? ` · guardado em ${new Date(relatorio.atualizado).toLocaleDateString("pt-BR")}` : ""}`
+                ? `Relatório: ${relatorio.nome} · ${relatorio.linhas.every((l) => l.nfVenda) ? `${relatorio.linhas.length} vendas (nota → lote)` : `${relatorio.linhas.length} tratamentos`}${relatorio.atualizado ? ` · guardado em ${new Date(relatorio.atualizado).toLocaleDateString("pt-BR")}` : ""}`
                 : "Relatório do MAPA ainda não carregado"}
             </span>
             {drHt && (
